@@ -31,7 +31,7 @@ func (r *Resolver) Requirements(ctx context.Context, args RequirementsArgs) ([]*
 	if args.Limit < 1 || args.Limit > 100 || args.Offset < 0 {
 		return nil, errors.New("invalid pagination")
 	}
-	rows, err := r.DB.QueryContext(ctx, `SELECT id,project_id,text,version,created_at,updated_at FROM requirements WHERE workspace=? AND project_id=? ORDER BY created_at,id LIMIT ? OFFSET ?`, workspace(ctx), args.ProjectId, args.Limit, args.Offset)
+	rows, err := r.DB.QueryContext(ctx, `SELECT id,project_id,text,version,created_at,updated_at FROM requirements WHERE workspace=$1 AND project_id=$2 ORDER BY created_at,id LIMIT $3 OFFSET $4`, workspace(ctx), args.ProjectId, args.Limit, args.Offset)
 	if err != nil {
 		return nil, errors.New("storage failure")
 	}
@@ -59,7 +59,7 @@ func (r *Resolver) CreateRequirement(ctx context.Context, args CreateRequirement
 		return payload, nil
 	}
 	var exists bool
-	if err := r.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM projects WHERE workspace=? AND id=?)`, workspace(ctx), args.Input.ProjectId).Scan(&exists); err != nil {
+	if err := r.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM projects WHERE workspace=$1 AND id=$2)`, workspace(ctx), args.Input.ProjectId).Scan(&exists); err != nil {
 		return nil, errors.New("storage failure")
 	}
 	if !exists {
@@ -71,7 +71,7 @@ func (r *Resolver) CreateRequirement(ctx context.Context, args CreateRequirement
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	p := &Requirement{ID: graphql.ID(hex.EncodeToString(id)), ProjectId: args.Input.ProjectId, Text: value, Version: 1, CreatedAt: now, UpdatedAt: now}
-	if _, err := r.DB.ExecContext(ctx, `INSERT INTO requirements(id,workspace,project_id,text,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, p.ID, workspace(ctx), p.ProjectId, p.Text, p.Version, now, now); err != nil {
+	if _, err := r.DB.ExecContext(ctx, `INSERT INTO requirements(id,workspace,project_id,text,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, p.ID, workspace(ctx), p.ProjectId, p.Text, p.Version, now, now); err != nil {
 		return nil, errors.New("storage failure")
 	}
 	payload.Requirement = p
@@ -88,7 +88,7 @@ func (r *Resolver) UpdateRequirement(ctx context.Context, args UpdateRequirement
 	}
 	p := &Requirement{}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	err := r.DB.QueryRowContext(ctx, `UPDATE requirements SET text=?,version=version+1,updated_at=? WHERE id=? AND project_id=? AND workspace=? AND version=? RETURNING id,project_id,text,version,created_at,updated_at`, value, now, args.Input.ID, args.Input.ProjectId, workspace(ctx), args.Input.Version).Scan(&p.ID, &p.ProjectId, &p.Text, &p.Version, &p.CreatedAt, &p.UpdatedAt)
+	err := r.DB.QueryRowContext(ctx, `UPDATE requirements SET text=$1,version=version+1,updated_at=$2 WHERE id=$3 AND project_id=$4 AND workspace=$5 AND version=$6 RETURNING id,project_id,text,version,created_at,updated_at`, value, now, args.Input.ID, args.Input.ProjectId, workspace(ctx), args.Input.Version).Scan(&p.ID, &p.ProjectId, &p.Text, &p.Version, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		payload.FieldErrors = append(payload.FieldErrors, &FieldError{Path: []string{"input", "text"}, Code: "CONFLICT", MessageKey: "validation.conflict", Params: []*ErrorParam{}})
 		return payload, nil
@@ -103,7 +103,7 @@ func (r *Resolver) DeleteRequirement(ctx context.Context, args DeleteRequirement
 	if err := consume(ctx); err != nil {
 		return nil, err
 	}
-	res, err := r.DB.ExecContext(ctx, `DELETE FROM requirements WHERE id=? AND project_id=? AND workspace=? AND version=?`, args.ID, args.ProjectId, workspace(ctx), args.Version)
+	res, err := r.DB.ExecContext(ctx, `DELETE FROM requirements WHERE id=$1 AND project_id=$2 AND workspace=$3 AND version=$4`, args.ID, args.ProjectId, workspace(ctx), args.Version)
 	if err != nil {
 		return nil, errors.New("storage failure")
 	}

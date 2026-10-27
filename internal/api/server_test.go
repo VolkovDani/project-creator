@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
+
 	"strings"
 	"testing"
 )
 
 func TestProjectPersistenceAndIsolation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "projects.db")
+	path := testDatabase(t)
 	s, err := New(path, map[string]string{"token-a": "a", "token-b": "b"})
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +59,7 @@ func TestProjectPersistenceAndIsolation(t *testing.T) {
 }
 
 func TestUnauthorized(t *testing.T) {
-	s, err := New(filepath.Join(t.TempDir(), "db"), map[string]string{"token-a": "a"})
+	s, err := New(testDatabase(t), map[string]string{"token-a": "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestUnauthorized(t *testing.T) {
 }
 
 func TestProjectListPagination(t *testing.T) {
-	s, err := New(filepath.Join(t.TempDir(), "db"), map[string]string{"token-a": "a"})
+	s, err := New(testDatabase(t), map[string]string{"token-a": "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestProjectListPagination(t *testing.T) {
 }
 
 func TestRejectExcessiveAliases(t *testing.T) {
-	s, err := New(filepath.Join(t.TempDir(), "db"), map[string]string{"token-a": "a"})
+	s, err := New(testDatabase(t), map[string]string{"token-a": "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,12 +127,12 @@ func TestRejectExcessiveAliases(t *testing.T) {
 }
 
 func TestRejectFutureDatabaseVersion(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "db")
-	db, err := sql.Open("sqlite3", path)
+	path := testDatabase(t)
+	db, err := sql.Open("pgx", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY); INSERT INTO schema_migrations VALUES(3)`); err != nil {
+	if _, err = db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY); INSERT INTO schema_migrations VALUES(2)`); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
@@ -144,7 +144,7 @@ func TestRejectFutureDatabaseVersion(t *testing.T) {
 }
 
 func TestExcessiveMutationIsRejectedBeforeAnyWrite(t *testing.T) {
-	s, err := New(filepath.Join(t.TempDir(), "db"), map[string]string{"token-a": "a"})
+	s, err := New(testDatabase(t), map[string]string{"token-a": "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestExcessiveMutationIsRejectedBeforeAnyWrite(t *testing.T) {
 	}
 }
 func TestExcessiveNestedAliasesRejected(t *testing.T) {
-	s, err := New(filepath.Join(t.TempDir(), "db"), map[string]string{"token-a": "a"})
+	s, err := New(testDatabase(t), map[string]string{"token-a": "a"})
 	if err != nil {
 		t.Fatal(err)
 	}

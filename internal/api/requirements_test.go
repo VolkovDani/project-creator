@@ -2,16 +2,15 @@ package api
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
-	"path/filepath"
+
 	"testing"
 )
 
 func TestRequirementLifecycleAndWorkspaceIsolation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "db")
+	path := testDatabase(t)
 	s, err := New(path, map[string]string{"token-a": "a", "token-b": "b"})
 	if err != nil {
 		t.Fatal(err)
@@ -87,31 +86,5 @@ func TestRequirementLifecycleAndWorkspaceIsolation(t *testing.T) {
 	found = run("token-a", fmt.Sprintf(`{ requirements(projectId:"%s",limit:20,offset:0) { id } }`, project))
 	if len(found["requirements"].([]any)) != 0 {
 		t.Fatal(found)
-	}
-}
-
-func TestMigrationFromVersionOne(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "db")
-	db, err := sql.Open("sqlite3", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY); INSERT INTO schema_migrations VALUES(1); CREATE TABLE projects(id TEXT PRIMARY KEY, workspace TEXT NOT NULL,name TEXT NOT NULL,goal TEXT NOT NULL,description TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL); INSERT INTO projects VALUES('old','a','P','G','','now','now');`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	s, err := New(path, map[string]string{"token-a": "a"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	var name string
-	if err = s.db.QueryRow(`SELECT name FROM projects WHERE id='old'`).Scan(&name); err != nil || name != "P" {
-		t.Fatalf("data lost: %q %v", name, err)
-	}
-	var version int
-	if err = s.db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 2 {
-		t.Fatalf("migration: %d %v", version, err)
 	}
 }

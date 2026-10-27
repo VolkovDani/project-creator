@@ -55,7 +55,7 @@ func (r *Resolver) CreateProject(ctx context.Context, args CreateProjectArgs) (*
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	item := &Project{ID: graphql.ID(hex.EncodeToString(id)), Name: in.Name, Goal: in.Goal, Description: in.Description, CreatedAt: now, UpdatedAt: now}
-	_, err := r.DB.ExecContext(ctx, `INSERT INTO projects(id,workspace,name,goal,description,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, item.ID, workspace(ctx), item.Name, item.Goal, item.Description, item.CreatedAt, item.UpdatedAt)
+	_, err := r.DB.ExecContext(ctx, `INSERT INTO projects(id,workspace,name,goal,description,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, item.ID, workspace(ctx), item.Name, item.Goal, item.Description, item.CreatedAt, item.UpdatedAt)
 	if err != nil {
 		return nil, errors.New("storage failure")
 	}
@@ -67,7 +67,7 @@ func (r *Resolver) Project(ctx context.Context, args ProjectArgs) (*Project, err
 		return nil, err
 	}
 	p := &Project{}
-	err := r.DB.QueryRowContext(ctx, `SELECT id,name,goal,description,created_at,updated_at FROM projects WHERE workspace=? AND id=?`, workspace(ctx), args.ID).Scan(&p.ID, &p.Name, &p.Goal, &p.Description, &p.CreatedAt, &p.UpdatedAt)
+	err := r.DB.QueryRowContext(ctx, `SELECT id,name,goal,description,created_at,updated_at FROM projects WHERE workspace=$1 AND id=$2`, workspace(ctx), args.ID).Scan(&p.ID, &p.Name, &p.Goal, &p.Description, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -83,7 +83,7 @@ func (r *Resolver) Projects(ctx context.Context, args ProjectsArgs) ([]*Project,
 	if args.Limit < 1 || args.Limit > 100 || args.Offset < 0 {
 		return nil, errors.New("invalid pagination")
 	}
-	rows, err := r.DB.QueryContext(ctx, `SELECT id,name,goal,description,created_at,updated_at FROM projects WHERE workspace=? ORDER BY created_at,id LIMIT ? OFFSET ?`, workspace(ctx), args.Limit, args.Offset)
+	rows, err := r.DB.QueryContext(ctx, `SELECT id,name,goal,description,created_at,updated_at FROM projects WHERE workspace=$1 ORDER BY created_at,id LIMIT $2 OFFSET $3`, workspace(ctx), args.Limit, args.Offset)
 	if err != nil {
 		return nil, errors.New("storage failure")
 	}

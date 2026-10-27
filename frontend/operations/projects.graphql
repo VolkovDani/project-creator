@@ -1,0 +1,3 @@
+query ProjectList($limit: Int!, $offset: Int!) { projects(limit: $limit, offset: $offset) { id name goal description createdAt updatedAt } }
+query ProjectDetail($id: ID!) { project(id: $id) { id name goal description createdAt updatedAt } }
+mutation CreateProject($input: ProjectInput!) { createProject(input: $input) { project { id name goal description createdAt updatedAt } fieldErrors { path code messageKey params { key value } } } }

@@ -103,3 +103,38 @@ git diff --exit-code -- graph/models_gen.go
 go test ./...
 go vet ./...
 ```
+
+## Интерфейс Next.js
+
+Требуются Node.js 24 и Go 1.26.10. Запустите GraphQL-сервер в одном терминале,
+задав `PROJECT_CREATOR_TOKEN` и `PROJECT_CREATOR_DB` как описано выше. В другом:
+
+```bash
+cd frontend
+npm ci
+export PROJECT_CREATOR_TOKEN='тот-же-секрет-что-у-сервера'
+npm run dev -- -H 127.0.0.1
+```
+
+Откройте `http://127.0.0.1:3000`. Сервер Next.js пересылает GraphQL-запросы
+на `http://127.0.0.1:8080/graphql`; при другом адресе задайте серверную переменную
+`PROJECT_CREATOR_GRAPHQL_URL`. Токен не передаётся в браузер. Это локальный
+однопользовательский режим: не публикуйте интерфейс в интернет без отдельной
+аутентификации и контроля доступа.
+
+Проверка после изменения GraphQL-схемы и операций:
+
+```bash
+cd frontend
+npm run codegen
+npm test
+npm run typecheck
+npm run build
+npx playwright install chromium
+npm run e2e
+```
+
+E2E запускает отдельные Go и Next.js серверы, использует тестовую БД
+`/tmp/project-creator-e2e.db`; для нового прогона можно задать `E2E_DB` на другой
+путь. В CI выполняются проверки Go, генерации схем, TypeScript, сборки и E2E.
+Полное Docker-развёртывание MVP будет описано здесь после задачи #9.

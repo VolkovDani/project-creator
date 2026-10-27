@@ -1,13 +1,16 @@
 package api
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"github.com/VolkovDani/project-creator/graph"
 	graphql "github.com/graph-gophers/graphql-go"
 	"github.com/graph-gophers/graphql-go/relay"
 	_ "github.com/mattn/go-sqlite3"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -63,6 +66,25 @@ func New(path string, tokens map[string]string) (*Server, error) {
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		var request struct {
+			Query string `json:"query"`
+		}
+		if err = json.Unmarshal(body, &request); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		if err = validateQueryBudget(request.Query); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"errors":[{"message":"invalid or oversized query"}]}`))
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
 		h.ServeHTTP(w, r.WithContext(graph.WithBudget(graph.WithWorkspace(r.Context(), ws))))
 	})}, nil
 }

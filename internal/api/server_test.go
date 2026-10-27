@@ -142,3 +142,54 @@ func TestRejectFutureDatabaseVersion(t *testing.T) {
 		t.Fatal("accepted newer database version")
 	}
 }
+
+func TestExcessiveMutationIsRejectedBeforeAnyWrite(t *testing.T) {
+	s, err := New(filepath.Join(t.TempDir(), "db"), map[string]string{"token-a": "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var q strings.Builder
+	q.WriteString("mutation {")
+	for i := 0; i < 101; i++ {
+		fmt.Fprintf(&q, ` a%d:createProject(input:{name:"A",goal:"B",description:""}){project{id}} `, i)
+	}
+	q.WriteString("}")
+	body, _ := json.Marshal(map[string]any{"query": q.String()})
+	req := httptest.NewRequest("POST", "/graphql", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer token-a")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	var count int
+	if err = s.db.QueryRow(`SELECT count(*) FROM projects`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("wrote %d projects for oversized mutation", count)
+	}
+}
+func TestExcessiveNestedAliasesRejected(t *testing.T) {
+	s, err := New(filepath.Join(t.TempDir(), "db"), map[string]string{"token-a": "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var q strings.Builder
+	q.WriteString(`{ projects(limit:100,offset:0){`)
+	for i := 0; i < 110; i++ {
+		fmt.Fprintf(&q, " a%d:name", i)
+	}
+	q.WriteString("}}")
+	body, _ := json.Marshal(map[string]any{"query": q.String()})
+	req := httptest.NewRequest("POST", "/graphql", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer token-a")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	var result map[string]json.RawMessage
+	json.Unmarshal(w.Body.Bytes(), &result)
+	if len(result["errors"]) == 0 {
+		t.Fatalf("accepted: %s", w.Body.String())
+	}
+}

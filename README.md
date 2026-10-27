@@ -78,7 +78,7 @@ GitHub Actions для проверок и сборки контейнеров т
 
 Project Creator project — контейнер знаний о продукте; сам описываемый продукт
 и роли внутри него являются отдельными понятиями. Для хранения выбран SQLite
-(драйвер go-sqlite3 с CGO); для GraphQL — gqlgen. SDL в `graph/schema.graphqls`
+(драйвер go-sqlite3 с CGO); для GraphQL — graph-gophers/graphql-go. SDL в `graph/schema.graphqls`
 является источником серверных привязок. SQLite хранит данные в указанном файле;
 пространство будущего векторного поиска остаётся предметом следующей задачи.
 
@@ -95,11 +95,11 @@ go run ./cmd/server
 доступ к единственному workspace; это минимальная локальная сессия, не система
 управления пользователями. Не открывайте сервис наружу без полноценной защиты.
 Миграция схемы применяется при старте; файл БД нужно сохранять между запусками.
-Тело запроса ограничено 1 МиБ, сложность GraphQL — 200, список — 100 записей.
+Тело запроса ограничено 1 МиБ, глубина GraphQL — 8, число одновременных резолверов — 10; список использует обязательные limit (1–100) и offset (неотрицательный).
 
 ```bash
-go run github.com/99designs/gqlgen@v0.17.70 generate
-git diff --exit-code -- graph/generated.go graph/model/models_gen.go
+go run ./cmd/codegen
+git diff --exit-code -- graph/models_gen.go
 go test ./...
 go vet ./...
 ```

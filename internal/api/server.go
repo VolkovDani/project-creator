@@ -1,17 +1,13 @@
 package api
 
 import (
-	"context"
 	"crypto/subtle"
 	"database/sql"
 	"errors"
-	"github.com/99designs/gqlgen/graphql"
-	"github.com/99designs/gqlgen/graphql/handler"
-	"github.com/99designs/gqlgen/graphql/handler/extension"
-	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/VolkovDani/project-creator/graph"
+	graphql "github.com/graph-gophers/graphql-go"
+	"github.com/graph-gophers/graphql-go/relay"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/vektah/gqlparser/v2/gqlerror"
 	"net/http"
 	"strings"
 )
@@ -40,16 +36,12 @@ func New(path string, tokens map[string]string) (*Server, error) {
 		db.Close()
 		return nil, err
 	}
-	h := handler.New(graph.NewExecutableSchema(graph.Config{Resolvers: &graph.Resolver{DB: db}}))
-	h.AddTransport(transport.POST{})
-	h.Use(extension.FixedComplexityLimit(200))
-	h.SetErrorPresenter(func(ctx context.Context, err error) *gqlerror.Error {
-		e := graphql.DefaultErrorPresenter(ctx, err)
-		if e.Extensions == nil {
-			e.Message = "Request failed"
-		}
-		return e
-	})
+	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	h := &relay.Handler{Schema: schema}
 	return &Server{db: db, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/graphql" {
 			http.NotFound(w, r)

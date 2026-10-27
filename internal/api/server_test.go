@@ -68,3 +68,30 @@ func TestUnauthorized(t *testing.T) {
 		t.Fatalf("got %d", w.Code)
 	}
 }
+
+func TestProjectListPagination(t *testing.T) {
+	s, err := New(filepath.Join(t.TempDir(), "db"), map[string]string{"token-a": "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, q := range []string{`mutation { createProject(input:{name:"A",goal:"B",description:""}) { project { id } } }`, `mutation { createProject(input:{name:"C",goal:"D",description:""}) { project { id } } }`} {
+		body, _ := json.Marshal(map[string]any{"query": q})
+		req := httptest.NewRequest("POST", "/graphql", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer token-a")
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+	}
+	body, _ := json.Marshal(map[string]any{"query": `{ projects(limit:1, offset:1) { name } }`})
+	req := httptest.NewRequest("POST", "/graphql", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer token-a")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	var out map[string]any
+	json.Unmarshal(w.Body.Bytes(), &out)
+	if out["errors"] != nil || len(out["data"].(map[string]any)["projects"].([]any)) != 1 {
+		t.Fatal(out)
+	}
+}

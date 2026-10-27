@@ -1,0 +1,34 @@
+{
+  "name": "project-creator-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1",
+    "build": "next build",
+    "start": "next start -H 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "codegen": "graphql-codegen --config codegen.ts",
+    "e2e": "playwright test",
+    "prebuild": "npm test"
+  },
+  "dependencies": {
+    "@graphql-typed-document-node/core": "3.2.0",
+    "graphql": "16.11.0",
+    "next": "16.4.3",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@graphql-codegen/cli": "6.1.0",
+    "@graphql-codegen/typed-document-node": "6.0.0",
+    "@graphql-codegen/typescript": "5.0.0",
+    "@graphql-codegen/typescript-operations": "5.0.0",
+    "@playwright/test": "1.56.1",
+    "@types/node": "24.10.0",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "typescript": "5.9.3"
+  },
+  "type": "module"
+}

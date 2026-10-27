@@ -1,5 +1,22 @@
 {
   "validation.required": "This field is required",
   "validation.maxLength": "Maximum length: {max} characters",
-  "validation.invalidEncoding": "This field contains invalid text"
+  "validation.invalidEncoding": "This field contains invalid text",
+  "app.title": "Projects",
+  "app.name": "Name",
+  "app.goal": "Goal",
+  "app.description": "Description",
+  "app.create": "Create project",
+  "app.creating": "Creating…",
+  "app.loading": "Loading…",
+  "app.empty": "No projects yet",
+  "app.error": "Could not load data. Please try again.",
+  "app.submitError": "Could not create the project. Please try again.",
+  "app.notFound": "Project not found",
+  "app.back": "All projects",
+  "app.next": "Next",
+  "app.previous": "Previous",
+  "app.language": "Language",
+  "app.page": "Page {page}",
+  "app.validationUnknown": "Please check your input"
 }

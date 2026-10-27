@@ -1,5 +1,22 @@
 {
   "validation.required": "Заполните поле",
   "validation.maxLength": "Максимальная длина: {max} символов",
-  "validation.invalidEncoding": "Поле содержит некорректный текст"
+  "validation.invalidEncoding": "Поле содержит некорректный текст",
+  "app.title": "Проекты",
+  "app.name": "Название",
+  "app.goal": "Цель",
+  "app.description": "Описание",
+  "app.create": "Создать проект",
+  "app.creating": "Создание…",
+  "app.loading": "Загрузка…",
+  "app.empty": "Проектов пока нет",
+  "app.error": "Не удалось загрузить данные. Попробуйте ещё раз.",
+  "app.submitError": "Не удалось создать проект. Попробуйте ещё раз.",
+  "app.notFound": "Проект не найден",
+  "app.back": "Все проекты",
+  "app.next": "Далее",
+  "app.previous": "Назад",
+  "app.language": "Язык",
+  "app.page": "Страница {page}",
+  "app.validationUnknown": "Проверьте введённые данные"
 }

@@ -29,6 +29,7 @@ jobs:
       - run: npm run typecheck && npm run build
         working-directory: frontend
       - run: npx playwright install --with-deps chromium
+        timeout-minutes: 5
         working-directory: frontend
       - run: npm run e2e
         working-directory: frontend

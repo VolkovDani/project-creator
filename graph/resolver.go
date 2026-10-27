@@ -8,10 +8,23 @@ import (
 	"errors"
 	"github.com/VolkovDani/project-creator/internal/project"
 	graphql "github.com/graph-gophers/graphql-go"
+	"sync/atomic"
 	"time"
 )
 
 type workspaceKey struct{}
+type budgetKey struct{}
+
+func WithBudget(ctx context.Context) context.Context {
+	return context.WithValue(ctx, budgetKey{}, new(atomic.Int64))
+}
+func consume(ctx context.Context) error {
+	budget, ok := ctx.Value(budgetKey{}).(*atomic.Int64)
+	if !ok || budget.Add(1) > 100 {
+		return errors.New("query operation limit exceeded")
+	}
+	return nil
+}
 
 func WithWorkspace(ctx context.Context, workspace string) context.Context {
 	return context.WithValue(ctx, workspaceKey{}, workspace)
@@ -21,6 +34,9 @@ func workspace(ctx context.Context) string { v, _ := ctx.Value(workspaceKey{}).(
 type Resolver struct{ DB *sql.DB }
 
 func (r *Resolver) CreateProject(ctx context.Context, args CreateProjectArgs) (*CreateProjectPayload, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
 	in, errs := project.Validate(project.Input{Name: args.Input.Name, Goal: args.Input.Goal, Description: args.Input.Description})
 	p := &CreateProjectPayload{FieldErrors: []*FieldError{}}
 	for _, e := range errs {
@@ -47,6 +63,9 @@ func (r *Resolver) CreateProject(ctx context.Context, args CreateProjectArgs) (*
 	return p, nil
 }
 func (r *Resolver) Project(ctx context.Context, args ProjectArgs) (*Project, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
 	p := &Project{}
 	err := r.DB.QueryRowContext(ctx, `SELECT id,name,goal,description,created_at,updated_at FROM projects WHERE workspace=? AND id=?`, workspace(ctx), args.ID).Scan(&p.ID, &p.Name, &p.Goal, &p.Description, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
@@ -58,6 +77,9 @@ func (r *Resolver) Project(ctx context.Context, args ProjectArgs) (*Project, err
 	return p, nil
 }
 func (r *Resolver) Projects(ctx context.Context, args ProjectsArgs) ([]*Project, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
 	if args.Limit < 1 || args.Limit > 100 || args.Offset < 0 {
 		return nil, errors.New("invalid pagination")
 	}

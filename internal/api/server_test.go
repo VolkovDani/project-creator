@@ -2,10 +2,13 @@ package api
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -93,5 +96,49 @@ func TestProjectListPagination(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &out)
 	if out["errors"] != nil || len(out["data"].(map[string]any)["projects"].([]any)) != 1 {
 		t.Fatal(out)
+	}
+}
+
+func TestRejectExcessiveAliases(t *testing.T) {
+	s, err := New(filepath.Join(t.TempDir(), "db"), map[string]string{"token-a": "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var q strings.Builder
+	q.WriteString("{")
+	for i := 0; i < 110; i++ {
+		fmt.Fprintf(&q, " a%d:projects(limit:100,offset:0){id}", i)
+	}
+	q.WriteString("}")
+	body, _ := json.Marshal(map[string]any{"query": q.String()})
+	req := httptest.NewRequest("POST", "/graphql", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer token-a")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result["errors"]) == 0 {
+		t.Fatalf("excessive aliases accepted: %s", w.Body.String())
+	}
+}
+
+func TestRejectFutureDatabaseVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "db")
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY); INSERT INTO schema_migrations VALUES(2)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	s, err := New(path, map[string]string{"token-a": "a"})
+	if err == nil {
+		s.Close()
+		t.Fatal("accepted newer database version")
 	}
 }

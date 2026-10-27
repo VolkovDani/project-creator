@@ -31,8 +31,7 @@ func New(path string, tokens map[string]string) (*Server, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY); CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY, workspace TEXT NOT NULL, name TEXT NOT NULL, goal TEXT NOT NULL, description TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE INDEX IF NOT EXISTS projects_workspace ON projects(workspace); INSERT OR IGNORE INTO schema_migrations(version) VALUES(1);`)
-	if err != nil {
+	if err = migrate(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -64,8 +63,32 @@ func New(path string, tokens map[string]string) (*Server, error) {
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-		h.ServeHTTP(w, r.WithContext(graph.WithWorkspace(r.Context(), ws)))
+		h.ServeHTTP(w, r.WithContext(graph.WithBudget(graph.WithWorkspace(r.Context(), ws))))
 	})}, nil
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.h.ServeHTTP(w, r) }
 func (s *Server) Close() error                                     { return s.db.Close() }
+
+func migrate(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY)`); err != nil {
+		return err
+	}
+	var version int
+	if err = tx.QueryRow(`SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&version); err != nil {
+		return err
+	}
+	if version > 1 {
+		return errors.New("database schema version is newer than supported")
+	}
+	if version < 1 {
+		if _, err = tx.Exec(`CREATE TABLE projects(id TEXT PRIMARY KEY, workspace TEXT NOT NULL, name TEXT NOT NULL, goal TEXT NOT NULL, description TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE INDEX projects_workspace ON projects(workspace); INSERT INTO schema_migrations(version) VALUES(1)`); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

@@ -1,0 +1,7 @@
+type Project { id: ID! name: String! goal: String! description: String! createdAt: String! updatedAt: String! }
+input ProjectInput { name: String! goal: String! description: String! }
+type FieldError { path: [String!]! code: String! messageKey: String! params: [ErrorParam!]! }
+type ErrorParam { key: String! value: Int! }
+type CreateProjectPayload { project: Project fieldErrors: [FieldError!]! }
+type Query { project(id: ID!): Project projects(limit: Int! offset: Int!): [Project!]! }
+type Mutation { createProject(input: ProjectInput!): CreateProjectPayload! }

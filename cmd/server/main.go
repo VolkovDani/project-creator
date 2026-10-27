@@ -13,9 +13,9 @@ func main() {
 	if len(token) < 32 {
 		log.Fatal("PROJECT_CREATOR_TOKEN must have at least 32 characters")
 	}
-	path := os.Getenv("PROJECT_CREATOR_DB")
+	path := os.Getenv("PROJECT_CREATOR_DATABASE_URL")
 	if path == "" {
-		path = "project-creator.db"
+		log.Fatal("PROJECT_CREATOR_DATABASE_URL is required")
 	}
 	addr := os.Getenv("PROJECT_CREATOR_ADDR")
 	if addr == "" {

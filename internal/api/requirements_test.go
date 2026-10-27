@@ -2,16 +2,15 @@ package api
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
-	"path/filepath"
+
 	"testing"
 )
 
 func TestRequirementLifecycleAndWorkspaceIsolation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "db")
+	path := testDatabase(t)
 	s, err := New(path, map[string]string{"token-a": "a", "token-b": "b"})
 	if err != nil {
 		t.Fatal(err)
@@ -90,28 +89,33 @@ func TestRequirementLifecycleAndWorkspaceIsolation(t *testing.T) {
 	}
 }
 
-func TestMigrationFromVersionOne(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "db")
-	db, err := sql.Open("sqlite3", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY); INSERT INTO schema_migrations VALUES(1); CREATE TABLE projects(id TEXT PRIMARY KEY, workspace TEXT NOT NULL,name TEXT NOT NULL,goal TEXT NOT NULL,description TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL); INSERT INTO projects VALUES('old','a','P','G','','now','now');`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	s, err := New(path, map[string]string{"token-a": "a"})
+func TestRequirementPaginationAndProjectIsolation(t *testing.T) {
+	s, err := New(testDatabase(t), map[string]string{"token-a": "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	var name string
-	if err = s.db.QueryRow(`SELECT name FROM projects WHERE id='old'`).Scan(&name); err != nil || name != "P" {
-		t.Fatalf("data lost: %q %v", name, err)
+	if _, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now'),('q','a','Q','G','','now','now'); INSERT INTO requirements VALUES('r1','a','p','first',1,'a','a'),('r2','a','p','second',1,'b','b'),('r3','a','q','hidden',1,'a','a')`); err != nil {
+		t.Fatal(err)
 	}
-	var version int
-	if err = s.db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 2 {
-		t.Fatalf("migration: %d %v", version, err)
+	body, _ := json.Marshal(map[string]string{"query": `{requirements(projectId:"p",limit:1,offset:1){id text}}`})
+	request := httptest.NewRequest("POST", "/graphql", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer token-a")
+	response := httptest.NewRecorder()
+	s.ServeHTTP(response, request)
+	var result struct {
+		Data struct {
+			Requirements []struct {
+				ID   string
+				Text string
+			}
+		}
+		Errors []any
+	}
+	if err = json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Errors) != 0 || len(result.Data.Requirements) != 1 || result.Data.Requirements[0].ID != "r2" {
+		t.Fatalf("unexpected page: %s", response.Body.String())
 	}
 }

@@ -5,8 +5,8 @@
 
 ## Состояние MVP
 
-Реализованы карточки проектов и бизнес-требования, GraphQL API с SQLite
-и интерфейс Next.js. RAG и анализ коллизий пока не реализованы.
+Реализованы карточки проектов и бизнес-требования, GraphQL API с PostgreSQL
+и интерфейс Next.js. pgvector подготовлен для будущего поиска; embeddings, RAG и анализ коллизий пока не реализованы.
 
 Порядок реализации:
 
@@ -14,28 +14,28 @@
 2. [GraphQL API и хранение](https://github.com/VolkovDani/project-creator/issues/3).
 3. [Next.js и карточки проектов](https://github.com/VolkovDani/project-creator/issues/4).
 4. [Бизнес-требования](https://github.com/VolkovDani/project-creator/issues/5).
-5. [SSE-инвалидация](https://github.com/VolkovDani/project-creator/issues/6).
-6. [Локальный RAG](https://github.com/VolkovDani/project-creator/issues/7).
-7. [Анализ коллизий](https://github.com/VolkovDani/project-creator/issues/8).
-8. [Docker-развёртывание и CI](https://github.com/VolkovDani/project-creator/issues/9).
+5. [PostgreSQL + pgvector](https://github.com/VolkovDani/project-creator/issues/14).
+6. [SSE-инвалидация](https://github.com/VolkovDani/project-creator/issues/6).
+7. [Локальный RAG](https://github.com/VolkovDani/project-creator/issues/7).
+8. [Анализ коллизий](https://github.com/VolkovDani/project-creator/issues/8).
+9. [Docker-развёртывание и CI](https://github.com/VolkovDani/project-creator/issues/9).
 
 ## Локальная проверка
 
-Требуется Go 1.26.10 или новее и C-компилятор для SQLite. Тесты создают
-временные базы; облачные API и LLM для них не требуются. Из корня репозитория:
+Требуются Go 1.26.10, C-компилятор для импорта/тестирования SQLite, Node.js 24
+и PostgreSQL 16 с pgvector 0.8.0. Обычные тесты не требуют LLM или облачных API.
+Интеграционные тесты используют отдельные схемы в базе из `TEST_DATABASE_URL`.
+Без этой переменной они пропускаются; такой запуск не проверяет хранилище.
 
 ```bash
+export TEST_DATABASE_URL='postgresql://project_creator:ваш-пароль@127.0.0.1:5432/project_creator_test?sslmode=disable'
 go test ./...
 go vet ./...
-gofmt -l contracts/*.go internal/project/*.go internal/requirement/*.go
+gofmt -l cmd contracts graph internal
 ```
 
-Последняя команда должна ничего не вывести. Для форматирования:
-
-```bash
-gofmt -w contracts/*.go internal/project/*.go internal/requirement/*.go
-```
-
+Тестовая роль должна иметь права создавать и удалять схемы и устанавливать
+расширение `vector`. Используйте отдельную тестовую базу, не рабочую.
 Разработка по TDD: падающий тест поведения → реализация → рефакторинг.
 
 ## Карточка проекта
@@ -66,48 +66,126 @@ gofmt -w contracts/*.go internal/project/*.go internal/requirement/*.go
 содержат ключи ошибок валидации; `params.max` передаётся отдельно от текста.
 Сервер и будущий UI используют ключ, не анализируют переведённую строку.
 
-## Docker и GitHub Actions
+## PostgreSQL и запуск API
 
-Docker Compose и образы пока не реализованы. Полная инструкция будет добавлена
-**в этот README** в задаче #9: первый запуск, загрузка локальных моделей,
-миграции, healthchecks, сохранность данных, backup/restore и обновление.
-До появления запускаемого приложения команды развёртывания не публикуются.
-GitHub Actions для проверок и сборки контейнеров также входит в #9.
+Решение о хранилище — [ADR-001](docs/adr/001-postgresql-pgvector.md).
+В `compose.postgres.yml` закреплены PostgreSQL 16 и pgvector 0.8.0. Это окружение
+только БД; полная контейнеризация приложения и локальной модели относится к #9.
+SQLite больше не является рабочим хранилищем сервера.
 
-## GraphQL API (MVP 2)
-
-Project Creator project — контейнер знаний о продукте; сам описываемый продукт
-и роли внутри него являются отдельными понятиями. Для хранения выбран SQLite
-(драйвер go-sqlite3 с CGO); для GraphQL — graph-gophers/graphql-go. SDL в `graph/schema.graphqls`
-является источником серверных привязок. SQLite хранит данные в указанном файле;
-пространство будущего векторного поиска остаётся предметом следующей задачи.
-
-Требуются Go 1.26.10, C compiler и SQLite-совместимая файловая система. Запуск:
+Первый запуск:
 
 ```bash
-export PROJECT_CREATOR_TOKEN='замените-на-длинный-случайный-секрет-не-менее-32-символов'
-export PROJECT_CREATOR_DB='./project-creator.db'
+cp .env.example .env
+# Отредактируйте .env: задайте случайные пароль и токен, согласуйте пароль в URL.
+docker compose --env-file .env -f compose.postgres.yml up -d --wait
+set -a
+. ./.env
+set +a
 go run ./cmd/server
 ```
 
-Отправляйте POST на `http://127.0.0.1:8080/graphql` с заголовком
-`Authorization: Bearer <PROJECT_CREATOR_TOKEN>`. Один настроенный токен даёт
-доступ к единственному workspace; это минимальная локальная сессия, не система
-управления пользователями. Не открывайте сервис наружу без полноценной защиты.
-Миграция схемы применяется при старте; файл БД нужно сохранять между запусками.
-Тело запроса ограничено 1 МиБ, глубина GraphQL — 8, число одновременных резолверов — 10, число развёрнутых полей и фрагментов — 100 до выполнения запроса; список использует обязательные limit (1–100) и offset (неотрицательный).
+В пароле URL специальные символы должны быть percent-encoded. `.env` не должен
+попадать в git. Compose публикует PostgreSQL только на `127.0.0.1`; API по
+умолчанию слушает `127.0.0.1:8080`. `sslmode=disable` предназначен для локального
+loopback; для удалённой БД используйте проверяемое TLS-соединение.
+
+`PROJECT_CREATOR_DATABASE_URL` обязателен и принимает PostgreSQL URL;
+`PROJECT_CREATOR_DB` больше не используется. `PROJECT_CREATOR_TOKEN` должен
+содержать не менее 32 символов. POST `/graphql` требует
+`Authorization: Bearer <PROJECT_CREATOR_TOKEN>`. Один токен даёт доступ к одному
+workspace — это локальная сессия, не полноценная многопользовательская авторизация.
+Не публикуйте интерфейс или API в интернет без отдельной защиты.
+
+Версионируемые SQL-миграции применяются автоматически при старте. Сначала
+проверяются соединение и доступность pgvector; при ошибке сервер не запускается.
+Для первоначального `CREATE EXTENSION vector` нужны права установки расширения
+(обычно DBA/superuser). Администратор может установить его заранее в целевой БД;
+прикладной роли нужны права на таблицы и применяемые изменения схемы. Сделайте
+backup перед обновлением приложения и миграциями. Новая неизвестная версия схемы
+отклоняется, автоматического downgrade нет.
+
+Проверить готовность:
+
+```bash
+docker compose --env-file .env -f compose.postgres.yml ps
+docker compose --env-file .env -f compose.postgres.yml exec -T postgres psql -U project_creator -d project_creator -c "SELECT extversion FROM pg_extension WHERE extname='vector'"
+```
+
+До первого старта API расширение может ещё не быть установлено. Ошибка
+`connection refused` обычно означает неготовую БД или неправильный порт;
+`password authentication failed` — несогласованный пароль в URL и volume.
+Изменение `.env` не меняет пароль уже созданной БД: меняйте его через PostgreSQL.
+Ошибка доступности `vector` требует образа с pgvector и прав установки расширения.
+
+Остановка сохраняет volume:
+
+```bash
+docker compose --env-file .env -f compose.postgres.yml down
+```
+
+Для backup остановите запись приложением и выполните:
+
+```bash
+docker compose --env-file .env -f compose.postgres.yml exec -T postgres pg_dump -U project_creator -d project_creator -Fc > project-creator.dump
+```
+
+Для восстановления используйте пустую базу с pgvector той же совместимой версии;
+остановите приложение, затем:
+
+```bash
+docker compose --env-file .env -f compose.postgres.yml exec -T postgres pg_restore -U project_creator -d project_creator --exit-on-error < project-creator.dump
+```
+
+Перед обновлением сохраняйте dump, проверяйте восстановление отдельно и изучайте
+изменения миграций. Обновление major PostgreSQL требует `pg_upgrade` или
+backup/restore, а не простой смены тега образа. Команда
+`docker compose --env-file .env -f compose.postgres.yml down -v` безвозвратно
+удаляет локальный volume; используйте её только для намеренного удаления данных.
+
+## Перенос прежних данных SQLite
+
+Остановите старое и новое приложение. Сохраните исходную SQLite-базу вместе с
+файлами WAL/SHM, если они есть; не копируйте только основной файл работающей БД.
+Импортёр создаёт отдельную согласованную резервную копию и не удаляет источник.
+Укажите несуществующий путь backup и пустую целевую PostgreSQL-базу:
+
+```bash
+export PROJECT_CREATOR_DATABASE_URL='postgresql://project_creator:ваш-пароль@127.0.0.1:5432/project_creator?sslmode=disable'
+go run ./cmd/import-sqlite --source ./project-creator.db --backup ./project-creator-before-postgres.db
+```
+
+Поддерживается SQLite-схема версии 2 (бизнес-требования, MVP 4). Для более старой
+базы сначала используйте предыдущую версию приложения для её миграции, сохранив
+backup. Импорт проверяет целостность, принадлежность требований проектам, версии
+и количество записей; сохраняет ID, workspace, текст и timestamps. Вся запись в
+PostgreSQL транзакционна: при ошибке она откатывается. Непустая целевая база,
+неизвестная версия SQLite или нарушенные связи отклоняются. Повторный импорт в
+заполненную БД не выполняется. После успешного импорта сравните выведенные
+количества и откройте проекты/требования в UI; исходник и backup сохраняйте до
+проверки. Не удаляйте их автоматически.
+
+## GraphQL и проверки CI
+
+SDL в `graph/schema.graphqls` остаётся источником серверных привязок.
+Project Creator project — контейнер знаний, а не описываемый продукт.
+Тело запроса ограничено 1 МиБ, глубина — 8, одновременных резолверов — 10,
+развёрнутых полей и фрагментов — 100. Пагинация требует limit (1–100) и offset ≥ 0.
 
 ```bash
 go run ./cmd/codegen
 git diff --exit-code -- graph/models_gen.go
-go test ./...
-go vet ./...
 ```
+
+GitHub Actions поднимает PostgreSQL + pgvector, запускает Go unit/integration,
+vet, codegen, TypeScript-проверки, сборку и Playwright E2E. Для E2E создаётся
+отдельная база. Проверки не обращаются к моделям. Сборка контейнеров всего
+приложения и реальные модели будут добавлены в #9.
 
 ## Интерфейс Next.js
 
 Требуются Node.js 24 и Go 1.26.10. Запустите GraphQL-сервер в одном терминале,
-задав `PROJECT_CREATOR_TOKEN` и `PROJECT_CREATOR_DB` как описано выше. В другом:
+задав `PROJECT_CREATOR_TOKEN` и `PROJECT_CREATOR_DATABASE_URL` как описано выше. В другом:
 
 ```bash
 cd frontend
@@ -134,10 +212,17 @@ npx playwright install chromium
 npm run e2e
 ```
 
-E2E запускает отдельные Go и Next.js серверы, использует тестовую БД
-`/tmp/project-creator-e2e.db`; для нового прогона можно задать `E2E_DB` на другой
-путь. В CI выполняются проверки Go, генерации схем, TypeScript, сборки и E2E.
-Полное Docker-развёртывание MVP будет описано здесь после задачи #9.
+Для E2E создайте отдельную пустую одноразовую базу с pgvector и задайте
+`E2E_DATABASE_URL` перед `npm run e2e`. Playwright запускает отдельные Go и
+Next.js серверы. Тесты создают данные: для повторного чистого прогона пересоздайте
+именно E2E-базу; никогда не указывайте URL рабочей базы. Пример подготовки:
+
+```bash
+createdb -h 127.0.0.1 -U project_creator project_creator_e2e
+export E2E_DATABASE_URL='postgresql://project_creator:ваш-пароль@127.0.0.1:5432/project_creator_e2e?sslmode=disable'
+cd frontend
+npm run e2e
+```
 
 ## Бизнес-требования
 
@@ -151,3 +236,4 @@ E2E запускает отдельные Go и Next.js серверы, испо
 перечитывает список и позволяет применить сохранённый черновик поверх текущей
 версии. Старые версии текста пока не сохраняются. Индексация RAG и пометка
 результатов анализа устаревшими будут реализованы в задачах #7–#8.
+

@@ -62,3 +62,24 @@ func ProjectRules() map[string]Rule {
 	}
 	return c.Fields
 }
+
+//go:embed requirement.json
+var requirementJSON []byte
+
+// RequirementRules returns the shared requirement text constraint.
+func RequirementRules() map[string]Rule {
+	var c contract
+	decoder := json.NewDecoder(bytes.NewReader(requirementJSON))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&c); err != nil {
+		panic(err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		panic("invalid requirement contract")
+	}
+	rule, ok := c.Fields["text"]
+	if c.Version != 1 || c.LengthUnit != "unicode-code-points" || c.Trim != "ascii-space-tab-lf-cr" || len(c.Fields) != 1 || !ok || !rule.Required || rule.MaxLength <= 0 {
+		panic("unsupported requirement contract")
+	}
+	return c.Fields
+}

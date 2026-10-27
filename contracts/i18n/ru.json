@@ -18,5 +18,17 @@
   "app.previous": "Назад",
   "app.language": "Язык",
   "app.page": "Страница {page}",
-  "app.validationUnknown": "Проверьте введённые данные"
+  "app.validationUnknown": "Проверьте введённые данные",
+  "requirements.title": "Бизнес-требования",
+  "requirements.text": "Текст требования",
+  "requirements.add": "Добавить требование",
+  "requirements.save": "Сохранить",
+  "requirements.cancel": "Отмена",
+  "requirements.edit": "Изменить",
+  "requirements.delete": "Удалить",
+  "requirements.empty": "Требований пока нет",
+  "requirements.version": "Версия {version}",
+  "requirements.error": "Не удалось выполнить действие. Попробуйте ещё раз.",
+  "validation.conflict": "Требование изменилось или недоступно. Обновите данные.",
+  "requirements.useLatest": "Сохранить черновик поверх актуальной версии"
 }

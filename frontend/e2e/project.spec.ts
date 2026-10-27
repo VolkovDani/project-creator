@@ -11,6 +11,11 @@ test('create a project and open it after reload',async({page})=>{
  await expect(page.getByRole('link',{name})).toBeVisible();
  await page.reload();await expect(page.getByRole('link',{name})).toBeVisible();
  await page.getByRole('link',{name}).click();await expect(page.getByRole('heading',{name})).toBeVisible();await expect(page.getByText('Найти коллизии')).toBeVisible();
+ await page.getByLabel('Текст требования').fill('Требование один');await page.getByRole('button',{name:'Добавить требование'}).click();await expect(page.getByText('Требование один',{exact:true})).toBeVisible();await page.reload();await expect(page.getByText('Требование один',{exact:true})).toBeVisible();
+ const other=await page.context().newPage();await other.goto(page.url());await other.getByRole('button',{name:'Изменить'}).click();await other.getByLabel('Текст требования').fill('Мой черновик');
+ await page.getByRole('button',{name:'Изменить'}).click();await page.getByLabel('Текст требования').fill('Требование два');await page.getByRole('button',{name:'Сохранить'}).click();await expect(page.getByText('Версия 2')).toBeVisible();
+ await other.getByRole('button',{name:'Сохранить'}).click();await expect(other.getByText('Требование изменилось или недоступно. Обновите данные.')).toBeVisible();await expect(other.getByLabel('Текст требования')).toHaveValue('Мой черновик');await other.getByRole('button',{name:'Сохранить черновик поверх актуальной версии'}).click();await other.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(other.getByText('Версия 3')).toBeVisible();
+ await page.reload();await expect(page.getByText('Мой черновик',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Удалить'}).click();await expect(page.getByText('Требований пока нет')).toBeVisible();await other.close();
 });
 test('pagination remains locked until create completes',async({page})=>{
  let release!:()=>void;const pending=new Promise<void>(resolve=>{release=resolve});

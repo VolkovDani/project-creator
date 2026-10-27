@@ -104,11 +104,16 @@ func migrate(db *sql.DB) error {
 	if err = tx.QueryRow(`SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&version); err != nil {
 		return err
 	}
-	if version > 1 {
+	if version > 2 {
 		return errors.New("database schema version is newer than supported")
 	}
 	if version < 1 {
 		if _, err = tx.Exec(`CREATE TABLE projects(id TEXT PRIMARY KEY, workspace TEXT NOT NULL, name TEXT NOT NULL, goal TEXT NOT NULL, description TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE INDEX projects_workspace ON projects(workspace); INSERT INTO schema_migrations(version) VALUES(1)`); err != nil {
+			return err
+		}
+	}
+	if version < 2 {
+		if _, err = tx.Exec(`CREATE TABLE requirements(id TEXT PRIMARY KEY, workspace TEXT NOT NULL, project_id TEXT NOT NULL, text TEXT NOT NULL, version INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id)); CREATE INDEX requirements_project ON requirements(workspace,project_id); INSERT INTO schema_migrations(version) VALUES(2)`); err != nil {
 			return err
 		}
 	}

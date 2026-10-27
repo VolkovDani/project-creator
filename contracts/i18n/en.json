@@ -18,5 +18,17 @@
   "app.previous": "Previous",
   "app.language": "Language",
   "app.page": "Page {page}",
-  "app.validationUnknown": "Please check your input"
+  "app.validationUnknown": "Please check your input",
+  "requirements.title": "Business requirements",
+  "requirements.text": "Requirement text",
+  "requirements.add": "Add requirement",
+  "requirements.save": "Save",
+  "requirements.cancel": "Cancel",
+  "requirements.edit": "Edit",
+  "requirements.delete": "Delete",
+  "requirements.empty": "No requirements yet",
+  "requirements.version": "Version {version}",
+  "requirements.error": "Could not complete the action. Please try again.",
+  "validation.conflict": "The requirement changed or is unavailable. Refresh the data.",
+  "requirements.useLatest": "Keep draft and use latest version"
 }

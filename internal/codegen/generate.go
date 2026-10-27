@@ -63,6 +63,8 @@ func (p *parser) typ() (string, error) {
 	switch n {
 	case "String":
 		t = "string"
+	case "Boolean":
+		t = "bool"
 	case "Int":
 		t = "int32"
 	case "ID":

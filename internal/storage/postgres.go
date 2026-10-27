@@ -47,6 +47,10 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		return errors.New("cannot begin PostgreSQL migration")
 	}
 	defer tx.Rollback()
+	// Scope migration metadata to the selected schema, never a fallback schema.
+	if _, err = tx.ExecContext(ctx, `SELECT set_config('search_path',quote_ident(current_schema()),true)`); err != nil {
+		return err
+	}
 	// Serialize startup across instances, including the first schema creation.
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(724183091)`); err != nil {
 		return err

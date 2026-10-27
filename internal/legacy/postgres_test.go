@@ -34,7 +34,7 @@ func target(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	q := u.Query()
-	q.Set("search_path", schema+",public")
+	q.Set("search_path", schema)
 	u.RawQuery = q.Encode()
 	db, err := storage.Open(u.String())
 	if err != nil {

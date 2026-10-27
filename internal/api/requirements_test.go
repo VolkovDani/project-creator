@@ -88,3 +88,34 @@ func TestRequirementLifecycleAndWorkspaceIsolation(t *testing.T) {
 		t.Fatal(found)
 	}
 }
+
+func TestRequirementPaginationAndProjectIsolation(t *testing.T) {
+	s, err := New(testDatabase(t), map[string]string{"token-a": "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now'),('q','a','Q','G','','now','now'); INSERT INTO requirements VALUES('r1','a','p','first',1,'a','a'),('r2','a','p','second',1,'b','b'),('r3','a','q','hidden',1,'a','a')`); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]string{"query": `{requirements(projectId:"p",limit:1,offset:1){id text}}`})
+	request := httptest.NewRequest("POST", "/graphql", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer token-a")
+	response := httptest.NewRecorder()
+	s.ServeHTTP(response, request)
+	var result struct {
+		Data struct {
+			Requirements []struct {
+				ID   string
+				Text string
+			}
+		}
+		Errors []any
+	}
+	if err = json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Errors) != 0 || len(result.Data.Requirements) != 1 || result.Data.Requirements[0].ID != "r2" {
+		t.Fatalf("unexpected page: %s", response.Body.String())
+	}
+}

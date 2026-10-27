@@ -48,7 +48,7 @@ func testDatabase(t *testing.T) string {
 		}
 	})
 	q := u.Query()
-	q.Set("search_path", schema+",public")
+	q.Set("search_path", schema)
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -141,5 +141,32 @@ func TestMigrationFailureRollsBackDDL(t *testing.T) {
 	var n int
 	if err = db.QueryRow(`SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name IN ('projects','schema_migrations')`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("partially applied migration: %d %v", n, err)
+	}
+}
+
+func TestConcurrentStartup(t *testing.T) {
+	dsn := testDatabase(t)
+	var wg sync.WaitGroup
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			db, err := storage.Open(dsn)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			db.Close()
+		}()
+	}
+	wg.Wait()
+	db, err := storage.Open(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n int
+	if err = db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("migration count %d: %v", n, err)
 	}
 }

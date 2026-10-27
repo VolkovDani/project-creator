@@ -50,6 +50,16 @@ jobs:
       - run: npx playwright install --with-deps chromium
         timeout-minutes: 10
         working-directory: frontend
-      - run: npm run e2e
+      - name: Capture desktop screenshots
+        run: npm run e2e -- --grep 'screenshots:'
         working-directory: frontend
+      - run: npm run e2e -- --grep-invert 'screenshots:'
+        working-directory: frontend
+      - name: Upload desktop screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-screenshots
+          path: frontend/screenshots/*.png
+          if-no-files-found: warn
 

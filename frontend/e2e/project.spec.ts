@@ -22,3 +22,12 @@ test('pagination remains locked until create completes',async({page})=>{
  await page.route('**/api/graphql',async route=>{const payload=route.request().postDataJSON();if(payload.query.includes('mutation CreateProject')){await pending;await route.fulfill({json:{data:{createProject:{project:{id:'new',name:'new',goal:'goal',description:'',createdAt:'now',updatedAt:'now'},fieldErrors:[]}}}})} else {const projects=Array.from({length:20},(_,i)=>({id:String(i),name:`Item ${i}`,goal:'goal',description:'',createdAt:'now',updatedAt:'now'}));await route.fulfill({json:{data:{projects}}})}});
  await page.goto('/');await expect(page.getByRole('link',{name:'Item 0'})).toBeVisible();await page.getByLabel('Название').fill('new');await page.getByLabel('Цель').fill('goal');await page.getByRole('button',{name:'Создать проект'}).click();await expect(page.getByRole('button',{name:'Далее'})).toBeDisabled();release();await expect(page.getByRole('button',{name:'Далее'})).toBeEnabled();
 });
+
+test('two tabs receive project and requirement invalidations without reload',async({page})=>{
+ const watcher=await page.context().newPage();await page.goto('/');await watcher.goto('/');
+ const name=`Live ${Date.now()}`;await page.getByLabel('Название').fill(name);await page.getByLabel('Цель').fill('SSE');await page.getByRole('button',{name:'Создать проект'}).click();
+ await expect(watcher.getByRole('link',{name})).toBeVisible({timeout:15000});await page.getByRole('link',{name}).click();await watcher.getByRole('link',{name}).click();
+ await page.getByLabel('Текст требования').fill('Live requirement');await page.getByRole('button',{name:'Добавить требование'}).click();await expect(watcher.getByText('Live requirement',{exact:true})).toBeVisible({timeout:15000});
+ await page.getByRole('button',{name:'Изменить'}).click();await page.getByLabel('Текст требования').fill('Changed in another tab');await page.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(watcher.getByText('Changed in another tab',{exact:true})).toBeVisible({timeout:15000});
+ await page.getByRole('button',{name:'Удалить'}).click();await expect(watcher.getByText('Требований пока нет')).toBeVisible({timeout:15000});await watcher.close();
+});

@@ -40,7 +40,7 @@ func New(path string, tokens map[string]string) (*Server, error) {
 	}
 	h := &relay.Handler{Schema: schema}
 	return &Server{db: db, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/graphql" {
+		if r.URL.Path != "/graphql" && r.URL.Path != "/events" {
 			http.NotFound(w, r)
 			return
 		}
@@ -58,6 +58,15 @@ func New(path string, tokens map[string]string) (*Server, error) {
 		}
 		if ws == "" {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path == "/events" {
+			if r.Method != http.MethodGet {
+				w.Header().Set("Allow", "GET")
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			serveEvents(db, ws, w, r)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -80,7 +89,7 @@ func New(path string, tokens map[string]string) (*Server, error) {
 			return
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))
-		h.ServeHTTP(w, r.WithContext(graph.WithBudget(graph.WithWorkspace(r.Context(), ws))))
+		serveTaggedGraphQL(h, w, r.WithContext(graph.WithBudget(graph.WithWorkspace(r.Context(), ws))))
 	})}, nil
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.h.ServeHTTP(w, r) }

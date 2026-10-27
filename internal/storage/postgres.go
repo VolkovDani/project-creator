@@ -62,7 +62,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&version); err != nil {
 		return err
 	}
-	if version > 1 {
+	if version > 2 {
 		return errors.New("database schema version is newer than supported")
 	}
 	// Install only if absent: runtime users can use an extension installed by an administrator.
@@ -82,17 +82,22 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if !vectorType {
 		return errors.New("pgvector extension has no vector type")
 	}
-	if version == 0 {
-		script, err := migrations.ReadFile("migrations/001_initial.sql")
+	for i, name := range []string{"001_initial.sql", "002_cache_events.sql"} {
+		next := i + 1
+		if version >= next {
+			continue
+		}
+		script, err := migrations.ReadFile("migrations/" + name)
 		if err != nil {
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, string(script)); err != nil {
 			return fmt.Errorf("PostgreSQL schema migration failed: %w", err)
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations(version) VALUES(1)`); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations(version) VALUES($1)`, next); err != nil {
 			return err
 		}
 	}
+
 	return tx.Commit()
 }

@@ -1,0 +1,5 @@
+{
+  "validation.required": "This field is required",
+  "validation.maxLength": "Maximum length: {max} characters",
+  "validation.invalidEncoding": "This field contains invalid text"
+}

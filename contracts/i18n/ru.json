@@ -1,0 +1,5 @@
+{
+  "validation.required": "Заполните поле",
+  "validation.maxLength": "Максимальная длина: {max} символов",
+  "validation.invalidEncoding": "Поле содержит некорректный текст"
+}

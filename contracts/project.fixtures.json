@@ -1,0 +1,145 @@
+[
+  {
+    "name": "valid",
+    "input": {
+      "name": "Проект",
+      "goal": "Цель",
+      "description": ""
+    },
+    "normalized": {
+      "name": "Проект",
+      "goal": "Цель",
+      "description": ""
+    },
+    "errors": []
+  },
+  {
+    "name": "ascii trim",
+    "input": {
+      "name": " \tName\r\n",
+      "goal": " Goal ",
+      "description": " Details\t"
+    },
+    "normalized": {
+      "name": "Name",
+      "goal": "Goal",
+      "description": "Details"
+    },
+    "errors": []
+  },
+  {
+    "name": "required",
+    "input": {
+      "name": " \t",
+      "goal": "\n",
+      "description": ""
+    },
+    "normalized": {
+      "name": "",
+      "goal": "",
+      "description": ""
+    },
+    "errors": [
+      {
+        "path": [
+          "input",
+          "name"
+        ],
+        "code": "REQUIRED",
+        "messageKey": "validation.required",
+        "params": {}
+      },
+      {
+        "path": [
+          "input",
+          "goal"
+        ],
+        "code": "REQUIRED",
+        "messageKey": "validation.required",
+        "params": {}
+      }
+    ]
+  },
+  {
+    "name": "non breaking space preserved",
+    "input": {
+      "name": " ",
+      "goal": "Goal",
+      "description": ""
+    },
+    "normalized": {
+      "name": " ",
+      "goal": "Goal",
+      "description": ""
+    },
+    "errors": []
+  },
+  {
+    "name": "zero width preserved",
+    "input": {
+      "name": "​",
+      "goal": "Goal",
+      "description": ""
+    },
+    "normalized": {
+      "name": "​",
+      "goal": "Goal",
+      "description": ""
+    },
+    "errors": []
+  },
+  {
+    "name": "internal whitespace preserved",
+    "input": {
+      "name": "A  B",
+      "goal": "First\nsecond",
+      "description": ""
+    },
+    "normalized": {
+      "name": "A  B",
+      "goal": "First\nsecond",
+      "description": ""
+    },
+    "errors": []
+  },
+  {
+    "name": "unicode max",
+    "input": {
+      "name": "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀",
+      "goal": "Goal",
+      "description": ""
+    },
+    "normalized": {
+      "name": "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀",
+      "goal": "Goal",
+      "description": ""
+    },
+    "errors": []
+  },
+  {
+    "name": "unicode overflow",
+    "input": {
+      "name": "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀",
+      "goal": "Goal",
+      "description": ""
+    },
+    "normalized": {
+      "name": "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀",
+      "goal": "Goal",
+      "description": ""
+    },
+    "errors": [
+      {
+        "path": [
+          "input",
+          "name"
+        ],
+        "code": "MAX_LENGTH",
+        "messageKey": "validation.maxLength",
+        "params": {
+          "max": 120
+        }
+      }
+    ]
+  }
+]

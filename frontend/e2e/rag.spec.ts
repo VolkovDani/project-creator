@@ -49,3 +49,17 @@ test('a late source scan cannot replace a newer source selection',async({page})=
  await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
  await expect(page).toHaveURL(/#requirement-source-0$/);await expect(page.locator('#requirement-source-0')).toBeVisible();await expect(page.locator('#requirement-source-20')).toHaveCount(0);
 });
+
+test('requirement draft is locked until its save response completes',async({page})=>{
+ let release!:()=>void;const pending=new Promise<void>(resolve=>release=resolve);let started!:()=>void;const sent=new Promise<void>(resolve=>started=resolve);
+ await page.route('**/api/events',route=>route.fulfill({status:200,contentType:'text/event-stream',body:': heartbeat\n\n'}));
+ await page.route('**/api/graphql',async route=>{const {query}=route.request().postDataJSON();let data:unknown;
+  if(query.includes('createRequirement(')){started();await pending;data={createRequirement:{requirement:{id:'r',text:'Draft',version:1},fieldErrors:[]}}}
+  else if(query.includes('requirementIndex('))data={requirementIndex:[]};
+  else if(query.includes('requirements('))data={requirements:[]};
+  else data={project:{id:'p',name:'Pending save',goal:'G',description:'',createdAt:'now',updatedAt:'now'}};
+  await route.fulfill({json:{data}});
+ });
+ await page.goto('/projects/p');await page.getByLabel('Текст требования').fill('Draft');await page.getByRole('button',{name:'Добавить требование',exact:true}).click();await sent;
+ try{await expect(page.getByLabel('Текст требования')).toBeDisabled()}finally{release()}
+});

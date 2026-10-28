@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {createFixtureServer, EMBEDDING_MODEL, GENERATOR_MODEL, EMBEDDING_DIGEST, GENERATOR_DIGEST} from './ollama-fixture.mjs';
+
+test('smoke-only Ollama fixture preserves the pinned adapter wire contract', async t => {
+  const server = createFixtureServer();
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = (path, body) => fetch(base + path, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
+  const tags = await (await fetch(base + '/api/tags')).json();
+  assert.deepEqual(tags.models.map(({name, digest}) => [name, digest]), [[EMBEDDING_MODEL, EMBEDDING_DIGEST], [GENERATOR_MODEL, GENERATOR_DIGEST]]);
+  const embedded = await (await post('/api/embed', {model: EMBEDDING_MODEL, input: ['Оплата только картой.', 'Оплата только наличными.'], truncate: false})).json();
+  assert.equal(embedded.embeddings.length, 2);
+  assert.equal(embedded.embeddings[0].length, 1024);
+  assert.ok(embedded.embeddings[0].every(Number.isFinite));
+  assert.ok(embedded.embeddings[0].some(value => value !== 0));
+  const pair = {left: {id: 'r1', version: 1, text: 'Оплата только картой.'}, right: {id: 'r2', version: 3, text: 'Оплата только наличными.'}};
+  const response = await (await post('/api/chat', {model: GENERATOR_MODEL, stream: false, messages: [{role: 'system', content: 'Trusted instructions'}, {role: 'user', content: JSON.stringify(pair)}]})).json();
+  assert.equal(response.done, true);
+  assert.equal(response.done_reason, 'stop');
+  assert.equal(response.message.role, 'assistant');
+  const finding = JSON.parse(response.message.content);
+  assert.equal(finding.leftId, pair.left.id);
+  assert.equal(finding.rightId, pair.right.id);
+  assert.equal(finding.leftVersion, 1);
+  assert.equal(finding.rightVersion, 3);
+  assert.equal(finding.verdict, 'collision');
+  assert.ok(finding.explanation.length > 0);
+  assert.equal((await post('/api/embed', {model: 'not-pinned', input: ['x']})).status, 400);
+  assert.equal((await fetch(base + '/not-supported')).status, 404);
+});

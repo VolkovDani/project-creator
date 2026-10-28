@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+!.env.example
+!.env.smoke.example
+**/node_modules
+**/.next
+**/test-results
+**/playwright-report
+**/screenshots
+**/*.tsbuildinfo
+*.db
+*.db-*
+*.dump
+backups

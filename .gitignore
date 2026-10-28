@@ -7,3 +7,9 @@ frontend/tsconfig.tsbuildinfo
 *.db-shm
 *.db-wal
 .env
+
+.env.*
+!.env.example
+!.env.smoke.example
+*.dump
+backups/

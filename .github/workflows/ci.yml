@@ -29,11 +29,12 @@ jobs:
           go-version-file: go.mod
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Prepare isolated E2E database
         run: psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE project_creator_e2e'
+      - run: node --test scripts/*.test.mjs
       - run: go test ./...
       - run: go vet ./...
       - run: |
@@ -63,3 +64,32 @@ jobs:
           path: frontend/screenshots/*.png
           if-no-files-found: warn
 
+
+  containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      COMPOSE_PROJECT_NAME: project-creator-ci-smoke
+      COMPOSE_FILE: compose.yml:compose.smoke.yml
+      COMPOSE_ENV_FILE: .env.smoke.example
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - name: Validate CPU and optional GPU configuration
+        run: |
+          docker compose --env-file "$COMPOSE_ENV_FILE" config --quiet
+          docker compose --env-file "$COMPOSE_ENV_FILE" -f compose.yml -f compose.gpu.yml config --quiet
+      - name: Build and start clean disposable stack
+        run: docker compose --env-file "$COMPOSE_ENV_FILE" up -d --build --wait --wait-timeout 180
+      - name: Exercise HTTP model workflow and restart persistence
+        run: node scripts/compose-smoke.mjs
+      - name: Show container diagnostics
+        if: failure()
+        run: |
+          docker compose --env-file "$COMPOSE_ENV_FILE" ps -a
+          docker compose --env-file "$COMPOSE_ENV_FILE" logs --no-color --tail=150
+      - name: Remove disposable containers and data
+        if: always()
+        run: docker compose --env-file "$COMPOSE_ENV_FILE" down --volumes --remove-orphans

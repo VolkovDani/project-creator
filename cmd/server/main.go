@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"github.com/VolkovDani/project-creator/internal/analysis"
 	"github.com/VolkovDani/project-creator/internal/api"
 	"github.com/VolkovDani/project-creator/internal/rag"
@@ -8,9 +9,18 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		if err := healthcheck(ctx, "http://127.0.0.1:8080/graphql", os.Getenv("PROJECT_CREATOR_TOKEN")); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	token := os.Getenv("PROJECT_CREATOR_TOKEN")
 	if len(token) < 32 {
 		log.Fatal("PROJECT_CREATOR_TOKEN must have at least 32 characters")

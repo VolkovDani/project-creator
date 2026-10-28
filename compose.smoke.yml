@@ -1,0 +1,9 @@
+# Test-only deterministic local Ollama protocol server. Never use with real data.
+services:
+  ollama:
+    image: node:24.22.1-bookworm-slim
+    entrypoint: ["node", "/fixtures/ollama-fixture.mjs"]
+    volumes:
+      - ./scripts/ollama-fixture.mjs:/fixtures/ollama-fixture.mjs:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:11434/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]

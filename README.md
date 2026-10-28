@@ -22,6 +22,283 @@
 8. [Анализ коллизий](https://github.com/VolkovDani/project-creator/issues/8).
 9. [Docker-развёртывание и CI](https://github.com/VolkovDani/project-creator/issues/9).
 
+## Запуск всего MVP в Docker Compose
+
+Требуются Docker Engine с Compose v2 (команды `docker compose`) либо Docker
+Desktop с Linux-контейнерами. Go и Node.js на хосте для запуска приложения не нужны.
+Запускайте команды из корня репозитория. По умолчанию используется CPU; GPU
+не обязателен, но на медленном CPU анализ может превысить timeout.
+
+В конфигурации закреплены Go 1.26.10, Node.js 24.22.1 на Debian Bookworm,
+PostgreSQL 16 с pgvector 0.8.0 и Ollama 0.40.11. Модели загружаются отдельно:
+
+| Назначение | Модель | Размер загрузки весов |
+| --- | --- | --- |
+| Многоязычные embeddings, 1024 измерения | `bge-m3:567m` | около 1.2 GB |
+| Анализ пар требований, Q4_K_M | `qwen2.5:7b` | около 4.7 GB |
+
+Размеры опубликованы в официальных карточках [BGE-M3](https://ollama.com/library/bge-m3)
+и [Qwen2.5 7B](https://ollama.com/library/qwen2.5:7b). Теги моделей могут меняться;
+приложение проверяет полный digest установленной модели. Карточка BGE-M3 указывает MIT, Qwen2.5 7B — Apache 2.0; другие размеры
+Qwen могут иметь другую лицензию.
+
+Для планирования выделите 24–32 GiB RAM на CPU-вариант всего стека и не менее
+20 GiB свободного диска для образов, весов и сборки, дополнительно место под БД
+и резервные копии. Для необязательного GPU-варианта ориентир — 12–16 GiB VRAM
+плюс RAM для приложения/БД. Это приблизительный бюджет, а не измеренный минимум:
+генератор запрашивает контекст 32768 токенов, и память зависит от KV-кеша,
+параллельной загрузки моделей, драйвера и runtime. Размер файла весов не равен
+потреблению RAM/VRAM. Проверяйте фактическую загрузку через `docker stats` и
+`docker compose exec ollama ollama ps`.
+
+### Первый запуск и загрузка моделей
+
+```bash
+cp .env.example .env
+chmod 600 .env
+```
+
+Отредактируйте `.env`: замените `POSTGRES_PASSWORD` и `PROJECT_CREATOR_TOKEN`
+на разные случайные значения; токен — минимум 32 символа. Например, получите
+каждое значение отдельным вызовом `openssl rand -hex 24`. Для пароля в Compose
+используйте hex без специальных символов URL. `.env` не коммитьте. Переменные
+`PROJECT_CREATOR_DATABASE_URL` и `POSTGRES_PORT` нужны для запуска API на хосте,
+а полный Compose сам задаёт внутренний адрес БД.
+
+```bash
+docker compose up -d --wait postgres ollama
+docker compose exec ollama ollama pull bge-m3:567m
+docker compose exec ollama ollama pull qwen2.5:7b
+docker compose --profile tools run --rm model-info
+```
+
+Последняя команда печатает JSON локального `/api/tags`. Найдите записи с нужным
+`name` и скопируйте их **полные** `digest` вида `sha256:` и 64 hex-символа;
+короткий ID из `ollama list` не подходит. Добавьте в `.env`:
+
+```dotenv
+PROJECT_CREATOR_EMBEDDING_MODEL=bge-m3:567m
+PROJECT_CREATOR_EMBEDDING_DIGEST=sha256:полный-digest-установленной-embedding-модели
+PROJECT_CREATOR_GENERATOR_MODEL=qwen2.5:7b
+PROJECT_CREATOR_GENERATOR_DIGEST=sha256:полный-digest-установленного-генератора
+```
+
+```bash
+docker compose up -d --build --wait
+docker compose ps
+```
+
+Откройте [http://127.0.0.1:3000](http://127.0.0.1:3000). При занятом порте задайте
+`APP_PORT`, например `APP_PORT=3100`, в `.env` и используйте новый порт. На хост
+публикуется только `127.0.0.1:${APP_PORT:-3000}`. PostgreSQL, backend и Ollama
+доступны внутри сети Compose и не публикуют порты. Веса находятся в volume
+`ollama_data`, проекты, требования, индексы и анализ — в `postgres_data`.
+Имя Compose-проекта входит в реальные имена volumes: сохраняйте его при обновлении.
+
+Веса не скачиваются при старте автоматически. Можно запустить полный стек без AI,
+оставив обе пары `MODEL`/`DIGEST` незаданными: CRUD работает, индексация и анализ
+сообщают о ненастроенном провайдере. Одной переменной в паре недостаточно;
+неверная конфигурация останавливает backend. Переменную
+`PROJECT_CREATOR_OLLAMA_URL=http://ollama:11434` задаёт полный Compose.
+После изменения модели/digest пересоздайте backend командой
+`docker compose up -d --wait backend`; затем явно переиндексируйте требования.
+
+Healthchecks проверяют PostgreSQL, доступность процесса Ollama и реальный
+авторизованный запрос через backend/Next.js. Backend применяет миграции до
+приёма запросов. Статус `healthy` не подтверждает загрузку весов или качество LLM.
+Для диагностики используйте `docker compose logs --tail=100 backend frontend ollama`
+и результат запроса (поле `errors` должно отсутствовать):
+
+```bash
+curl -fsS http://127.0.0.1:3000/api/graphql \
+  -H 'Content-Type: application/json' \
+  --data '{"query":"{projects(limit:1,offset:0){id}}"}'
+```
+
+Ручная приёмка: создайте проект с целью, добавьте требования «Оплата разрешена
+только картой» и «Оплата разрешена только наличными». Явно проиндексируйте оба,
+выполните поиск, запустите анализ. Проверьте ссылки, версии и снимки источников;
+возможную коллизию оценивает человек. При недостатке данных или ошибке проверьте
+модель и индекс, затем используйте повтор. После `docker compose restart postgres
+backend` дождитесь `healthy` и убедитесь, что проект, требования, индекс и результат
+остались. Отредактируйте одно требование: прежний анализ должен стать устаревшим.
+Отсутствие найденной коллизии не является доказательством согласованности.
+
+### Необязательный NVIDIA GPU
+
+На Linux предварительно установите совместимый NVIDIA-драйвер и
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html),
+настройте его для Docker и проверьте доступность GPU контейнерам. Затем:
+
+```bash
+docker compose -f compose.yml -f compose.gpu.yml up -d --wait
+```
+
+Override запрашивает GPU для Ollama; остальные сервисы не требуют GPU. Пользуйтесь
+той же парой `-f` при дальнейших изменениях GPU-конфигурации. Docker Desktop на
+macOS не предоставляет Metal GPU этому Linux-контейнеру; используйте CPU-вариант
+или отдельный осознанно настроенный локальный runtime. Официальные варианты
+описаны в [документации Ollama Docker](https://docs.ollama.com/docker).
+
+### Остановка, обновление и резервные копии
+
+`docker compose stop` останавливает процессы; `docker compose down` дополнительно
+удаляет контейнеры и сеть. Обе команды сохраняют named volumes. Для продолжения
+используйте `docker compose up -d --wait`. Не меняйте имя проекта или путь к
+Compose-файлу без переноса volumes: иначе можно получить отдельную пустую БД.
+
+Перед обновлением остановите запись и создайте dump:
+
+```bash
+mkdir -p backups
+chmod 700 backups
+docker compose stop frontend backend
+umask 077
+docker compose exec -T postgres pg_dump -U project_creator -d project_creator -Fc > backups/project-creator.dump
+docker compose up -d --wait
+```
+
+Храните dump вне машины приложения и проверяйте восстановление в отдельном
+Compose-проекте. Он включает проекты, требования, векторы, версии источников
+и историю анализа, но не веса Ollama. Сохраните защищённую копию `.env` вместе
+с зафиксированными digests отдельно от git. Для сохранения именно скачанных весов
+остановите загрузку/работу Ollama и скопируйте его каталог:
+
+```bash
+docker compose stop ollama
+docker compose cp ollama:/root/.ollama backups/ollama
+docker compose up -d --wait
+```
+
+При восстановлении весов остановите Ollama и скопируйте содержимое сохранённого
+каталога в его `/root/.ollama`, затем запустите сервис и снова проверьте полные
+digests через `model-info`. Альтернатива — загрузить веса заново и проверить digest;
+обновлённый тег не гарантирует прежний результат.
+
+Восстановление БД заменяет данные выбранного Compose-проекта. Сначала сделайте
+backup его текущей БД; используйте совместимую версию PostgreSQL/pgvector и
+приложения. Контейнер PostgreSQL должен работать, приложение — быть остановлено:
+
+```bash
+docker compose up -d --wait postgres
+docker compose stop frontend backend
+docker compose exec -T postgres dropdb -U project_creator --if-exists project_creator
+docker compose exec -T postgres createdb -U project_creator project_creator
+docker compose exec -T postgres pg_restore -U project_creator -d project_creator --exit-on-error < backups/project-creator.dump
+docker compose up -d --wait
+```
+
+После восстановления проверьте готовность, список проектов, требования и состояния
+индексов. Ошибка пароля после изменения `.env` означает, что пароль уже созданного
+PostgreSQL volume остался прежним; меняйте пароль ролью PostgreSQL, а не удалением
+volume. Для обновления сначала сохраните backup, изучите миграции и изменения
+версий, получите изменения репозитория, затем `docker compose up -d --build --wait`.
+Миграции применятся при старте; downgrade не предусмотрен. Major-обновление
+PostgreSQL требует `pg_upgrade` или dump/restore, а не смены тега на старом volume.
+Обновляйте веса отдельным решением; после смены digest требуется переиндексация.
+
+Для намеренного **безвозвратного удаления всех локальных данных и весов** выполните
+`docker compose down --volumes`. Эта команда удаляет оба named volumes выбранного
+проекта; backup за пределами volumes сохраняется. Для обычной остановки она не нужна.
+
+### Container-smoke и CI
+
+Обычный smoke запускает одноразовый Compose-проект с тестовой Ollama-заглушкой.
+Он проверяет сборку обоих образов, миграции и полный путь HTTP через Next.js:
+проект → требования → индексация → коллизия с версиями источников, затем сохранность
+после перезапуска PostgreSQL/backend. Веса и GPU не нужны. Тестовая заглушка
+подключается только явным `compose.smoke.yml`; в рабочем Compose её нет.
+
+Для запуска smoke-скрипта на хосте дополнительно требуется Node.js 24. Команды
+ниже выполняются в subshell, чтобы тестовые переменные не меняли обычный запуск.
+Тест требует пустую БД и отказывается добавлять данные в непустую:
+
+```bash
+(
+  set -e
+  export COMPOSE_FILE=compose.yml:compose.smoke.yml
+  export COMPOSE_PROJECT_NAME=project-creator-smoke
+  export COMPOSE_ENV_FILE=.env.smoke.example
+  export APP_PORT=3200
+  docker compose --env-file "$COMPOSE_ENV_FILE" up -d --build --wait --wait-timeout 180
+  node scripts/compose-smoke.mjs
+)
+```
+
+Скрипт сам не создаёт и не удаляет volumes: он проверяет уже запущенный стек и
+перезапускает его PostgreSQL/backend. После проверки удалите только тестовый стек:
+
+```bash
+docker compose --env-file .env.smoke.example -p project-creator-smoke -f compose.yml -f compose.smoke.yml down --volumes
+```
+
+Не подставляйте имя рабочего Compose-проекта. При повторе smoke сначала удалите
+именно его тестовые volumes для пустой БД. При ошибке до удаления сохраните вывод
+`docker compose ... logs` для диагностики.
+
+Реальный smoke требует отдельного проекта и своего volume с весами. Скопируйте
+`.env.example` в `.env.real-smoke`, задайте отдельные случайные пароль и токен,
+сначала оставив настройки моделей выключенными. Подготовьте runtime и веса:
+
+```bash
+(
+  set -e
+  export COMPOSE_FILE=compose.yml
+  export COMPOSE_PROJECT_NAME=project-creator-real-smoke
+  export COMPOSE_ENV_FILE=.env.real-smoke
+  docker compose --env-file "$COMPOSE_ENV_FILE" up -d --wait postgres ollama
+  docker compose --env-file "$COMPOSE_ENV_FILE" exec ollama ollama pull bge-m3:567m
+  docker compose --env-file "$COMPOSE_ENV_FILE" exec ollama ollama pull qwen2.5:7b
+  docker compose --env-file "$COMPOSE_ENV_FILE" --profile tools run --rm model-info
+)
+```
+
+Сохраните полные digests в `.env.real-smoke` по инструкции первого запуска,
+затем выполните явную проверку настоящей модели:
+
+```bash
+(
+  set -e
+  export COMPOSE_FILE=compose.yml
+  export COMPOSE_PROJECT_NAME=project-creator-real-smoke
+  export COMPOSE_ENV_FILE=.env.real-smoke
+  export REAL_MODEL_SMOKE=1
+  export APP_PORT=3201
+  docker compose --env-file "$COMPOSE_ENV_FILE" up -d --build --wait --wait-timeout 180
+  node scripts/compose-smoke.mjs
+)
+```
+
+После проверки команда ниже удаляет только данные и веса этого тестового проекта:
+
+```bash
+docker compose --env-file .env.real-smoke -p project-creator-real-smoke -f compose.yml down --volumes
+```
+
+Этот запуск не оценивает статистическое качество LLM и может завершиться ошибкой
+на медленном CPU; он не включён в обычный CI. Детали standalone-проверок настоящих
+адаптеров и требования к тестовой БД приведены ниже. GitHub Actions отдельно
+выполняет unit/integration, валидацию SDL/операций и codegen, frontend-тесты,
+проверку TypeScript, сборку Next.js, Playwright и container-smoke. Успех обычного
+CI подтверждает проводку со стабами, а не точность настоящей локальной модели.
+
+Проверка границ готового технического MVP:
+
+| Сценарий | Проверка и граница |
+| --- | --- |
+| Создание проекта и работа с требованиями без чата | GraphQL/Playwright; общая валидация и optimistic locking |
+| Изоляция данных | Проверка workspace/project до retrieval и вызова моделей; локальный токен вместо полной модели ролей |
+| Актуальность двух клиентов | SSE, reconnect/reset, повторные события и гонки чтения/инвалидации |
+| Поиск и известная коллизия с источниками | Детерминированные integration/container-тесты; настоящие веса проверяются отдельно |
+| Происхождение выводов | ID, версии и снимки источников; устаревание при изменении данных/профиля |
+| Локальность и контроль изменений | Нет облачных ключей/fallback; модель не изменяет требования сама |
+| Перезапуск и восстановление | Container-smoke проверяет restart; backup/restore проверяйте на своих резервных копиях |
+
+Полноценные роли/участники, функциональные блоки, граф знаний, чат и история всех
+редакций остаются частью более широкой карты развития в GOAL, а не завершённого
+технического среза. Успех тестового smoke не означает приёмку качества LLM на
+реальных требованиях или готовность публичного многопользовательского сервиса.
+
 ## Локальная проверка
 
 Требуются Go 1.26.10, C-компилятор для импорта/тестирования SQLite, Node.js 24
@@ -49,7 +326,7 @@ gofmt -l cmd contracts graph internal
 Серверный ID, workspace и timestamps добавляются при сохранении.
 
 Источник ограничений — `contracts/project.json`, встроенный в Go-бинарник.
-Будущий фронтенд читает тот же файл; общий набор примеров —
+Фронтенд читает тот же файл; общий набор примеров —
 `contracts/project.fixtures.json`. Ограничения не надо копировать в TS.
 Неизвестная версия, поле или режим контракта приводит к ошибке загрузки.
 
@@ -61,18 +338,19 @@ gofmt -l cmd contracts graph internal
 - Длина считается после trim, по Unicode code points (не байтам, UTF-16 units
   или графемам). На TypeScript эквивалентный счётчик — `Array.from(value).length`.
   Unicode NFC/NFKC-нормализация не выполняется. Некорректный UTF-8 отклоняется;
-  будущий TS-адаптер также должен отклонять непарные суррогаты до отправки.
+  TS-адаптер также отклоняет непарные суррогаты до отправки.
 - Все ошибки полей собираются за один вызов в порядке name, goal, description.
 
 Общие словари — `contracts/i18n/ru.json` и `en.json`. Для этой версии они
 содержат ключи ошибок валидации; `params.max` передаётся отдельно от текста.
-Сервер и будущий UI используют ключ, не анализируют переведённую строку.
+Сервер и UI используют ключ, не анализируют переведённую строку.
 
 ## PostgreSQL и запуск API
 
 Решение о хранилище — [ADR-001](docs/adr/001-postgresql-pgvector.md).
 В `compose.postgres.yml` закреплены PostgreSQL 16 и pgvector 0.8.0. Это окружение
-только БД; полная контейнеризация приложения и локальной модели относится к #9.
+только БД для разработки с процессами на хосте. Для запуска всего приложения
+используйте основной `compose.yml` по инструкции выше.
 SQLite больше не является рабочим хранилищем сервера.
 
 Первый запуск:

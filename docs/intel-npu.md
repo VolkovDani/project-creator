@@ -87,7 +87,8 @@ cp "$(cat .npu/source-path.txt)/LICENSE" .npu/models/qwen2.5-7b-int4/SOURCE-LICE
 Официальный [NPU export guide](https://docs.openvino.ai/2026/openvino-workflow-generative/inference-with-genai/inference-with-genai-on-npu.html)
 требует симметричную 4-битную компрессию с ratio 1.0. Совместимость этой
 экспортированной модели с нашим NPU ещё не измерена. Сохраните отчёты установки,
-freeze, лицензию и source revision. Прямые версии закреплены, полное разрешённое
+freeze, лицензию и source revision. Для экспорта закреплён официальный CPU wheel PyTorch под Python 3.12/Linux x86_64;
+CUDA-пакеты не требуются. Прямые версии закреплены, полное разрешённое
 дерево экспортных зависимостей фиксирует freeze на вашем ноутбуке.
 
 ## 3. Манифест и локальный runtime

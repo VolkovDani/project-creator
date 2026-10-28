@@ -6,3 +6,5 @@ nncf==2.19.0
 onnx==1.18.0
 optimum-intel==2.1.0
 transformers==5.0.0
+# Native Linux x86_64 / CPython 3.12: official CPU wheel, no CUDA downloads.
+torch @ https://download.pytorch.org/whl/cpu/torch-2.15.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl

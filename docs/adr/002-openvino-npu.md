@@ -33,6 +33,7 @@ OpenVINO не доказывает совместимость BGE-M3, pooling и
 | Runtime | `openvino==2026.4.1`, `openvino-genai==2026.4.1.0`, `openvino-tokenizers==2026.4.1.0` | OpenVINO / Intel; Apache-2.0 |
 | Runtime transitive | `numpy==2.5.4`, `openvino-telemetry==2025.2.0` | NumPy (BSD-3-Clause), OpenVINO Telemetry (Apache-2.0) |
 | Явная подготовка весов в отдельной среде | `nncf==2.19.0`, `onnx==1.18.0`, `optimum-intel==2.1.0`, `transformers==5.0.0` | Intel, ONNX, Hugging Face; Apache-2.0 |
+| Экспорт, значимая transitive | `torch==2.15.0+cpu`, официальный wheel Linux x86_64 / CPython 3.12 | PyTorch; BSD-3-Clause |
 | Исходные веса | `Qwen/Qwen2.5-7B-Instruct`, конкретная revision и локальный манифест файлов | Qwen; Apache-2.0 |
 
 Тройка runtime соответствует официальной [матрице ABI](https://docs.openvino.ai/2026/get-started/install-openvino/configurations/genai-dependencies.html).
@@ -56,6 +57,11 @@ GenAI-релизами; Optimum Intel — официальный адаптер 
 Закреплённая тройка runtime установлена в среде разработки; импорт и наличие только CPU проверены без весов. Существенные runtime-зависимости NumPy и Telemetry закреплены по фактическому разрешению установки.
 Полный аудит лицензий и уязвимостей разрешённого дерева зависимостей не запускался;
 это не утверждение об отсутствии известных уязвимостей.
+Проверка разрешения экспортных зависимостей выявила CUDA/NVIDIA-зависимости
+обычного PyTorch с PyPI. Для Intel-ноутбука выбран явный CPU wheel из
+[официального индекса PyTorch](https://download.pytorch.org/whl/cpu/torch/),
+закреплённый полным URL для CPython 3.12/Linux x86_64. Сборки для других Python/ОС
+не подбираются автоматически; exporter работает в отдельном окружении.
 
 OpenVINO/NNCF документируют telemetry и команду `opt_in_out --opt_out`.
 В среде подготовки её нужно явно отключить; runtime не должен загружать веса

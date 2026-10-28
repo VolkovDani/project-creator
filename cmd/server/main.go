@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"github.com/VolkovDani/project-creator/internal/analysis"
 	"github.com/VolkovDani/project-creator/internal/api"
 	"github.com/VolkovDani/project-creator/internal/rag"
 	"log"
@@ -50,19 +49,9 @@ func main() {
 		}
 		embedder = provider
 	}
-	var generator analysis.Generator
-	generatorModel := os.Getenv("PROJECT_CREATOR_GENERATOR_MODEL")
-	generatorDigest := os.Getenv("PROJECT_CREATOR_GENERATOR_DIGEST")
-	if generatorModel != "" || generatorDigest != "" {
-		base := os.Getenv("PROJECT_CREATOR_OLLAMA_URL")
-		if base == "" {
-			base = "http://127.0.0.1:11434"
-		}
-		provider, err := analysis.NewOllama(base, generatorModel, generatorDigest)
-		if err != nil {
-			log.Fatal("invalid local analysis configuration: ", err)
-		}
-		generator = provider
+	generator, err := configuredGenerator(os.Getenv)
+	if err != nil {
+		log.Fatal("invalid local analysis configuration: ", err)
 	}
 	s, err := api.NewWithProviders(path, map[string]string{token: "default"}, embedder, generator)
 	if err != nil {

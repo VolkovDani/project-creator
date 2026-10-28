@@ -13,3 +13,9 @@
 *.db-*
 *.dump
 backups
+
+
+# Host-only NPU weights, environments, caches and live sockets.
+.npu/
+**/__pycache__/
+**/*.pyc

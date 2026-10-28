@@ -15,6 +15,23 @@ export type Scalars = {
   Float: { input: number; output: number; }
 };
 
+export type AnalysisFinding = {
+  __typename?: 'AnalysisFinding';
+  explanation: Scalars['String']['output'];
+  leftId: Scalars['ID']['output'];
+  leftVersion: Scalars['Int']['output'];
+  rightId: Scalars['ID']['output'];
+  rightVersion: Scalars['Int']['output'];
+  verdict: Scalars['String']['output'];
+};
+
+export type AnalysisSource = {
+  __typename?: 'AnalysisSource';
+  id: Scalars['ID']['output'];
+  text: Scalars['String']['output'];
+  version: Scalars['Int']['output'];
+};
+
 export type CreateProjectPayload = {
   __typename?: 'CreateProjectPayload';
   fieldErrors: Array<FieldError>;
@@ -51,6 +68,7 @@ export type Mutation = {
   createRequirement: RequirementPayload;
   deleteRequirement: DeleteRequirementPayload;
   indexRequirement: RequirementIndex;
+  startProjectAnalysis: ProjectAnalysis;
   updateRequirement: RequirementPayload;
 };
 
@@ -78,6 +96,11 @@ export type MutationIndexRequirementArgs = {
 };
 
 
+export type MutationStartProjectAnalysisArgs = {
+  projectId: Scalars['ID']['input'];
+};
+
+
 export type MutationUpdateRequirementArgs = {
   input: UpdateRequirementInput;
 };
@@ -92,6 +115,22 @@ export type Project = {
   updatedAt: Scalars['String']['output'];
 };
 
+export type ProjectAnalysis = {
+  __typename?: 'ProjectAnalysis';
+  completedAt: Scalars['String']['output'];
+  createdAt: Scalars['String']['output'];
+  embeddingProfile: Scalars['String']['output'];
+  errorCode: Scalars['String']['output'];
+  findings: Array<AnalysisFinding>;
+  generatorProfile: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  outcome: Scalars['String']['output'];
+  projectId: Scalars['ID']['output'];
+  sources: Array<AnalysisSource>;
+  stale: Scalars['Boolean']['output'];
+  status: Scalars['String']['output'];
+};
+
 export type ProjectInput = {
   description: Scalars['String']['input'];
   goal: Scalars['String']['input'];
@@ -101,6 +140,7 @@ export type ProjectInput = {
 export type Query = {
   __typename?: 'Query';
   project?: Maybe<Project>;
+  projectAnalysis?: Maybe<ProjectAnalysis>;
   projects: Array<Project>;
   requirementIndex: Array<RequirementIndex>;
   requirements: Array<Requirement>;
@@ -110,6 +150,11 @@ export type Query = {
 
 export type QueryProjectArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryProjectAnalysisArgs = {
+  projectId: Scalars['ID']['input'];
 };
 
 
@@ -182,6 +227,20 @@ export type UpdateRequirementInput = {
   text: Scalars['String']['input'];
   version: Scalars['Int']['input'];
 };
+
+export type ProjectAnalysisStatusQueryVariables = Exact<{
+  projectId: Scalars['ID']['input'];
+}>;
+
+
+export type ProjectAnalysisStatusQuery = { __typename?: 'Query', projectAnalysis?: { __typename?: 'ProjectAnalysis', id: string, projectId: string, status: string, outcome: string, errorCode: string, createdAt: string, completedAt: string, stale: boolean, generatorProfile: string, embeddingProfile: string, sources: Array<{ __typename?: 'AnalysisSource', id: string, version: number, text: string }>, findings: Array<{ __typename?: 'AnalysisFinding', leftId: string, rightId: string, leftVersion: number, rightVersion: number, verdict: string, explanation: string }> } | null };
+
+export type StartProjectAnalysisMutationVariables = Exact<{
+  projectId: Scalars['ID']['input'];
+}>;
+
+
+export type StartProjectAnalysisMutation = { __typename?: 'Mutation', startProjectAnalysis: { __typename?: 'ProjectAnalysis', id: string, projectId: string, status: string, outcome: string, errorCode: string, createdAt: string, completedAt: string, stale: boolean, generatorProfile: string, embeddingProfile: string, sources: Array<{ __typename?: 'AnalysisSource', id: string, version: number, text: string }>, findings: Array<{ __typename?: 'AnalysisFinding', leftId: string, rightId: string, leftVersion: number, rightVersion: number, verdict: string, explanation: string }> } };
 
 export type ProjectListQueryVariables = Exact<{
   limit: Scalars['Int']['input'];
@@ -264,6 +323,8 @@ export type IndexRequirementMutationVariables = Exact<{
 export type IndexRequirementMutation = { __typename?: 'Mutation', indexRequirement: { __typename?: 'RequirementIndex', requirementId: string, version: number, status: string, profile: string, errorCode: string } };
 
 
+export const ProjectAnalysisStatusDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"ProjectAnalysisStatus"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"projectId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"projectAnalysis"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"projectId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"projectId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"projectId"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"outcome"}},{"kind":"Field","name":{"kind":"Name","value":"errorCode"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"completedAt"}},{"kind":"Field","name":{"kind":"Name","value":"stale"}},{"kind":"Field","name":{"kind":"Name","value":"generatorProfile"}},{"kind":"Field","name":{"kind":"Name","value":"embeddingProfile"}},{"kind":"Field","name":{"kind":"Name","value":"sources"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"version"}},{"kind":"Field","name":{"kind":"Name","value":"text"}}]}},{"kind":"Field","name":{"kind":"Name","value":"findings"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"leftId"}},{"kind":"Field","name":{"kind":"Name","value":"rightId"}},{"kind":"Field","name":{"kind":"Name","value":"leftVersion"}},{"kind":"Field","name":{"kind":"Name","value":"rightVersion"}},{"kind":"Field","name":{"kind":"Name","value":"verdict"}},{"kind":"Field","name":{"kind":"Name","value":"explanation"}}]}}]}}]}}]} as unknown as DocumentNode<ProjectAnalysisStatusQuery, ProjectAnalysisStatusQueryVariables>;
+export const StartProjectAnalysisDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"StartProjectAnalysis"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"projectId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"startProjectAnalysis"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"projectId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"projectId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"projectId"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"outcome"}},{"kind":"Field","name":{"kind":"Name","value":"errorCode"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"completedAt"}},{"kind":"Field","name":{"kind":"Name","value":"stale"}},{"kind":"Field","name":{"kind":"Name","value":"generatorProfile"}},{"kind":"Field","name":{"kind":"Name","value":"embeddingProfile"}},{"kind":"Field","name":{"kind":"Name","value":"sources"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"version"}},{"kind":"Field","name":{"kind":"Name","value":"text"}}]}},{"kind":"Field","name":{"kind":"Name","value":"findings"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"leftId"}},{"kind":"Field","name":{"kind":"Name","value":"rightId"}},{"kind":"Field","name":{"kind":"Name","value":"leftVersion"}},{"kind":"Field","name":{"kind":"Name","value":"rightVersion"}},{"kind":"Field","name":{"kind":"Name","value":"verdict"}},{"kind":"Field","name":{"kind":"Name","value":"explanation"}}]}}]}}]}}]} as unknown as DocumentNode<StartProjectAnalysisMutation, StartProjectAnalysisMutationVariables>;
 export const ProjectListDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"ProjectList"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"limit"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"Int"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"offset"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"Int"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"projects"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"limit"},"value":{"kind":"Variable","name":{"kind":"Name","value":"limit"}}},{"kind":"Argument","name":{"kind":"Name","value":"offset"},"value":{"kind":"Variable","name":{"kind":"Name","value":"offset"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"goal"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}}]}}]}}]} as unknown as DocumentNode<ProjectListQuery, ProjectListQueryVariables>;
 export const ProjectDetailDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"ProjectDetail"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"project"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"goal"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}}]}}]}}]} as unknown as DocumentNode<ProjectDetailQuery, ProjectDetailQueryVariables>;
 export const CreateProjectDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateProject"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ProjectInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createProject"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"project"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"goal"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}}]}},{"kind":"Field","name":{"kind":"Name","value":"fieldErrors"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"path"}},{"kind":"Field","name":{"kind":"Name","value":"code"}},{"kind":"Field","name":{"kind":"Name","value":"messageKey"}},{"kind":"Field","name":{"kind":"Name","value":"params"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"key"}},{"kind":"Field","name":{"kind":"Name","value":"value"}}]}}]}}]}}]}}]} as unknown as DocumentNode<CreateProjectMutation, CreateProjectMutationVariables>;

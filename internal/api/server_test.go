@@ -132,7 +132,7 @@ func TestRejectFutureDatabaseVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY); INSERT INTO schema_migrations VALUES(4)`); err != nil {
+	if _, err = db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY); INSERT INTO schema_migrations VALUES(5)`); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()

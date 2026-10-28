@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"github.com/VolkovDani/project-creator/internal/analysis"
 	"github.com/VolkovDani/project-creator/internal/project"
 	"github.com/VolkovDani/project-creator/internal/rag"
 	graphql "github.com/graph-gophers/graphql-go"
@@ -33,8 +34,9 @@ func WithWorkspace(ctx context.Context, workspace string) context.Context {
 func workspace(ctx context.Context) string { v, _ := ctx.Value(workspaceKey{}).(string); return v }
 
 type Resolver struct {
-	DB  *sql.DB
-	RAG *rag.Service
+	DB       *sql.DB
+	RAG      *rag.Service
+	Analysis *analysis.Service
 }
 
 func (r *Resolver) CreateProject(ctx context.Context, args CreateProjectArgs) (*CreateProjectPayload, error) {

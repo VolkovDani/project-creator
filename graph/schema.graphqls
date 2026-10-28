@@ -8,9 +8,13 @@ input CreateRequirementInput { projectId: ID! text: String! }
 input UpdateRequirementInput { id: ID! projectId: ID! version: Int! text: String! }
 type RequirementPayload { requirement: Requirement fieldErrors: [FieldError!]! }
 type DeleteRequirementPayload { deleted: Boolean! }
-type Query { requirementIndex(projectId: ID! limit: Int! offset: Int!): [RequirementIndex!]! searchRequirements(projectId: ID! text: String! limit: Int!): [RequirementSearchHit!]!  requirements(projectId: ID! limit: Int! offset: Int!): [Requirement!]!  project(id: ID!): Project projects(limit: Int! offset: Int!): [Project!]! }
-type Mutation { indexRequirement(projectId: ID! requirementId: ID!): RequirementIndex!  createRequirement(input: CreateRequirementInput!): RequirementPayload! updateRequirement(input: UpdateRequirementInput!): RequirementPayload! deleteRequirement(id: ID! projectId: ID! version: Int!): DeleteRequirementPayload!  createProject(input: ProjectInput!): CreateProjectPayload! }
+type Query { projectAnalysis(projectId: ID!): ProjectAnalysis  requirementIndex(projectId: ID! limit: Int! offset: Int!): [RequirementIndex!]! searchRequirements(projectId: ID! text: String! limit: Int!): [RequirementSearchHit!]!  requirements(projectId: ID! limit: Int! offset: Int!): [Requirement!]!  project(id: ID!): Project projects(limit: Int! offset: Int!): [Project!]! }
+type Mutation { startProjectAnalysis(projectId: ID!): ProjectAnalysis!  indexRequirement(projectId: ID! requirementId: ID!): RequirementIndex!  createRequirement(input: CreateRequirementInput!): RequirementPayload! updateRequirement(input: UpdateRequirementInput!): RequirementPayload! deleteRequirement(id: ID! projectId: ID! version: Int!): DeleteRequirementPayload!  createProject(input: ProjectInput!): CreateProjectPayload! }
 
 
 type RequirementIndex { requirementId: ID! version: Int! status: String! profile: String! errorCode: String! }
 type RequirementSearchHit { requirementId: ID! projectId: ID! text: String! sourceText: String! version: Int! start: Int! end: Int! score: Float! }
+
+type AnalysisSource { id: ID! version: Int! text: String! }
+type AnalysisFinding { leftId: ID! rightId: ID! leftVersion: Int! rightVersion: Int! verdict: String! explanation: String! }
+type ProjectAnalysis { id: ID! projectId: ID! status: String! outcome: String! errorCode: String! createdAt: String! completedAt: String! stale: Boolean! generatorProfile: String! embeddingProfile: String! sources: [AnalysisSource!]! findings: [AnalysisFinding!]! }

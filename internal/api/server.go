@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/VolkovDani/project-creator/graph"
+	"github.com/VolkovDani/project-creator/internal/analysis"
 	"github.com/VolkovDani/project-creator/internal/rag"
 	"github.com/VolkovDani/project-creator/internal/storage"
 	graphql "github.com/graph-gophers/graphql-go"
@@ -26,6 +27,9 @@ func New(path string, tokens map[string]string) (*Server, error) {
 }
 
 func NewWithEmbedder(path string, tokens map[string]string, embedder rag.Embedder) (*Server, error) {
+	return NewWithProviders(path, tokens, embedder, nil)
+}
+func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedder, generator analysis.Generator) (*Server, error) {
 	if len(tokens) == 0 {
 		return nil, errors.New("at least one workspace token is required")
 	}
@@ -38,7 +42,12 @@ func NewWithEmbedder(path string, tokens map[string]string, embedder rag.Embedde
 	if err != nil {
 		return nil, err
 	}
-	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, RAG: rag.New(db, embedder)}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
+	retriever := rag.New(db, embedder)
+	embeddingProfile := ""
+	if embedder != nil {
+		embeddingProfile = embedder.Profile()
+	}
+	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, RAG: retriever, Analysis: analysis.New(db, retriever, generator, embeddingProfile)}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
 	if err != nil {
 		db.Close()
 		return nil, err

@@ -1,0 +1,6 @@
+# The upstream image contains the Vulkan backend/loader, but no Intel Mesa ICD.
+# Use Ubuntu's maintained driver packages from this pinned image's repositories.
+FROM ollama/ollama:0.40.11
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends mesa-vulkan-drivers \
+    && rm -rf /var/lib/apt/lists/*

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/VolkovDani/project-creator/graph"
+	"github.com/VolkovDani/project-creator/internal/rag"
 	"github.com/VolkovDani/project-creator/internal/storage"
 	graphql "github.com/graph-gophers/graphql-go"
 	"github.com/graph-gophers/graphql-go/relay"
@@ -21,6 +22,10 @@ type Server struct {
 }
 
 func New(path string, tokens map[string]string) (*Server, error) {
+	return NewWithEmbedder(path, tokens, nil)
+}
+
+func NewWithEmbedder(path string, tokens map[string]string, embedder rag.Embedder) (*Server, error) {
 	if len(tokens) == 0 {
 		return nil, errors.New("at least one workspace token is required")
 	}
@@ -33,10 +38,14 @@ func New(path string, tokens map[string]string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
+	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, RAG: rag.New(db, embedder)}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
 	if err != nil {
 		db.Close()
 		return nil, err
+	}
+	if err = announceStartup(db, tokens); err != nil {
+		db.Close()
+		return nil, errors.New("startup cache invalidation unavailable")
 	}
 	h := &relay.Handler{Schema: schema}
 	return &Server{db: db, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

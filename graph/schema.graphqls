@@ -8,5 +8,9 @@ input CreateRequirementInput { projectId: ID! text: String! }
 input UpdateRequirementInput { id: ID! projectId: ID! version: Int! text: String! }
 type RequirementPayload { requirement: Requirement fieldErrors: [FieldError!]! }
 type DeleteRequirementPayload { deleted: Boolean! }
-type Query { requirements(projectId: ID! limit: Int! offset: Int!): [Requirement!]!  project(id: ID!): Project projects(limit: Int! offset: Int!): [Project!]! }
-type Mutation { createRequirement(input: CreateRequirementInput!): RequirementPayload! updateRequirement(input: UpdateRequirementInput!): RequirementPayload! deleteRequirement(id: ID! projectId: ID! version: Int!): DeleteRequirementPayload!  createProject(input: ProjectInput!): CreateProjectPayload! }
+type Query { requirementIndex(projectId: ID! limit: Int! offset: Int!): [RequirementIndex!]! searchRequirements(projectId: ID! text: String! limit: Int!): [RequirementSearchHit!]!  requirements(projectId: ID! limit: Int! offset: Int!): [Requirement!]!  project(id: ID!): Project projects(limit: Int! offset: Int!): [Project!]! }
+type Mutation { indexRequirement(projectId: ID! requirementId: ID!): RequirementIndex!  createRequirement(input: CreateRequirementInput!): RequirementPayload! updateRequirement(input: UpdateRequirementInput!): RequirementPayload! deleteRequirement(id: ID! projectId: ID! version: Int!): DeleteRequirementPayload!  createProject(input: ProjectInput!): CreateProjectPayload! }
+
+
+type RequirementIndex { requirementId: ID! version: Int! status: String! profile: String! errorCode: String! }
+type RequirementSearchHit { requirementId: ID! projectId: ID! text: String! sourceText: String! version: Int! start: Int! end: Int! score: Float! }

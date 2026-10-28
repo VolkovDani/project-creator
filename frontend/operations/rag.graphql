@@ -1,0 +1,3 @@
+query RequirementIndexList($projectId: ID!, $limit: Int!, $offset: Int!) { requirementIndex(projectId:$projectId,limit:$limit,offset:$offset) { requirementId version status profile errorCode } }
+query SearchRequirements($projectId: ID!, $text: String!, $limit: Int!) { searchRequirements(projectId:$projectId,text:$text,limit:$limit) { requirementId projectId text sourceText version start end score } }
+mutation IndexRequirement($projectId: ID!, $requirementId: ID!) { indexRequirement(projectId:$projectId,requirementId:$requirementId) { requirementId version status profile errorCode } }

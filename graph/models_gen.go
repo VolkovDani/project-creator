@@ -55,6 +55,16 @@ type RequirementPayload struct {
 type DeleteRequirementPayload struct {
 	Deleted bool
 }
+type RequirementIndexArgs struct {
+	ProjectId graphql.ID
+	Limit     int32
+	Offset    int32
+}
+type SearchRequirementsArgs struct {
+	ProjectId graphql.ID
+	Text      string
+	Limit     int32
+}
 type RequirementsArgs struct {
 	ProjectId graphql.ID
 	Limit     int32
@@ -66,6 +76,10 @@ type ProjectArgs struct {
 type ProjectsArgs struct {
 	Limit  int32
 	Offset int32
+}
+type IndexRequirementArgs struct {
+	ProjectId     graphql.ID
+	RequirementId graphql.ID
 }
 type CreateRequirementArgs struct {
 	Input CreateRequirementInput
@@ -80,4 +94,21 @@ type DeleteRequirementArgs struct {
 }
 type CreateProjectArgs struct {
 	Input ProjectInput
+}
+type RequirementIndex struct {
+	RequirementId graphql.ID
+	Version       int32
+	Status        string
+	Profile       string
+	ErrorCode     string
+}
+type RequirementSearchHit struct {
+	RequirementId graphql.ID
+	ProjectId     graphql.ID
+	Text          string
+	SourceText    string
+	Version       int32
+	Start         int32
+	End           int32
+	Score         float64
 }

@@ -67,6 +67,8 @@ func (p *parser) typ() (string, error) {
 		t = "bool"
 	case "Int":
 		t = "int32"
+	case "Float":
+		t = "float64"
 	case "ID":
 		t = "graphql.ID"
 	default:

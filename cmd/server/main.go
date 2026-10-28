@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/VolkovDani/project-creator/internal/api"
+	"github.com/VolkovDani/project-creator/internal/rag"
 	"log"
 	"net/http"
 	"os"
@@ -24,7 +25,21 @@ func main() {
 	if strings.TrimSpace(token) != token {
 		log.Fatal("token must not contain edge whitespace")
 	}
-	s, err := api.New(path, map[string]string{token: "default"})
+	var embedder rag.Embedder
+	model := os.Getenv("PROJECT_CREATOR_EMBEDDING_MODEL")
+	digest := os.Getenv("PROJECT_CREATOR_EMBEDDING_DIGEST")
+	if model != "" || digest != "" {
+		base := os.Getenv("PROJECT_CREATOR_OLLAMA_URL")
+		if base == "" {
+			base = "http://127.0.0.1:11434"
+		}
+		provider, err := rag.NewOllama(base, model, digest)
+		if err != nil {
+			log.Fatal("invalid local embedding configuration: ", err)
+		}
+		embedder = provider
+	}
+	s, err := api.NewWithEmbedder(path, map[string]string{token: "default"}, embedder)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -1,0 +1,15 @@
+# Native Linux Docker Engine, Intel Arc (including Core Ultra integrated GPUs).
+# Do not combine with compose.gpu.yml (NVIDIA). See docs/intel-arc.md.
+services:
+  ollama:
+    image: project-creator-ollama-intel:0.40.11
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile.ollama-intel
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      OLLAMA_VULKAN: '1'
+      # Empty means automatic discovery; IDs come from Ollama's Vulkan logs.
+      GGML_VK_VISIBLE_DEVICES: ${GGML_VK_VISIBLE_DEVICES:-}

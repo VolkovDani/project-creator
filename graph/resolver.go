@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"github.com/VolkovDani/project-creator/internal/project"
+	"github.com/VolkovDani/project-creator/internal/rag"
 	graphql "github.com/graph-gophers/graphql-go"
 	"sync/atomic"
 	"time"
@@ -31,7 +32,10 @@ func WithWorkspace(ctx context.Context, workspace string) context.Context {
 }
 func workspace(ctx context.Context) string { v, _ := ctx.Value(workspaceKey{}).(string); return v }
 
-type Resolver struct{ DB *sql.DB }
+type Resolver struct {
+	DB  *sql.DB
+	RAG *rag.Service
+}
 
 func (r *Resolver) CreateProject(ctx context.Context, args CreateProjectArgs) (*CreateProjectPayload, error) {
 	if err := consume(ctx); err != nil {

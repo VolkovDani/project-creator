@@ -6,7 +6,7 @@ import (
 )
 
 func TestGenerateRejectsUnsupported(t *testing.T) {
-	for _, s := range []string{`scalar Date`, `type A { x: Float! }`, `type A @private { x: String! }`} {
+	for _, s := range []string{`scalar Date`, `type A { x: Unknown! }`, `type A @private { x: String! }`} {
 		if _, err := Generate(s); err == nil {
 			t.Fatalf("accepted %s", s)
 		}
@@ -29,5 +29,15 @@ func TestRequiredInputUsesValue(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "Input P\n") {
 		t.Fatalf("required input must be a value: %s", out)
+	}
+}
+
+func TestGenerateFloatSimilarity(t *testing.T) {
+	out, err := Generate(`type SearchHit { score: Float! }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "Score float64") {
+		t.Fatalf("float binding: %s", out)
 	}
 }

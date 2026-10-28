@@ -86,7 +86,7 @@ jobs:
       - name: Build Intel Vulkan runtime (no GPU required)
         run: |
           docker build -f Dockerfile.ollama-intel -t project-creator-ollama-intel:0.40.11 .
-          docker run --rm --entrypoint sh project-creator-ollama-intel:0.40.11 -c 'test -s /usr/share/vulkan/icd.d/intel_icd.x86_64.json && ollama --version'
+          docker run --rm --entrypoint sh project-creator-ollama-intel:0.40.11 -c 'set -- /usr/share/vulkan/icd.d/intel_icd*.json; test -s "$1" && cat "$1" && ollama --version'
       - name: Build and start clean disposable stack
         run: docker compose --env-file "$COMPOSE_ENV_FILE" up -d --build --wait --wait-timeout 180
       - name: Exercise HTTP model workflow and restart persistence

@@ -27,8 +27,9 @@ vulkaninfo --summary
 Не требуется NVIDIA Container Toolkit, `/dev/kfd` или `privileged`.
 
 В контейнере используется собственный `Dockerfile.ollama-intel`: закреплённый
-образ Ollama + `mesa-vulkan-drivers` из его Ubuntu-репозиториев. Это нужно,
-поскольку Vulkan loader/backend и Intel ICD — разные части. Пакеты Mesa
+образ Ollama + явная установка/обновление `mesa-vulkan-drivers` из его
+Ubuntu-репозиториев. Vulkan loader/backend и Intel ICD — разные части;
+Mesa уже может присутствовать в базовом образе. Пакеты Mesa
 получают обновления Ubuntu при пересборке; для получения обновлений используйте
 `docker compose build --pull --no-cache ollama` с конфигурацией ниже.
 

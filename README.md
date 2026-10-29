@@ -5,7 +5,7 @@
 На нативном Linux x86_64 с Python 3.12 и Docker Engine/Compose:
 
 ```bash
-./project-creator setup --device cpu  # либо arc, либо npu
+./project-creator setup --device cpu  # либо arc, nvidia, amd, npu
 ./project-creator up
 ./project-creator doctor
 ./project-creator down
@@ -167,6 +167,10 @@ IR-весов. Генерация на NPU и полный пример прил
 
 ### Необязательный NVIDIA GPU
 
+Через CLI: `./project-creator setup --device nvidia`. При нескольких NVIDIA GPU
+задайте `--gpu-id` с UUID из `nvidia-smi -L` (или индексом; CLI сохраняет UUID).
+Выбор сохраняется для `up`, `down` и `doctor`.
+
 На Linux предварительно установите совместимый NVIDIA-драйвер и
 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html),
 настройте его для Docker и проверьте доступность GPU контейнерам. Затем:
@@ -180,6 +184,39 @@ Override запрашивает GPU для Ollama; остальные серви
 macOS не предоставляет Metal GPU этому Linux-контейнеру; используйте CPU-вариант
 или отдельный осознанно настроенный локальный runtime. Официальные варианты
 описаны в [документации Ollama Docker](https://docs.ollama.com/docker).
+
+### GPU и встроенная графика: матрица запуска
+
+CLI поддерживает нативный Linux x86_64, Python 3.12 и Docker Engine/Compose 2.20+.
+Наличие профиля означает поддержку конфигурации; совместимость конкретного
+оборудования подтверждается отдельным реальным запуском `setup`/`up`.
+
+| Режим CLI | Устройство и runtime | Подготовка / статус |
+| --- | --- | --- |
+| `cpu` | Ollama 0.40.11 на CPU | Базовый вариант, GPU не нужен. |
+| `arc` | Intel Arc dGPU/iGPU, в том числе Core Ultra 7 268V; Ollama 0.40.11/Vulkan | Intel Linux graphics, доступ к `/dev/dri`; [инструкция Arc](docs/intel-arc.md). Intel ICD изолирован от AMD/NVIDIA. Новая логика выбора проверена тестами без GPU. |
+| `nvidia` | Поддерживаемая NVIDIA GPU; Ollama 0.40.11/CUDA | NVIDIA driver и Container Toolkit, `nvidia-smi`; аппаратная проверка новой CLI-интеграции ещё не выполнена. |
+| `amd` | Совместимые AMD dGPU/iGPU; Ollama 0.40.11-rocm | ROCm 7, `rocminfo`, `/dev/kfd` и `/dev/dri`; ограниченная матрица targets и отсутствие аппаратной приёмки описаны ниже. |
+| `npu` | Intel NPU; OpenVINO GenAI, embeddings на CPU | Генерация проверялась на ноутбуке; остаётся ограничение качества на примере недостатка данных. |
+
+Пример AMD: `./project-creator setup --device amd --gpu-id GPU-...`, где полный
+UUID берётся из `rocminfo`. При единственном адаптере `--gpu-id` можно опустить.
+AMD iGPU поддерживается только при совместимости её GFX target и драйвера:
+сам факт встроенной графики не гарантирует запуск. CLI принимает targets
+`gfx908`, `gfx90a`, `gfx942`, `gfx950`, `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`,
+`gfx1150`, `gfx1151`, `gfx1200`, `gfx1201` из
+[матрицы Ollama v0.40.11](https://github.com/ollama/ollama/blob/v0.40.11/docs/gpu.mdx).
+Это upstream-матрица, не список проверенных проектом видеокарт. Неизвестный target
+отклоняется; подмена `HSA_OVERRIDE_GFX_VERSION` не применяется.
+
+Для смены устройства или адаптера повторите `setup` с `--switch-device`.
+Данные и закреплённые модели сохраняются. `setup`/`up` проверяют GPU offload
+отдельно для embeddings и генератора; нулевой offload даёт ошибку вместо
+успешного CPU fallback. Показанные байты в GPU-памяти допускают частичный offload
+и не являются доказательством полного выполнения на GPU. `doctor` не запускает
+inference и сообщает об отсутствии измерения для незагруженной модели.
+Подробности выбора, ручного запуска и аппаратной проверки — в
+[инструкции CLI](docs/setup-cli.md#gpu-и-выбор-адаптера).
 
 ### Остановка, обновление и резервные копии
 
@@ -771,4 +808,5 @@ go test ./internal/analysis -run TestRealAnalysisSmoke -v -count=1
 Она требует заранее загруженной модели и проверяет небольшой набор явных примеров,
 не статистическое качество или полноту. Для unit/integration/GraphQL/E2E используйте
 команды выше; интеграционные тесты требуют отдельную тестовую PostgreSQL-базу.
+
 

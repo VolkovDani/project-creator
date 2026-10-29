@@ -6,6 +6,9 @@
 ./project-creator setup --device cpu
 # либо Intel Arc:
 ./project-creator setup --device arc
+# либо NVIDIA GPU / совместимая AMD dGPU или iGPU:
+./project-creator setup --device nvidia
+./project-creator setup --device amd
 # либо Intel NPU для генерации + CPU для BGE-M3:
 ./project-creator setup --device npu
 ```
@@ -41,7 +44,7 @@ Ollama и других инструментов сохраняется на их
 и явно помечается отдельно от локализованного объяснения и следующего действия.
 
 CLI поставляется исходным исполняемым файлом в репозитории, без сторонних
-Python-зависимостей для CPU/Arc. Запускайте его от обычного пользователя,
+Python-зависимостей для CPU/GPU. Запускайте его от обычного пользователя,
 имеющего доступ к Docker Engine; не запускайте установщик через `sudo`.
 
 Установите Docker по официальной инструкции, запустите Engine и убедитесь,
@@ -53,6 +56,8 @@ Python-зависимостей для CPU/Arc. Запускайте его от
 | --- | --- |
 | CPU | RAM не менее 8 GiB, RAM+swap не менее 12 GiB, свободный диск от 24 GiB перед первой установкой. Для Qwen 7B рекомендуется 16–32 GB RAM. |
 | Arc | Те же ресурсы, Intel render device в `/dev/dri`, права чтения/записи; Linux graphics/Vulkan по [инструкции Arc](intel-arc.md). |
+| NVIDIA | Те же ресурсы, совместимая GPU и NVIDIA-драйвер, настроенный NVIDIA Container Toolkit в Docker и `nvidia-smi` на хосте. |
+| AMD | Те же ресурсы, совместимый ROCm 7 driver, `rocminfo` на хосте, доступ к `/dev/kfd` и `/dev/dri`. Только GFX targets из закреплённой upstream-матрицы. |
 | NPU | RAM от 20 GiB, RAM+swap от 28 GiB, свободный диск от 50 GiB для исходных Safetensors, промежуточного экспорта, INT4 и кешей. Загруженный `intel_vpu`, доступный `/dev/accel/accel*`, firmware/userspace driver по [инструкции NPU](intel-npu.md). |
 
 После подготовки требуется как минимум 6 GiB свободного диска для CPU/Arc
@@ -111,6 +116,84 @@ compiled cache, manifest, история анализов и synthetic diagnosti
 CLI путь NPU использует CPU embeddings; ручной NPU+Arc вариант остаётся в
 `docs/intel-npu.md`.
 
+## GPU и выбор адаптера
+
+`arc` означает GPU, включая встроенную Intel Arc; `npu` — отдельный
+OpenVINO-генератор. NVIDIA использует CUDA, AMD — ROCm. Один CLI-профиль
+подключает ровно один override; сочетать разные GPU overrides не нужно.
+
+```bash
+nvidia-smi -L
+./project-creator setup --device nvidia --gpu-id GPU-полный-uuid
+rocminfo
+./project-creator setup --device amd --gpu-id GPU-полный-uuid
+# Intel: числовой Vulkan ID из логов Ollama, не номер renderD*:
+./project-creator setup --device arc --gpu-id 0
+./project-creator setup --device cpu --switch-device
+```
+
+Это примеры: замените UUID фактическим значением утилиты. При одной NVIDIA/AMD
+GPU CLI выбирает её автоматически; при нескольких требует `--gpu-id`.
+NVIDIA принимает индекс `nvidia-smi` или UUID, затем сохраняет UUID. Для AMD
+используйте `Uuid: GPU-...` из `rocminfo`; допустимый числовой индекс CLI —
+порядок GPU начиная с нуля, без CPU agents, **не** `Agent N` из вывода.
+Предпочтителен UUID. Выбранная AMD GPU должна входить в GFX-матрицу из README;
+чужой или неподдерживаемый адаптер отклоняется до скачивания моделей.
+
+NVIDIA Container Toolkit предварительно настраивается по
+[официальной инструкции](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+CLI проверяет наличие NVIDIA runtime в Docker и драйвера 550+; некоторые старые
+карты требуют 570+. Совместимость самой карты проверяйте по
+[документации закреплённой версии Ollama](https://github.com/ollama/ollama/blob/v0.40.11/docs/gpu.mdx).
+AMD требует [ROCm 7 Linux driver](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/)
+и `rocminfo`; используется официальный образ `ollama/ollama:0.40.11-rocm`.
+Системные драйверы CLI не устанавливает. Поддержка AMD ограничена upstream
+GFX-матрицей: проект не проводил аппаратную приёмку AMD/NVIDIA на этой версии CLI.
+
+Intel-профиль загружает только Intel Mesa ICD: AMD и NVIDIA Vulkan-драйверы
+не участвуют в обнаружении. При нескольких Intel render devices явно задайте
+ID из логов **этого** контейнера; порядок может измениться после обновления
+драйвера или оборудования. Неверный индекс должен приводить к ошибке offload.
+Для первоначального получения логов используйте ручной Arc-запуск по
+`docs/intel-arc.md`. `--gpu-id` принимает только один адаптер, не список.
+Для CPU/NPU этот параметр запрещён.
+
+UUID/индекс сохраняется в `.project-creator/state.json`; для его смены нужен
+`setup --switch-device`. Для существующего Arc state без нового поля сохраняется
+старый `GGML_VK_VISIBLE_DEVICES` из `.env` (один ID либо автоматический выбор).
+Сохранённый выбор имеет приоритет над `.env` и переменными shell, в том числе
+при `up`, `down`, `doctor`. CUDA/ROCr/HIP/HSA overrides из shell не наследуются.
+Секреты, имя Compose-проекта, БД и weights при смене GPU не заменяются.
+
+`setup`/`up` выполняют прежние три синтетических AI-сценария. После embedding
+probe и генерации проверяются загруженные model/digest и положительный
+`size_vram`. В диагностике роли перечислены отдельно, с запрошенным адаптером
+и байтами модели/VRAM. Положительный `size_vram` подтверждает offload, но
+не измеряет долю операций и не доказывает полный GPU-режим; возможен частичный
+offload на CPU. Идентичность устройства ограничена изоляцией/выбором runtime,
+не выводится из значения VRAM. Автоматический CPU fallback не принимается как
+успешная установка. Ошибка драйвера/модели не меняет выбранный профиль.
+
+`doctor` читает inventory, pins и `/api/ps`, не запускает inference. Для уже
+загруженной модели выводит измерение; для выгруженной — явно сообщает, что
+свежая проверка требуется через `up`. `doctor --device` не может переобозначить
+устройство существующей установки — переключение делается через `setup`.
+
+Ручной AMD-запуск после настройки `.env` и загрузки/pin моделей:
+
+```bash
+PROJECT_CREATOR_GPU_ID=GPU-полный-uuid docker compose -f compose.yml -f compose.amd.yml up -d --wait
+```
+
+При ручном запуске сохраняйте те же `-f` и UUID для следующих команд.
+Для NVIDIA доступен прежний `compose.gpu.yml` (без UUID выбирается индекс 0).
+
+Аппаратная приёмка выполняется отдельно: запишите GPU/iGPU, ОС, kernel,
+driver, версию runtime, UUID/индекс, digests моделей, результат `setup`/`up`,
+измерения обеих ролей и три результата анализа с источниками. Проверьте
+повторный `up` и явное переключение CPU↔GPU с сохранением проектов и моделей.
+Тесты без GPU проверяют логику и Compose-конфигурацию, а не эти измерения.
+
 ## Закрепление моделей и повтор после прерывания
 
 Ollama: BGE-M3 `bge-m3:567m` (1024 измерения) и Qwen `qwen2.5:7b`.
@@ -167,7 +250,7 @@ pin не обновляется сам при повреждении. Полно
 
 Здоровый контейнер и найденный `accel0` сами по себе не считаются успехом.
 Для Ollama выполняется отдельный embedding probe (1024 finite nonzero values),
-проверяется loaded digest и `size_vram` после inference: CPU — 0, Arc — больше 0.
+проверяется loaded digest и `size_vram` после inference: CPU — 0, Arc/NVIDIA/AMD — больше 0.
 Это подтверждает GPU offload, но не обещает полного GPU выполнения всех операций.
 Для NPU подтверждается `device=NPU` и точный профиль native runtime; runtime
 выбирает только NPU, без AUTO. При неверном JSON, источниках, вердикте или устройстве
@@ -183,6 +266,7 @@ pin не обновляется сам при повреждении. Полно
 | --- | --- |
 | `PLATFORM`, `DOCKER`, `RESOURCES` | Поддерживаемая ОС, Engine/Compose, RAM/swap/диск. |
 | `DEVICE_ACCESS`, `DEVICE_DRIVER`, `DEVICE_EXECUTION` | Драйвер, группы, фактический offload и выбранное устройство; fallback не принимается. |
+| `GPU_SELECTION`, `GPU_UNSUPPORTED` | Явный UUID/индекс адаптера, поддерживаемый GFX target; проверьте inventory и матрицу GPU выше. |
 | `CONFIG_*`, `PROJECT_CHANGE`, `DEVICE_CHANGE` | Приватный `.env`, прежнее имя проекта, явное переключение устройства. |
 | `MODEL_DOWNLOAD`, `SOURCE_DOWNLOAD`, `PYTHON_*`, `TOOLS_DOWNLOAD` | Сеть и кеш; повторить ту же setup-команду после устранения причины. |
 | `MODEL_DRIFT`, `MODEL_DIGEST`, `SOURCE_INTEGRITY`, `MODEL_MANIFEST` | Сохранённый pin, целостность weights и source snapshot. |
@@ -199,3 +283,4 @@ pin не обновляется сам при повреждении. Полно
 python3 -m unittest discover -s runtime/setup -v
 python3 -m compileall -q runtime/setup project-creator
 ```
+

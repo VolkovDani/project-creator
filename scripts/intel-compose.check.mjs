@@ -12,6 +12,10 @@ test('Intel override keeps the local stack and grants only DRM GPU access', () =
   const {services, volumes} = JSON.parse(result.stdout);
   const o = services.ollama;
   assert.equal(o.environment.OLLAMA_VULKAN, '1');
+  assert.equal(o.environment.CUDA_VISIBLE_DEVICES, '-1');
+  assert.equal(o.environment.ROCR_VISIBLE_DEVICES, '-1');
+  assert.equal(o.environment.VK_DRIVER_FILES, '/etc/project-creator-intel-vulkan.json');
+  assert.equal(o.environment.VK_ICD_FILENAMES, '/etc/project-creator-intel-vulkan.json');
   assert.equal(o.environment.GGML_VK_VISIBLE_DEVICES, '0');
   assert.equal(o.environment.OLLAMA_NO_CLOUD, '1');
   assert.equal(o.environment.OLLAMA_MAX_LOADED_MODELS, '1');
@@ -31,3 +35,4 @@ test('Intel override keeps the local stack and grants only DRM GPU access', () =
     assert.ok(!services[name].devices?.length, `${name} must not get GPU access`);
   }
 });
+

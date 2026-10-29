@@ -22,6 +22,8 @@ import time
 import urllib.error
 import urllib.request
 
+import gpu
+
 MESSAGES = {
     'en': {
         'title': 'Install and run Project Creator on native Linux x86_64.',
@@ -48,6 +50,10 @@ MESSAGES = {
         'verify': 'UI/API, index and analysis with fixed synthetic sources and expected findings.',
         'fixture': 'Synthetic diagnostic project retained: {id}',
         'download': 'Model download is explicit; interrupted files are reused on retry.',
+        'gpu_id': 'GPU UUID/index (Vulkan numeric index for Arc); explicit change requires --switch-device.',
+        'gpu_detected': 'Detected {device}: {name}; backend {backend}; requested adapter {id}. Inference is checked separately.',
+        'execution': '{role}: {device}, requested adapter {id}; GPU offload bytes {vram}, model bytes {size}. Partial offload is possible; adapter identity/full GPU execution is not established by this metric.',
+        'execution_unchecked': '{role}: no loaded-model measurement; doctor does not run inference. Run up for a fresh offload check.',
     },
     'ru': {
         'title': 'Установка и запуск Project Creator на нативном Linux x86_64.',
@@ -74,12 +80,18 @@ MESSAGES = {
         'verify': 'UI/API, индексация и анализ с синтетическими источниками и ожидаемыми выводами.',
         'fixture': 'Сохранён синтетический проект диагностики: {id}',
         'download': 'Скачивание явно запрошено; после прерывания готовые файлы используются повторно.',
+        'gpu_id': 'UUID/индекс GPU (для Arc числовой индекс Vulkan); смена требует --switch-device.',
+        'gpu_detected': 'Обнаружено {device}: {name}; backend {backend}; выбран адаптер {id}. Inference проверяется отдельно.',
+        'execution': '{role}: {device}, выбран адаптер {id}; GPU offload {vram} байт, модель {size} байт. Возможен частичный offload; метрика не подтверждает личность адаптера и полное выполнение на GPU.',
+        'execution_unchecked': '{role}: нет измерения загруженной модели; doctor не запускает inference. Для новой проверки offload выполните up.',
     },
 }
 
 
 # User-facing explanations are translated; source tool diagnostics remain verbatim.
 ERROR_MESSAGES = {
+    'GPU_SELECTION': ('Неоднозначный или отсутствующий адаптер. Укажите --gpu-id из nvidia-smi/rocminfo либо индекс Vulkan из логов Ollama; подробности в docs/setup-cli.md.', 'Ambiguous or missing adapter. Set --gpu-id from nvidia-smi/rocminfo or the Vulkan index from Ollama logs; see docs/setup-cli.md.'),
+    'GPU_UNSUPPORTED': ('AMD GPU не входит в матрицу закреплённого ROCm. Проверьте docs/setup-cli.md; подмена GFX target и fallback отключены.', 'AMD GPU is outside the pinned ROCm matrix. See docs/setup-cli.md; target spoofing and fallback are disabled.'),
     'API': ('API недоступен или отклонил запрос. Проверьте frontend/backend и их логи.', 'The API is unavailable or rejected a request. Check frontend/backend and their logs.'),
     'BUSY': ('Другая команда установки уже работает. Дождитесь её завершения.', 'Another installation command is active. Wait for it to finish.'),
     'CONFIG_FORMAT': ('Неподдерживаемый формат .env. Исправьте кавычки, дубли ключей или интерполяцию; файл сохраняется.', 'Unsupported .env format. Fix quoting, duplicate keys or interpolation; the file is preserved.'),
@@ -215,7 +227,11 @@ class Config:
         atomic(path, content)
         self.values = future
 
-    def ensure(self, device, project=None, switch=False):
+    def ensure(self, device, project=None, switch=False, gpu_id=None):
+        if device not in gpu.DEVICES:
+            raise Failure('CONFIG_STATE', 'Unknown device; use setup --help.')
+        if gpu_id is not None and (device not in gpu.GPU_DEVICES or not re.fullmatch(r'(?:[0-9]+|GPU-[a-fA-F0-9-]+)', gpu_id)):
+            raise Failure('GPU_SELECTION', 'Use a single GPU UUID/index with a GPU device.')
         prior = self.state.get('device')
         if prior and prior != device and not switch:
             raise Failure('DEVICE_CHANGE', 'Use setup --device ... --switch-device to explicitly change devices.')
@@ -224,7 +240,12 @@ class Config:
             raise Failure('CONFIG_PROJECT', 'Use a lowercase Compose project name starting with a letter or digit.')
         if self.state.get('project') and self.state['project'] != desired:
             raise Failure('PROJECT_CHANGE', 'Project name differs from the saved installation; preserve the original volumes.')
-        updates = {}
+        selected = gpu_id if gpu_id is not None else (self.state.get('gpu_id') if prior == device else None)
+        if gpu_id is not None and prior == device and self.state.get('gpu_id') != gpu_id and self.state.get('gpu_id') is not None and not switch:
+            raise Failure('DEVICE_CHANGE', 'Changing the selected GPU requires --switch-device.')
+        updates = {'PROJECT_CREATOR_GPU_ID': selected or ''}
+        if device == 'arc' and gpu_id is not None:
+            updates['GGML_VK_VISIBLE_DEVICES'] = gpu_id
         for key in ('POSTGRES_PASSWORD', 'PROJECT_CREATOR_TOKEN'):
             value = self.values.get(key)
             if value is None:
@@ -242,7 +263,8 @@ class Config:
         if 'COMPOSE_PROJECT_NAME' not in self.values:
             updates['COMPOSE_PROJECT_NAME'] = desired
         self.update_env(updates)
-        self.state.update(version=1, device=device, project=desired)
+        self.state.update(version=1, device=device, project=desired, gpu_id=selected)
+        self.state.pop('execution', None)
         self.save()
         return dict(self.values)
 
@@ -328,7 +350,7 @@ class Installer:
     def environment(self):
         # Compose shell variables override .env; never inherit an unrelated installation.
         return {key: value for key, value in os.environ.items()
-                if not key.startswith(('PROJECT_CREATOR_', 'COMPOSE_', 'OLLAMA_', 'NPU_SOCKET_', 'GGML_'))
+                if not key.startswith(('PROJECT_CREATOR_', 'COMPOSE_', 'OLLAMA_', 'NPU_SOCKET_', 'GGML_', 'CUDA_', 'ROCR_', 'HIP_', 'HSA_', 'NVIDIA_'))
                 and key not in ('POSTGRES_PASSWORD', 'APP_PORT', 'POSTGRES_PORT')}
 
     def compose(self, *args, capture=False, timeout=240, code='COMPOSE'):
@@ -336,13 +358,57 @@ class Installer:
             raise Failure('CONFIG_STATE', 'Run setup with an explicit --device first.')
         command = ['docker', 'compose', '--project-directory', str(self.root), '--env-file', str(self.root / '.env'),
                    '--project-name', self.config.state['project'], '-f', str(self.root / 'compose.yml')]
-        if self.config.state['device'] == 'arc':
-            command += ['-f', str(self.root / 'compose.intel.yml')]
-        if self.config.state['device'] == 'npu':
-            command += ['-f', str(self.root / 'compose.npu.yml')]
-        return self.runner.run(command + list(args), capture=capture, timeout=timeout, env=self.environment(), code=code)
+        device = self.config.state.get('device')
+        if device not in gpu.DEVICES:
+            raise Failure('CONFIG_STATE', 'Unknown saved device; restore installation state.')
+        if device in gpu.OVERRIDES:
+            command += ['-f', str(self.root / gpu.OVERRIDES[device])]
+        environment = self.environment()
+        # Saved selections are authoritative even if .env or the shell drifted.
+        selected = self.gpu_id(device)
+        if device in ('nvidia', 'amd'):
+            if selected is not None and not re.fullmatch(r'(?:[0-9]+|GPU-[a-fA-F0-9-]+)', selected):
+                raise Failure('GPU_SELECTION', 'Invalid saved GPU selector; restore state or explicitly switch devices.')
+            environment['PROJECT_CREATOR_GPU_ID'] = selected or ('0' if device == 'nvidia' else '')
+        elif device == 'arc':
+            if selected is not None and not re.fullmatch(r'[0-9]+', selected):
+                raise Failure('GPU_SELECTION', 'Arc requires one numeric Vulkan index; explicitly switch to CPU if desired.')
+            environment['GGML_VK_VISIBLE_DEVICES'] = selected or ''
+        return self.runner.run(command + list(args), capture=capture, timeout=timeout, env=environment, code=code)
 
-    def prerequisites(self, device):
+    def gpu_id(self, device):
+        if self.config.state.get('device') == device and self.config.state.get('gpu_id') is not None:
+            return self.config.state['gpu_id']
+        if device == 'arc':
+            return self.config.values.get('GGML_VK_VISIBLE_DEVICES') or None
+        return None
+
+    def inspect_gpu(self, device, identifier=None):
+        try:
+            if device == 'nvidia':
+                inventory = self.runner.run(['nvidia-smi', '--query-gpu=index,uuid,name,driver_version', '--format=csv,noheader'], capture=True, env=self.environment(), code='DEVICE_DRIVER')
+                selected = gpu.select(gpu.nvidia_devices(inventory), identifier)
+            elif device == 'amd':
+                if not os.access('/dev/kfd', os.R_OK | os.W_OK):
+                    raise Failure('DEVICE_ACCESS', 'AMD ROCm requires accessible /dev/kfd; install the supported driver and check groups.')
+                inventory = self.runner.run(['rocminfo'], capture=True, env=self.environment(), code='DEVICE_DRIVER')
+                selected = gpu.select(gpu.amd_devices(inventory), identifier)
+            else:
+                # Vulkan IDs are Ollama enumeration IDs, not DRM render-node numbers.
+                vendors = [p.read_text().strip() for p in Path('/sys/class/drm').glob('renderD*/device/vendor')]
+                if '0x8086' not in vendors:
+                    raise Failure('DEVICE_ACCESS', 'No Intel render device detected.')
+                if identifier is not None and not re.fullmatch(r'[0-9]+', identifier):
+                    raise Failure('GPU_SELECTION', 'Arc needs one numeric Vulkan ID from Ollama logs.')
+                if vendors.count('0x8086') > 1 and identifier is None:
+                    raise Failure('GPU_SELECTION', 'Multiple Intel render devices; specify --gpu-id using Ollama Vulkan logs.')
+                selected = dict(id=identifier, name='Intel render device (Vulkan identity requires runtime logs)', backend='Vulkan')
+        except gpu.GPUError as error:
+            raise Failure(error.code, str(error)) from None
+        self.say('gpu_detected', device=device, name=selected['name'], backend=selected['backend'], id=selected['id'] or 'auto')
+        return selected['id']
+
+    def prerequisites(self, device, gpu_id=None):
         if platform.system() != 'Linux' or platform.machine() not in ('x86_64', 'amd64'):
             raise Failure('PLATFORM', MESSAGES[self.lang]['prerequisites'])
         version = self.runner.run(['docker', 'compose', 'version', '--short'], capture=True, code='DOCKER')
@@ -355,6 +421,8 @@ class Installer:
             raise Failure('DOCKER', 'Invalid Docker Engine diagnostics.') from None
         if info.get('OSType') != 'linux' or 'desktop' in info.get('OperatingSystem', '').lower():
             raise Failure('PLATFORM', 'Use native Linux Docker Engine; Docker Desktop is outside the supported matrix.')
+        if device == 'nvidia' and 'nvidia' not in info.get('Runtimes', {}):
+            raise Failure('DEVICE_DRIVER', 'Configure NVIDIA Container Toolkit for Docker (nvidia-ctk runtime configure); CLI does not install drivers or restart Docker.')
         memory = {}
         for line in Path('/proc/meminfo').read_text().splitlines():
             key, value = line.split(':', 1)
@@ -368,18 +436,18 @@ class Installer:
         minimum_disk = (8 if exported else 50) if device == 'npu' else (6 if ollama_prepared else 24)
         if ram < (20 if device == 'npu' else 8) or ram+swap < (28 if device == 'npu' else 12) or disk < minimum_disk:
             raise Failure('RESOURCES', f'Need RAM >= {20 if device == "npu" else 8} GiB, RAM+swap >= {28 if device == "npu" else 12} GiB and disk >= {minimum_disk} GiB; found {ram:.1f}/{swap:.1f}/{disk:.1f}.')
-        if device in ('npu', 'arc'):
+        if device in ('npu', 'arc', 'amd'):
             devices = list(Path('/dev/accel').glob('accel*')) if device == 'npu' else list(Path('/dev/dri').glob('renderD*'))
             if not devices or not any(os.access(path, os.R_OK | os.W_OK) for path in devices):
-                raise Failure('DEVICE_ACCESS', f'No accessible {device} device; install the vendor driver and join its device group, then log in again. See docs/intel-{ "npu" if device == "npu" else "arc"}.md.')
-            if device == 'arc' and not any(path.read_text().strip() == '0x8086' for path in Path('/sys/class/drm').glob('renderD*/device/vendor')):
-                raise Failure('DEVICE_ACCESS', 'No Intel render device detected; select CPU explicitly or install the Intel graphics driver.')
+                raise Failure('DEVICE_ACCESS', f'No accessible {device} device; install the vendor driver and check device groups. See docs/setup-cli.md.')
             if device == 'npu':
                 if not Path('/sys/module/intel_vpu').exists():
                     raise Failure('DEVICE_DRIVER', 'intel_vpu is not loaded. Follow docs/intel-npu.md; CLI does not install drivers or change permissions.')
                 if any('rootless' in option.lower() for option in info.get('SecurityOptions', [])):
                     raise Failure('DEVICE_ACCESS', 'NPU socket group mapping with rootless Docker needs manual configuration; use native rootful Engine for this automated path.')
         self.say('checks', device=device, ram=ram, swap=swap, disk=disk)
+        if device in gpu.GPU_DEVICES:
+            return self.inspect_gpu(device, gpu_id if gpu_id is not None else self.gpu_id(device))
 
     def ollama(self, path, body=None):
         # Node tools container reaches the private Compose service, not an exposed port.
@@ -663,11 +731,15 @@ class Installer:
         model = self.config.values['PROJECT_CREATOR_'+role+'_MODEL']
         digest = self.config.values['PROJECT_CREATOR_'+role+'_DIGEST']
         loaded = next((item for item in self.ollama('/api/ps').get('models', []) if item.get('name') == model), None)
-        if not loaded or loaded.get('digest') != digest or not isinstance(loaded.get('size_vram'), int):
+        if not loaded or loaded.get('digest') != digest or type(loaded.get('size_vram')) is not int or loaded['size_vram'] < 0:
             raise Failure('DEVICE_EXECUTION', f'Loaded {role.lower()} model/digest is not confirmed by Ollama.')
         uses_gpu = loaded['size_vram'] > 0
-        if uses_gpu != (device == 'arc'):
+        if uses_gpu != (device in gpu.GPU_DEVICES):
             raise Failure('DEVICE_EXECUTION', f'{role} is not executing on the explicitly selected {device} path. Inspect Ollama logs; no fallback accepted.')
+        record = dict(device=device, requested_gpu=self.gpu_id(device), size_vram=loaded['size_vram'], size=loaded.get('size'))
+        self.config.state.setdefault('execution', {})[role] = record
+        if device in gpu.GPU_DEVICES:
+            self.say('execution', role=role, device=device, id=record['requested_gpu'] or 'auto', vram=record['size_vram'], size=record['size'])
 
     def graphql(self, query, variables=None):
         request = urllib.request.Request(self.url+'/api/graphql', data=json.dumps({'query': query, 'variables': variables or {}}).encode(), headers={'Content-Type': 'application/json'})
@@ -744,8 +816,9 @@ class Installer:
     def up(self):
         device = self.config.state.get('device')
         if not device:
-            raise Failure('CONFIG_STATE', 'Run setup --device cpu|arc|npu first.')
+            raise Failure('CONFIG_STATE', 'Run setup with an explicit --device first.')
         self.config.state['verified'] = False
+        self.config.state.pop('execution', None)
         self.config.save()
         self.prerequisites(device)
         if device == 'npu':
@@ -767,11 +840,13 @@ class Installer:
             raise Failure('UI', 'Frontend is unavailable; inspect docker compose logs.') from None
         self.graphql('{projects(limit:1,offset:0){id}}')
 
-    def setup(self, device, project=None, switch=False):
-        self.prerequisites(device)
+    def setup(self, device, project=None, switch=False, gpu_id=None):
+        if gpu_id is not None and device not in gpu.GPU_DEVICES:
+            raise Failure('GPU_SELECTION', '--gpu-id requires arc, nvidia or amd.')
+        selected = self.prerequisites(device, gpu_id=gpu_id)
         self.step('config')
         previous_device = self.config.state.get('device')
-        self.config.ensure(device, project=project, switch=switch)
+        self.config.ensure(device, project=project, switch=switch, gpu_id=selected)
         self.config.state['verified'] = False
         self.config.save()
         if previous_device == 'npu' and device != 'npu':
@@ -803,6 +878,8 @@ class Installer:
         self.say('stopped')
 
     def doctor(self, device=None):
+        if device and self.config.state.get('device') and device != self.config.state['device']:
+            raise Failure('DEVICE_CHANGE', 'Doctor cannot reinterpret a saved installation as another device; switch with setup.')
         device = device or self.config.state.get('device') or 'cpu'
         self.prerequisites(device)
         if self.config.state:
@@ -817,6 +894,11 @@ class Installer:
                 actual = next((item.get('digest') for item in self.ollama('/api/tags').get('models', []) if item.get('name') == model), None)
                 if not pin or pin != actual:
                     raise Failure('MODEL_DRIFT', f'{role} model is missing or differs from the pinned digest; repeat setup with the same device.')
+                if device in gpu.GPU_DEVICES:
+                    if any(item.get('name') == model for item in self.ollama('/api/ps').get('models', [])):
+                        self.check_execution(role)
+                    else:
+                        self.say('execution_unchecked', role=role)
         self.say('doctor_ok')
 
 
@@ -843,10 +925,11 @@ def main(root=None, argv=None):
     for name in ('setup', 'up', 'down', 'doctor'):
         command = sub.add_parser(name, help=messages[name])
         if name in ('setup', 'doctor'):
-            command.add_argument('--device', choices=['cpu', 'arc', 'npu'], required=name == 'setup', help=messages['device'])
+            command.add_argument('--device', choices=gpu.DEVICES, required=name == 'setup', help=messages['device'])
         if name == 'setup':
             command.add_argument('--project-name', help=messages['project'])
             command.add_argument('--switch-device', action='store_true', help=messages['switch'])
+            command.add_argument('--gpu-id', help=messages['gpu_id'])
     args = parser.parse_args(argv)
     try:
         app = Installer(root, lang=args.lang)
@@ -855,7 +938,7 @@ def main(root=None, argv=None):
         else:
             with locked(root):
                 if args.command == 'setup':
-                    app.setup(args.device, project=args.project_name, switch=args.switch_device)
+                    app.setup(args.device, project=args.project_name, switch=args.switch_device, gpu_id=args.gpu_id)
                 else:
                     getattr(app, args.command)()
         return 0
@@ -873,3 +956,4 @@ def main(root=None, argv=None):
 
 if __name__ == '__main__':
     sys.exit(main())
+

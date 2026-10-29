@@ -59,11 +59,12 @@ def inventory(model, hashes=True):
 
 
 def validate_manifest(value):
-    expected = {'version', 'device', 'runtime', 'model_id', 'revision', 'license',
+    expected = {'version', 'device', 'runtime', 'output_format', 'model_id', 'revision', 'license',
                 'export_command', 'max_prompt_tokens', 'max_new_tokens', 'files'}
     if not isinstance(value, dict) or set(value) != expected:
         raise ValueError('invalid manifest fields')
-    if type(value['version']) is not int or value['version'] != 1 or value['device'] != 'NPU' or value['runtime'] != VERSIONS:
+    if (type(value['version']) is not int or value['version'] != 2 or value['device'] != 'NPU'
+            or value['runtime'] != VERSIONS or value['output_format'] != 'json-schema-v1'):
         raise ValueError('unsupported manifest device or runtime')
     if not isinstance(value['revision'], str) or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', value['revision']):
         raise ValueError('source revision must be an immutable commit hash')
@@ -82,7 +83,7 @@ def validate_manifest(value):
 
 
 def create_manifest(model, model_id, revision, license_name, export_command, prompt_tokens, new_tokens):
-    value = dict(version=1, device='NPU', runtime=VERSIONS, model_id=model_id,
+    value = dict(version=2, device='NPU', runtime=VERSIONS, output_format='json-schema-v1', model_id=model_id,
                  revision=revision, license=license_name, export_command=export_command,
                  max_prompt_tokens=prompt_tokens, max_new_tokens=new_tokens, files=inventory(model))
     validate_manifest(value)
@@ -181,8 +182,9 @@ def worker(connection, model, manifest, cache):
                 encoded, tokens = format_prompt(tokenizer, request, manifest['max_prompt_tokens'])
                 started = time.monotonic()
                 stage = 'NPU_GENERATION'
+                structured = genai.StructuredOutputConfig(json_schema=json.dumps(request['schema']))
                 output = pipeline.generate(encoded, max_new_tokens=manifest['max_new_tokens'],
-                                           do_sample=False, echo=False)
+                                           do_sample=False, echo=False, structured_output_config=structured)
                 stage = 'OUTPUT_LIMIT_OR_FINISH'
                 if (len(output.tokens) != 1 or len(output.finish_reasons) != 1
                         or output.finish_reasons[0] != genai.GenerationFinishReason.STOP

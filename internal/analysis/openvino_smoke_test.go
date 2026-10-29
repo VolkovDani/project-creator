@@ -44,3 +44,32 @@ func TestOpenVINORealNPUSmoke(t *testing.T) {
 		})
 	}
 }
+
+// Regression: the prompt-only NPU pipeline repeated the explanation key for
+// application-sized IDs with equal versions, so the runtime rejected its JSON.
+func TestOpenVINORealNPUApplicationIDs(t *testing.T) {
+	if os.Getenv("NPU_REAL_SMOKE") != "1" {
+		t.Skip("explicit NPU_REAL_SMOKE=1 and a prepared local runtime required")
+	}
+	generator, err := NewOpenVINO(os.Getenv("PROJECT_CREATOR_NPU_SOCKET"), os.Getenv("PROJECT_CREATOR_NPU_PROFILE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair := Pair{
+		Left: Source{ID: "30c956a76badd4a9871754a8efd98a97", Version: 1,
+			Text: "При любом заказе оплата разрешена только банковской картой. Другие способы запрещены."},
+		Right: Source{ID: "c1c4ede0fb916329925ca2f3e8dbb47a", Version: 1,
+			Text: "При любом заказе оплата разрешена только наличными. Другие способы запрещены."},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	start := time.Now()
+	finding, err := generator.Compare(ctx, pair)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validFinding(pair, finding) || finding.Verdict != "collision" {
+		t.Fatalf("invalid collision finding: %+v", finding)
+	}
+	t.Logf("application IDs: %.2fs, profile=%s, finding=%+v", time.Since(start).Seconds(), generator.Profile(), finding)
+}

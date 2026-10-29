@@ -2,8 +2,9 @@
 
 Ветка `feat/22-intel-npu`, отдельный PR к #22; **не сливать до проверки на ноутбуке**.
 Вариант рассчитан на нативный Linux, Python 3.12 и Docker Engine/Compose v2.
-Здесь нет обещания ускорения: NPU, качество JSON и работа Qwen на конкретном
-ноутбуке ещё требуют аппаратной проверки. Решение и зависимости — [ADR-002](adr/002-openvino-npu.md).
+Первичная аппаратная проверка 29.10.2026 подтвердила генерацию Qwen на NPU,
+но один из трёх примеров не прошёл проверку качества; полной приёмки пока нет.
+Результаты приведены ниже. Решение и зависимости — [ADR-002](adr/002-openvino-npu.md).
 
 Генерация: OpenVINO GenAI, строго `NPU`. Embeddings: прежний BGE-M3/1024
 в локальном Ollama на CPU либо Intel Arc (`compose.intel.yml`). NPU-совместимость
@@ -40,14 +41,29 @@ FP16 весов, экспортированного INT4 и кешей: орие
 контролируйте RAM/swap. Здесь ничего не скачивается при обычном запуске приложения.
 Следующие команды — отдельное явное скачивание зависимостей и модели.
 
+На Ubuntu 26.04 системным Python может быть 3.14. Закреплённый CPU wheel
+PyTorch рассчитан на CPython 3.12: не заменяйте системный Python и не ставьте
+экспортные пакеты глобально. Если `python3.12` отсутствует, установите его
+локально с помощью уже установленного [uv](https://docs.astral.sh/uv/getting-started/installation/):
+
+```bash
+uv python install 3.12.14 --install-dir .npu/python --no-bin --cache-dir .npu/uv-cache
+export NPU_PYTHON="$PWD/.npu/python/cpython-3.12.14-linux-x86_64-gnu/bin/python3.12"
+"$NPU_PYTHON" --version
+```
+
+Этот путь проверен с uv 0.12.13 на Linux x86_64; Python и кеш остаются в
+игнорируемом Git каталоге `.npu`. Если Python 3.12 уже установлен, задайте
+`NPU_PYTHON=python3.12`. Команды ниже используют выбранный интерпретатор.
+
 ```bash
 mkdir -p .npu
-python3.12 -m venv .npu/export-env
+"${NPU_PYTHON:-python3.12}" -m venv .npu/export-env
 .npu/export-env/bin/python -m pip install --report .npu/export-install.json -r runtime/npu/requirements-export.txt
 .npu/export-env/bin/opt_in_out --opt_out
 .npu/export-env/bin/python -m pip freeze > .npu/export-freeze.txt
 
-python3.12 -m venv .npu/runtime-env
+"${NPU_PYTHON:-python3.12}" -m venv .npu/runtime-env
 .npu/runtime-env/bin/python -m pip install --report .npu/runtime-install.json -r runtime/npu/requirements.txt
 .npu/runtime-env/bin/opt_in_out --opt_out
 .npu/runtime-env/bin/python -m pip freeze > .npu/runtime-freeze.txt
@@ -55,6 +71,12 @@ python3.12 -m venv .npu/runtime-env
 ```
 
 Последняя команда должна показать NPU. Ошибку исправьте до загрузки pipeline.
+Python 3.12 нужен прежде всего для закреплённого exporter wheel PyTorch.
+Для отдельного runtime с теми же pins разрешение зависимостей под Python 3.14
+прошло; это ещё не проверка импорта и NPU inference. Если проверяете runtime
+на 3.14, создавайте отдельный venv и выполняйте ту же проверку `ov.Core()`,
+не меняя окружение экспорта и системные пакеты.
+
 Для источника используется `Qwen/Qwen2.5-7B-Instruct` (Apache-2.0),
 не GGUF из Ollama. Команда ниже разрешает текущий source commit один раз,
 сохраняет его и явно скачивает этот immutable snapshot. Для воспроизведения
@@ -62,31 +84,57 @@ python3.12 -m venv .npu/runtime-env
 Никакого `trust_remote_code` не требуется.
 
 ```bash
+export HF_HOME="$PWD/.npu/huggingface"
+export HF_HUB_DISABLE_TELEMETRY=1
+export HF_HUB_DISABLE_IMPLICIT_TOKEN=1
 .npu/export-env/bin/python - <<'PY'
 import os
 from pathlib import Path
 from huggingface_hub import HfApi, snapshot_download
 model = 'Qwen/Qwen2.5-7B-Instruct'
-revision = os.environ.get('QWEN_REVISION') or HfApi().model_info(model).sha
+revision_file = Path('.npu/source-revision.txt')
+revision = os.environ.get('QWEN_REVISION') or (revision_file.read_text().strip()
+    if revision_file.exists() else HfApi().model_info(model).sha)
 Path('.npu/source-revision.txt').write_text(revision+'\n')
 path = snapshot_download(model, revision=revision,
     allow_patterns=['*.json', '*.safetensors', '*.txt', '*.model', '*.tiktoken', '*.jinja', 'LICENSE*', 'README*'])
 Path('.npu/source-path.txt').write_text(path+'\n')
 print('Pinned source:', revision, path)
 PY
+```
 
+Исходные Safetensors Qwen2.5 7B занимают около **15.23 GB (14.19 GiB)**,
+четыре shard-файла; GGUF из Ollama не заменяет их. Загрузку можно выполнять
+в отдельном терминале без запущенного Codex. Дождитесь успешного завершения
+перед экспортом; после прерывания повторите загрузку с тем же revision и
+`HF_HOME`. SDK использует уже завершённые файлы кеша; не очищайте `.npu`.
+Скрипт загрузки не должен сразу включать NPU-провайдер в работающем приложении:
+сначала нужны экспорт, проверка устройства и успешный аппаратный smoke.
+
+```bash
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+mkdir -p .npu/export-tmp
+export TMPDIR="$PWD/.npu/export-tmp"
 .npu/export-env/bin/optimum-cli export openvino \
   --model "$(cat .npu/source-path.txt)" \
+  --task text-generation-with-past \
   --weight-format int4 --sym --ratio 1.0 --group-size -1 \
   .npu/models/qwen2.5-7b-int4
 cp .npu/export-freeze.txt .npu/models/qwen2.5-7b-int4/export-freeze.txt
 cp "$(cat .npu/source-path.txt)/LICENSE" .npu/models/qwen2.5-7b-int4/SOURCE-LICENSE
 ```
 
+Для локального snapshot задача задаётся явно: автоматическое определение
+`optimum-intel==2.1.0` завершается ошибкой. Временный каталог должен находиться
+на диске: exporter сначала сохраняет промежуточные веса около 15.23 GB,
+затем сжимает их. На проверяемом ноутбуке `/tmp` — tmpfs на 16 GiB;
+экспорт туда завершался `basic_ios::clear: iostream error`. После переноса
+`TMPDIR` на диск тот же экспорт прошёл за 47.11 секунды, пик RSS — 17.77 GiB;
+итоговый каталог INT4 с токенизаторами занимает около 4.1 GiB.
+
 Официальный [NPU export guide](https://docs.openvino.ai/2026/openvino-workflow-generative/inference-with-genai/inference-with-genai-on-npu.html)
-требует симметричную 4-битную компрессию с ratio 1.0. Совместимость этой
-экспортированной модели с нашим NPU ещё не измерена. Сохраните отчёты установки,
+требует симметричную 4-битную компрессию с ratio 1.0. Результаты проверки этой
+экспортированной модели на NPU приведены в разделе 5. Сохраните отчёты установки,
 freeze, лицензию и source revision. Для экспорта закреплён официальный CPU wheel PyTorch под Python 3.12/Linux x86_64;
 CUDA-пакеты не требуются. Прямые версии закреплены, полное разрешённое
 дерево экспортных зависимостей фиксирует freeze на вашем ноутбуке.
@@ -98,13 +146,20 @@ CUDA-пакеты не требуются. Прямые версии закре�
 источника. Короткие требования предпочтительны; длинный запрос вернёт ошибку
 без усечения. Изменение бюджета требует нового манифеста и профиля.
 
+Манифест v2 также закрепляет `output_format=json-schema-v1`: runtime передаёт
+JSON Schema в нативную генерацию и затем строго проверяет ответ и источники.
+Если уже подготовлен манифест v1, повторите команду `manifest` ниже на имеющихся
+весах, перезапустите host runtime и пересоздайте backend с новым профилем.
+Скачивать и экспортировать веса повторно не требуется. Старые результаты анализа
+сохраняются со старым профилем и становятся устаревшими.
+
 ```bash
 .npu/runtime-env/bin/python runtime/npu/npu_runtime.py manifest \
   --model .npu/models/qwen2.5-7b-int4 \
   --model-id Qwen/Qwen2.5-7B-Instruct \
   --revision "$(cat .npu/source-revision.txt)" \
   --license Apache-2.0 \
-  --export-command 'optimum-intel==2.1.0; optimum-cli export openvino --weight-format int4 --sym --ratio 1.0 --group-size -1 (see export-freeze.txt)' \
+  --export-command 'optimum-intel==2.1.0; TMPDIR=.npu/export-tmp optimum-cli export openvino --task text-generation-with-past --weight-format int4 --sym --ratio 1.0 --group-size -1 (see export-freeze.txt)' \
   --max-prompt-tokens 2048 --max-new-tokens 512 \
   --output .npu/profile.json > .npu/profile.sha256
 
@@ -180,7 +235,7 @@ set -o pipefail
 NPU_REAL_SMOKE=1 \
 PROJECT_CREATOR_NPU_SOCKET="$PWD/.npu/run/runtime.sock" \
 PROJECT_CREATOR_NPU_PROFILE="$(cat .npu/profile.sha256)" \
-go test ./internal/analysis -run '^TestOpenVINORealNPUSmoke$' -v -count=1 -timeout=7m 2>&1 | tee .npu/smoke-results.txt
+go test ./internal/analysis -run '^TestOpenVINORealNPU' -v -count=1 -timeout=8m 2>&1 | tee .npu/smoke-results.txt
 ```
 
 Этот opt-in smoke требует Go версии из go.mod на хосте; дополнительно проверьте полный
@@ -204,6 +259,85 @@ AUTO/HETERO/CPU/GPU fallback. Сравните CPU/GPU на тех же текс
 `NPU_GENERATION`, `OUTPUT_LIMIT_OR_FINISH`, `INVALID_JSON_OR_SOURCES` в stderr.
 При лимите увеличьте явный бюджет с новым профилем или сократите тестовые данные;
 усечение, починка JSON и смена устройства автоматически не выполняются.
+
+### Результаты 29.10.2026 до включения JSON Schema
+
+Ubuntu 26.04, kernel `7.0.0-42-generic`, Intel AI Boost / Core Ultra 7 268V,
+32 GB RAM, swap 8 GiB. Driver/compiler/firmware `1.38.0.20260910-34487311128~ubuntu26.04`,
+`libze1=1.32.0-1~26.04~ppa1`. Runtime: CPython 3.12.14 и закреплённые зависимости
+из `runtime/npu/requirements.txt`. Источник Qwen:
+`a09a35458c702b33eeacc393d103063234e8bc28`; INT4 symmetric channel-wise,
+бюджет 2048 + 512. SHA256 манифеста:
+`faadc4dfd75451445f0475a2be366fea19f19640a6a92933e28399b766261557`.
+
+Проверен существующий `TestOpenVINORealNPUSmoke` через Go-адаптер; тестовый
+бинарник собран Go 1.27.3. Загрузка pipeline: 42.25 s без compiled cache,
+4.59 s с кешем (583 MiB). Пик RSS по `/usr/bin/time -v`: 5.81 / 6.54 GiB;
+это не полное потребление системы. Swap оставался занят после экспорта,
+параллельная нагрузка не изолировалась; сравнение скоростей устройств не проводилось.
+
+| Пример | Ожидание | Оба запуска | Первый запрос, s | После перезапуска, s | Prompt tokens |
+| --- | --- | --- | --- | --- | --- |
+| Взаимоисключающие способы оплаты | `collision` | `collision`, PASS | 5.87 | 8.59 | 477 |
+| Альтернативные способы оплаты | `compatible` | `compatible`, PASS | 5.47 | 7.95 | 453 |
+| Неопределённое время обработки | `insufficient` | `compatible`, FAIL | 7.92 | 9.92 | 447 |
+
+Все шесть ответов содержали валидный JSON и точные ID/версии источников;
+тексты ответов совпали между запусками. Общий smoke завершился ошибкой качества
+в обоих случаях: ожидание третьего примера не меняли. В его объяснении также
+заметны дефекты русского текста. Это ограничение текущего сочетания модели,
+квантования и prompt; причина отдельно не установлена.
+
+Pipeline создавалась явно с `NPU`. Счётчик драйвера `npu_busy_time_us` вырос
+с 0 до 18503709 на первом прогоне и до 43846004 на повторном, подтверждая
+аппаратное выполнение. 16 детерминированных Python-тестов прошли на хосте.
+Песочница скрывала `/dev/accel` и запрещала сетевые сокеты, поэтому аппаратные
+проверки и транспортные тесты запускались вне неё. Локальные артефакты:
+`.npu/export-disk-tmp.log`, `.npu/runtime-first.log`, `.npu/runtime-repeat.log`,
+`.npu/smoke-first.txt`, `.npu/smoke-repeat.txt`, `.npu/repeat-metrics.json`.
+Веса, окружения и кеш не коммитятся. Полная проверка качества и сравнение
+CPU/GPU остаются открытыми; наличие генерации на NPU не завершает приёмку #22.
+
+Полный путь через Next.js `/api/graphql` также проверен на отдельном
+демонстрационном проекте «NPU: проверка оплаты»: создание проекта и требований,
+индексация обоих источников в Ollama BGE-M3 прошли (`ready`). Backend пересобран
+и явно переключён на `openvino-npu`; прежние БД и Ollama сохранены. Однако анализ
+с выданными приложением ID источников завершился `GENERATION_FAILED` за 9.83 s,
+диагностика runtime — `INVALID_JSON_OR_SOURCES`. При дальнейшем воспроизведении
+на синтетическом запросе найден повтор ключа `explanation`; ID и версии были
+правильными. Успешный smoke с короткими ID `left`/`right` не гарантирует успех
+полного сценария.
+Подробности синтетического прогона — `.npu/app-smoke.json` и `.npu/runtime-app.log`.
+Этот результат относится к прежнему runtime с манифестом v1; исправление и
+повторная проверка описаны ниже.
+
+### Исправление JSON Schema и повторная проверка 29.10.2026
+
+Для каждого запроса теперь передаётся `StructuredOutputConfig(json_schema=...)`;
+строгая проверка дубликатов, ID/версий, завершения и лимитов сохранена.
+При ошибке ограниченной генерации нет повтора без схемы или починки JSON.
+Манифест v2, `output_format=json-schema-v1`, SHA256:
+`f36b13cbad8752f05d141eba6f817045986a615d13ffb5688fe417faeebca271`.
+Профиль Go-генератора:
+`2fc2eff3f491352f6575fc89d86689601297f243d1cb66a40e74ada39d9f865d`.
+Веса и кеш не менялись, загрузка нового runtime заняла 2.71 s.
+
+Новый `TestOpenVINORealNPUApplicationIDs` воспроизвёл ошибку на прежнем runtime
+(RED, 9.50 s), а после исправления прошёл (GREEN, 8.06 s). Тот же проект
+«NPU: проверка оплаты» повторно проанализирован через Next.js API: `completed`,
+`possible_collision`, оба исходных ID и версии, `stale=false`, 9.73 s.
+Host runtime оставлен работающим для ручной проверки. Логи нового прогона —
+`.npu/runtime-structured.log`, `.npu/smoke-structured.txt`,
+`.npu/app-smoke-structured.json`.
+
+21 детерминированный Python-тест прошёл на хосте; выполнены `gofmt`,
+`go test ./...`, `go vet ./...` (Go 1.27.3), `git diff --check`.
+Аппаратные примеры: коллизия — PASS (8.49 s), совместимость — PASS (5.23 s),
+новый регрессионный пример с ID приложения — PASS (8.06 s).
+Недостаток данных по-прежнему получает `compatible` вместо `insufficient`
+(6.43 s), поэтому полный аппаратный smoke остаётся FAIL по качеству.
+Ограничение схемой устраняет структурную ошибку, а не гарантирует правильность
+выводов; полная приёмка #22 остаётся открытой.
 
 ## Возврат к Ollama
 

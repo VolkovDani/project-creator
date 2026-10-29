@@ -141,19 +141,21 @@ class RuntimeLifecycleTests(unittest.TestCase):
 
 
 class WorkerTests(unittest.TestCase):
-    def run_worker(self, finish):
+    def run_worker(self, finish, *, schema_error=None, generation_error=None, text=None, requests=None):
         encoded = SimpleNamespace(input_ids=SimpleNamespace(shape=(1, 10)))
         tokenizer = SimpleNamespace(
             apply_chat_template=mock.Mock(return_value='full formatted template'),
             encode=mock.Mock(return_value=encoded),
-            decode=mock.Mock(return_value=json.dumps(finding())))
+            decode=mock.Mock(return_value=json.dumps(finding()) if text is None else text))
         output = SimpleNamespace(tokens=[[11, 12, 13]], finish_reasons=[finish])
-        pipeline = SimpleNamespace(get_tokenizer=lambda: tokenizer, generate=mock.Mock(return_value=output))
+        pipeline = SimpleNamespace(get_tokenizer=lambda: tokenizer,
+                                   generate=mock.Mock(return_value=output, side_effect=generation_error))
         core = SimpleNamespace(available_devices=['CPU', 'NPU'], get_property=lambda *_: 'Intel NPU fixture')
         ov = SimpleNamespace(Core=lambda: core)
         genai = SimpleNamespace(LLMPipeline=mock.Mock(return_value=pipeline),
+                               StructuredOutputConfig=mock.Mock(side_effect=schema_error),
                                GenerationFinishReason=SimpleNamespace(STOP='stop'))
-        connection = FakePipe([request()])
+        connection = FakePipe([request()] if requests is None else requests)
         with mock.patch.dict('sys.modules', {'openvino': ov, 'openvino_genai': genai}), \
              mock.patch.object(npu.importlib.metadata, 'version', side_effect=lambda name: npu.VERSIONS[name]), \
              mock.patch.dict(npu.os.environ), contextlib.redirect_stderr(io.StringIO()):
@@ -166,7 +168,8 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(genai.LLMPipeline.call_args.args[1], 'NPU')
         self.assertIs(pipeline.generate.call_args.args[0], encoded)
         self.assertEqual(pipeline.generate.call_args.kwargs,
-                         {'max_new_tokens': 512, 'do_sample': False, 'echo': False})
+                         {'max_new_tokens': 512, 'do_sample': False, 'echo': False,
+                          'structured_output_config': genai.StructuredOutputConfig.return_value})
         tokenizer.encode.assert_called_once_with('full formatted template', add_special_tokens=False, truncation=False)
         tokenizer.decode.assert_called_once_with([11, 12, 13])
         self.assertEqual(connection.sent[1]['finding'], finding())
@@ -176,6 +179,39 @@ class WorkerTests(unittest.TestCase):
         connection, _, tokenizer, _, _ = self.run_worker('length')
         self.assertEqual(connection.sent[1], {'error': 'OUTPUT_LIMIT_OR_FINISH'})
         tokenizer.decode.assert_not_called()
+
+    def test_worker_enforces_request_schema_in_native_generation(self):
+        connection, pipeline, _, _, genai = self.run_worker('stop')
+        genai.StructuredOutputConfig.assert_called_once_with(json_schema=json.dumps(request()['schema']))
+        self.assertIs(pipeline.generate.call_args.kwargs['structured_output_config'],
+                      genai.StructuredOutputConfig.return_value)
+        self.assertEqual(connection.sent[1]['finding'], finding())
+        pipeline.generate.assert_called_once()
+
+    def test_worker_configures_schema_for_each_request(self):
+        first, second = request(), request()
+        second['schema'] = {'type': 'object', 'additionalProperties': False}
+        connection, pipeline, _, _, genai = self.run_worker('stop', requests=[first, second])
+        self.assertEqual(genai.StructuredOutputConfig.call_args_list, [
+            mock.call(json_schema=json.dumps(value['schema'])) for value in (first, second)])
+        self.assertEqual(pipeline.generate.call_count, 2)
+        self.assertEqual(connection.sent[1]['finding'], finding())
+        self.assertEqual(connection.sent[2]['finding'], finding())
+
+    def test_worker_never_retries_unconstrained_when_enforcement_fails(self):
+        for stage in ('schema', 'generation'):
+            with self.subTest(stage=stage):
+                options = {stage+'_error': ValueError('native enforcement failed')}
+                connection, pipeline, tokenizer, _, _ = self.run_worker('stop', **options)
+                self.assertEqual(connection.sent[1], {'error': 'NPU_GENERATION'})
+                self.assertEqual(pipeline.generate.call_count, int(stage == 'generation'))
+                tokenizer.decode.assert_not_called()
+
+    def test_worker_still_rejects_duplicate_keys_without_repair_or_retry(self):
+        duplicate = json.dumps(finding())[:-1]+',"explanation":"duplicate"}'
+        connection, pipeline, _, _, _ = self.run_worker('stop', text=duplicate)
+        self.assertEqual(connection.sent[1], {'error': 'INVALID_JSON_OR_SOURCES'})
+        pipeline.generate.assert_called_once()
 
 
 class HTTPTests(unittest.TestCase):

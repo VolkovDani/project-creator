@@ -158,12 +158,24 @@ func (o *Ollama) Compare(ctx context.Context, pair Pair) (Finding, error) {
 	if !response.Done || response.DoneReason != "stop" || response.Message.Role != "assistant" || len(response.Message.ToolCalls) != 0 {
 		return result, errors.New("incomplete or unsupported comparison response")
 	}
-	decoder := json.NewDecoder(strings.NewReader(response.Message.Content))
+	result, err = decodeFinding(response.Message.Content, pair)
+	if err != nil {
+		return Finding{}, err
+	}
+	if err = o.verify(ctx); err != nil {
+		return Finding{}, err
+	}
+	return result, nil
+}
+
+func decodeFinding(content string, pair Pair) (Finding, error) {
+	var result Finding
+	decoder := json.NewDecoder(strings.NewReader(content))
 	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(&result); err != nil {
+	if err := decoder.Decode(&result); err != nil {
 		return Finding{}, errors.New("comparison output does not match schema")
 	}
-	if err = decoder.Decode(new(any)); err != io.EOF {
+	if err := decoder.Decode(new(any)); err != io.EOF {
 		return Finding{}, errors.New("comparison output contains trailing data")
 	}
 	if result.LeftID != pair.Left.ID || result.RightID != pair.Right.ID || result.LeftVersion != pair.Left.Version || result.RightVersion != pair.Right.Version {
@@ -174,9 +186,6 @@ func (o *Ollama) Compare(ctx context.Context, pair Pair) (Finding, error) {
 	}
 	if !utf8.ValidString(result.Explanation) || strings.TrimSpace(result.Explanation) == "" || utf8.RuneCountInString(result.Explanation) > 2000 {
 		return Finding{}, errors.New("comparison explanation is invalid")
-	}
-	if err = o.verify(ctx); err != nil {
-		return Finding{}, err
 	}
 	return result, nil
 }

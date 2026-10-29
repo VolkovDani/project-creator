@@ -34,6 +34,11 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Prepare isolated E2E database
         run: psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE project_creator_e2e'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Deterministic NPU protocol and model profile tests (no weights or device)
+        run: python3 -m unittest discover -s runtime/npu -v
       - run: node --test scripts/*.test.mjs
       - run: go test ./...
       - run: go vet ./...
@@ -82,7 +87,8 @@ jobs:
           docker compose --env-file "$COMPOSE_ENV_FILE" config --quiet
           docker compose --env-file "$COMPOSE_ENV_FILE" -f compose.yml -f compose.gpu.yml config --quiet
           docker compose --env-file "$COMPOSE_ENV_FILE" -f compose.yml -f compose.intel.yml config --quiet
-          node --test scripts/intel-compose.check.mjs
+          PROJECT_CREATOR_NPU_PROFILE=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa NPU_SOCKET_GID=1000 NPU_SOCKET_DIR=/tmp/project-creator-npu docker compose --env-file "$COMPOSE_ENV_FILE" -f compose.yml -f compose.npu.yml config --quiet
+          node --test scripts/intel-compose.check.mjs scripts/npu-compose.check.mjs
       - name: Build Intel Vulkan runtime (no GPU required)
         run: |
           docker build -f Dockerfile.ollama-intel -t project-creator-ollama-intel:0.40.11 .
@@ -99,4 +105,5 @@ jobs:
       - name: Remove disposable containers and data
         if: always()
         run: docker compose --env-file "$COMPOSE_ENV_FILE" down --volumes --remove-orphans
+
 

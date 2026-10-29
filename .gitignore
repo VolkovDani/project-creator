@@ -13,3 +13,8 @@ frontend/tsconfig.tsbuildinfo
 !.env.smoke.example
 *.dump
 backups/
+
+# Host-only OpenVINO runtime data and Python caches.
+.npu/
+__pycache__/
+*.pyc

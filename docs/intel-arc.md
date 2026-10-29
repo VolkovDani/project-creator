@@ -30,8 +30,9 @@ vulkaninfo --summary
 образ Ollama + явная установка/обновление `mesa-vulkan-drivers` из его
 Ubuntu-репозиториев. Vulkan loader/backend и Intel ICD — разные части;
 Mesa уже может присутствовать в базовом образе. Пакеты Mesa
-получают обновления Ubuntu при пересборке; для получения обновлений используйте
-`docker compose build --pull --no-cache ollama` с конфигурацией ниже.
+получают обновления Ubuntu при пересборке. С конфигурацией ниже сначала выполните
+`docker compose build --pull --no-cache ollama`, затем примените новый образ:
+`docker compose up -d --no-deps --force-recreate --wait ollama`.
 
 ## Первый запуск
 

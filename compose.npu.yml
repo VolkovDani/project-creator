@@ -1,0 +1,17 @@
+# Native Linux host OpenVINO service; optionally combine with compose.intel.yml
+# for BGE-M3 on Arc. No NPU device/driver is passed to a container.
+services:
+  backend:
+    environment:
+      PROJECT_CREATOR_GENERATOR_RUNTIME: openvino-npu
+      PROJECT_CREATOR_NPU_SOCKET: /run/project-creator-npu/runtime.sock
+      PROJECT_CREATOR_NPU_PROFILE: ${PROJECT_CREATOR_NPU_PROFILE:?Pin manifest profile from npu_runtime.py manifest}
+    group_add:
+      - ${NPU_SOCKET_GID:?Set NPU_SOCKET_GID to the host socket directory group id}
+    volumes:
+      - type: bind
+        source: ${NPU_SOCKET_DIR:?Set absolute host NPU socket directory}
+        target: /run/project-creator-npu
+        read_only: true
+        bind:
+          create_host_path: false

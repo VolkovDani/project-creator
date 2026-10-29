@@ -306,7 +306,7 @@ func TestAnalysisDiagnosticsPersistMissingIndexAndSeparateModelOutcome(t *testin
 			case "old-version":
 				statement = `UPDATE requirements SET version=2 WHERE id='right'`
 			case "old-profile":
-				statement = `UPDATE requirement_index SET profile='old' WHERE requirement_id='right'`
+				statement = `DELETE FROM requirement_chunks WHERE requirement_id='right'; UPDATE requirement_index SET profile='old' WHERE requirement_id='right'`
 			case "failed":
 				statement = `UPDATE requirement_index SET status='failed',error_code='EMBEDDING_FAILED' WHERE requirement_id='right'`
 			}

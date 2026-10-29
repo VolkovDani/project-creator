@@ -78,6 +78,67 @@ MESSAGES = {
 }
 
 
+# User-facing explanations are translated; source tool diagnostics remain verbatim.
+ERROR_MESSAGES = {
+    'API': ('API недоступен или отклонил запрос. Проверьте frontend/backend и их логи.', 'The API is unavailable or rejected a request. Check frontend/backend and their logs.'),
+    'BUSY': ('Другая команда установки уже работает. Дождитесь её завершения.', 'Another installation command is active. Wait for it to finish.'),
+    'CONFIG_FORMAT': ('Неподдерживаемый формат .env. Исправьте кавычки, дубли ключей или интерполяцию; файл сохраняется.', 'Unsupported .env format. Fix quoting, duplicate keys or interpolation; the file is preserved.'),
+    'CONFIG_PORT': ('Некорректный APP_PORT. Задайте в .env число от 1024 до 65535.', 'Invalid APP_PORT. Set a number between 1024 and 65535 in .env.'),
+    'CONFIG_PROJECT': ('Некорректное имя Compose-проекта. Используйте строчные латинские буквы, цифры, дефис или подчёркивание.', 'Invalid Compose project name. Use lowercase letters, digits, hyphens or underscores.'),
+    'CONFIG_SECRET': ('Проверьте секреты в приватном .env: замените placeholders, используйте token от 32 символов и URL-safe пароль БД. Существующие значения сохранены.', 'Check secrets in private .env: replace placeholders, use a token of at least 32 characters and a URL-safe database password. Existing values are preserved.'),
+    'CONFIG_STATE': ('Состояние установки отсутствует или повреждено. Выполните setup с явным --device либо восстановите state.json.', 'Installation state is missing or invalid. Run setup with an explicit --device or restore state.json.'),
+    'DEVICE_ACCESS': ('Нет доступа к выбранному устройству. Проверьте драйвер, группу устройства и новый вход в систему по инструкции.', 'The selected device is inaccessible. Check the driver, device group and a new login using the device guide.'),
+    'DEVICE_CHANGE': ('Для смены устройства повторите setup с --device и явным --switch-device.', 'To change devices, repeat setup with --device and explicit --switch-device.'),
+    'DEVICE_DRIVER': ('Runtime не видит рабочее устройство. Проверьте kernel/userspace драйвер и firmware по инструкции устройства.', 'The runtime cannot find a working device. Check kernel/userspace drivers and firmware using the device guide.'),
+    'DEVICE_EXECUTION': ('Выполнение на выбранном устройстве или профиль модели не подтверждены. Проверьте логи runtime; переход на другое устройство не принят.', 'Execution on the selected device or the model profile was not confirmed. Check runtime logs; device fallback was not accepted.'),
+    'DOCKER': ('Docker Engine/Compose недоступен или не подходит. Установите Compose v2.20+, запустите Engine и проверьте права пользователя.', 'Docker Engine/Compose is unavailable or unsupported. Install Compose v2.20+, start Engine and check user permissions.'),
+    'FIXTURE': ('Не удалось подготовить синтетический проект проверки. Проверьте API и повторите команду: checkpoint сохранён.', 'Could not prepare a synthetic verification project. Check the API and retry; checkpoints are preserved.'),
+    'FIXTURE_CHANGED': ('Диагностический проект изменён вручную или содержит дубли. Сохраните изменения и проверьте проект/state.json перед повтором.', 'A diagnostic project was edited manually or contains duplicates. Preserve edits and inspect the project/state.json before retrying.'),
+    'INDEX': ('Индексация синтетического требования не завершилась. Проверьте состояние индекса и логи embeddings/Ollama.', 'Synthetic requirement indexing did not finish. Check index state and embeddings/Ollama logs.'),
+    'MODEL_API': ('Локальный Ollama API недоступен или вернул неверный ответ. Проверьте контейнер Ollama.', 'The local Ollama API is unavailable or returned an invalid response. Check the Ollama container.'),
+    'MODEL_CONFIG': ('Некорректное имя локальной модели. Проверьте MODEL в .env; удалённые URL не поддерживаются.', 'Invalid local model name. Check MODEL in .env; remote URLs are unsupported.'),
+    'MODEL_DIGEST': ('Не получен полный digest модели. Проверьте загрузку и локальную запись модели Ollama.', 'A complete model digest was not returned. Check the download and local Ollama model record.'),
+    'MODEL_DRIFT': ('Модель отсутствует или отличается от закреплённого digest. Восстановите прежние веса; pin не изменяется автоматически.', 'The model is missing or differs from its pinned digest. Restore the original weights; the pin is not updated automatically.'),
+    'MODEL_EMBEDDING': ('Проверка embeddings не вернула корректный вектор размерности 1024. Проверьте BGE-M3 и её профиль.', 'The embedding probe did not return a valid 1024-dimensional vector. Check BGE-M3 and its profile.'),
+    'MODEL_EXPORT': ('Экспорт NPU не завершён или существующие веса требуют проверки. Проверьте exporter Python 3.12, disk TMPDIR и инструкцию восстановления.', 'NPU export is incomplete or existing weights require inspection. Check the Python 3.12 exporter, disk TMPDIR and recovery guide.'),
+    'MODEL_LICENSE': ('Лицензия модели не получена. Проверьте происхождение и лицензию весов перед повтором.', 'The model license was not returned. Check weight provenance and license before retrying.'),
+    'MODEL_MANIFEST': ('Не удалось создать или проверить манифест/профиль. Проверьте завершённый экспорт и целостность файлов.', 'Could not create or verify the manifest/profile. Check the completed export and file integrity.'),
+    'MODEL_QUALITY': ('Модель не прошла проверку ожидаемого вывода. Изучите синтетический проект; установка не помечена успешной.', 'The model failed an expected-finding check. Inspect the synthetic project; installation is not marked successful.'),
+    'MODEL_RESPONSE': ('Анализ не завершён или ответ модели отклонён. Проверьте код ошибки анализа и логи runtime.', 'Analysis did not complete or the model response was rejected. Check the analysis error code and runtime logs.'),
+    'MODEL_SOURCES': ('Ответ модели ссылается на неверные источники или версии. Изучите диагностический проект и ответ runtime.', 'The model response cites incorrect sources or versions. Inspect the diagnostic project and runtime response.'),
+    'NPU_PID': ('Не удалось подтвердить личность управляемого NPU-процесса. Проверьте приватную запись PID; посторонние процессы не завершаются.', 'The managed NPU process identity could not be confirmed. Inspect the private PID record; unrelated processes are not terminated.'),
+    'NPU_PROFILE': ('Профиль работающего NPU runtime отличается от настроенного. Выполните down, затем up.', 'The running NPU runtime profile differs from configuration. Run down, then up.'),
+    'NPU_RUNTIME': ('NPU runtime не запустился или не прошёл проверку. Изучите .npu/runtime.log и состояние драйвера; fallback не включён.', 'The NPU runtime failed to start or pass health checks. Inspect .npu/runtime.log and the driver; fallback is disabled.'),
+    'NPU_SOCKET': ('NPU-сокет недоступен или его владелец не подтверждён. Проверьте runtime.log, права и инструкцию восстановления сокета.', 'The NPU socket is unavailable or its owner is unverified. Check runtime.log, permissions and the socket recovery guide.'),
+    'PLATFORM': ('Эта конфигурация не поддерживается. Нужен нативный Linux x86_64 с Docker Engine; подробная матрица приведена в инструкции.', 'This configuration is unsupported. Native Linux x86_64 with Docker Engine is required; see the support matrix.'),
+    'PROJECT_CHANGE': ('Имя Compose-проекта отличается от сохранённого. Используйте прежнее имя, чтобы сохранить доступ к существующим томам.', 'The Compose project name differs from saved state. Use the original name to preserve access to existing volumes.'),
+    'PYTHON': ('Для NPU нужен Python 3.12 с venv/pip либо установленный uv. Подготовьте его отдельно, не заменяя системный Python.', 'NPU requires Python 3.12 with venv/pip or an installed uv. Prepare it separately without replacing system Python.'),
+    'RESOURCES': ('Недостаточно RAM, swap или свободного диска. Освободите ресурсы по таблице в инструкции; измерения приведены в технической диагностике.', 'RAM, swap or free disk is insufficient. Free resources using the guide; measured values appear in technical diagnostics.'),
+    'SOURCE_MANIFEST': ('Манифест исходных весов отсутствует или повреждён. Проверьте source.json и сохранённый revision перед повтором.', 'The source-weight manifest is missing or invalid. Inspect source.json and the saved revision before retrying.'),
+    'UI': ('Интерфейс приложения недоступен. Проверьте Compose-сервисы, APP_PORT и логи frontend/backend.', 'The application UI is unavailable. Check Compose services, APP_PORT and frontend/backend logs.'),
+    'COMMAND': ('Внешняя команда завершилась ошибкой. Проверьте текущий шаг и техническую диагностику инструмента.', 'An external command failed. Check the current step and tool diagnostics.'),
+    'COMPOSE': ('Команда Docker Compose завершилась ошибкой. Проверьте конфигурацию, доступ к Engine и логи сервисов.', 'Docker Compose failed. Check configuration, Engine access and service logs.'),
+    'MODEL_DOWNLOAD': ('Загрузка модели прервана или завершилась ошибкой. Проверьте сеть и повторите setup: готовые файлы кеша сохраняются.', 'The model download was interrupted or failed. Check the network and repeat setup; completed cache files are retained.'),
+    'SOURCE_DOWNLOAD': ('Не удалось скачать или проверить исходные веса NPU. Проверьте сеть, source revision и контрольные суммы; повтор использует кеш.', 'Could not download or verify NPU source weights. Check the network, source revision and checksums; retry reuses the cache.'),
+    'PYTHON_DOWNLOAD': ('Не удалось подготовить локальный Python 3.12. Проверьте uv, сеть и свободное место, затем повторите setup.', 'Could not prepare local Python 3.12. Check uv, network and free disk, then repeat setup.'),
+    'PYTHON_ENV': ('Не удалось подготовить изолированное Python-окружение. Проверьте venv/pip и права на .npu.', 'Could not prepare an isolated Python environment. Check venv/pip and .npu permissions.'),
+    'PYTHON_INSTALL': ('Установка закреплённых NPU-зависимостей завершилась ошибкой. Проверьте сеть, Python 3.12 и отчёт установки.', 'Pinned NPU dependency installation failed. Check network, Python 3.12 and the installation report.'),
+    'TOOLS_DOWNLOAD': ('Не удалось загрузить контейнер диагностического инструмента. Проверьте Docker registry и сеть, затем повторите setup.', 'Could not download the diagnostic tools container. Check Docker registry access and network, then repeat setup.'),
+    'INTERRUPTED': ('Команда прервана. Повторите её: завершённые загрузки, экспорт и checkpoint сохранены.', 'The command was interrupted. Repeat it; completed downloads, exports and checkpoints are preserved.'),
+    'LOCAL_STATE': ('Локальная операция завершилась ошибкой. Проверьте текущий шаг, права и приватное состояние установки.', 'A local operation failed. Check the current step, permissions and private installation state.'),
+}
+for _code, (_ru, _en) in ERROR_MESSAGES.items():
+    MESSAGES['ru']['error.'+_code] = _ru
+    MESSAGES['en']['error.'+_code] = _en
+MESSAGES['ru']['technical'] = 'Техническая диагностика инструмента (исходный текст):'
+MESSAGES['en']['technical'] = 'Technical tool diagnostic (original text):'
+
+
+def describe_failure(error, lang):
+    summary = MESSAGES[lang].get('error.'+error.code, MESSAGES[lang]['error.COMMAND'])
+    return summary+'\n'+MESSAGES[lang]['technical']+' '+error.detail
+
+
 class Failure(Exception):
     def __init__(self, code, detail):
         self.code, self.detail = code, detail
@@ -799,14 +860,14 @@ def main(root=None, argv=None):
                     getattr(app, args.command)()
         return 0
     except Failure as error:
-        print(messages['error'].format(code=error.code, detail=error.detail), file=sys.stderr)
+        print(messages['error'].format(code=error.code, detail=describe_failure(error, args.lang)), file=sys.stderr)
         return 1
     except KeyboardInterrupt:
-        print(messages['error'].format(code='INTERRUPTED', detail='Repeat the same command; completed downloads and exports are retained.'), file=sys.stderr)
+        print(messages['error'].format(code='INTERRUPTED', detail=describe_failure(Failure('INTERRUPTED', 'Repeat the same command; completed downloads and exports are retained.'), args.lang)), file=sys.stderr)
         return 130
     except (OSError, ValueError, KeyError) as error:
         # Avoid tracebacks containing configuration values or user model responses.
-        print(messages['error'].format(code='LOCAL_STATE', detail=f'Local operation failed ({type(error).__name__}); inspect the current step and private state.'), file=sys.stderr)
+        print(messages['error'].format(code='LOCAL_STATE', detail=describe_failure(Failure('LOCAL_STATE', f'Local operation failed ({type(error).__name__}); inspect the current step and private state.'), args.lang)), file=sys.stderr)
         return 1
 
 

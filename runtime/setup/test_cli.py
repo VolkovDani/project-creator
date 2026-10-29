@@ -298,6 +298,24 @@ class VerifyTests(InstallTests):
 
 
 class UtilityTests(unittest.TestCase):
+    def test_all_failure_categories_have_localized_explanations(self):
+        import ast
+        module = ast.parse(Path(cli.__file__).read_text())
+        codes = {node.args[0].value for node in ast.walk(module)
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                 and node.func.id == 'Failure' and node.args and isinstance(node.args[0], ast.Constant)}
+        codes |= {keyword.value.value for node in ast.walk(module) if isinstance(node, ast.Call)
+                  for keyword in node.keywords if keyword.arg == 'code' and isinstance(keyword.value, ast.Constant)}
+        for code in codes:
+            self.assertIn('error.'+code, cli.MESSAGES['ru'])
+            self.assertIn('error.'+code, cli.MESSAGES['en'])
+
+    def test_russian_failure_has_localized_action_and_labeled_raw_diagnostic(self):
+        result = cli.describe_failure(cli.Failure('DOCKER', 'Required executable docker is missing.'), 'ru')
+        self.assertIn('Установите Compose v2.20+', result)
+        self.assertIn(cli.MESSAGES['ru']['technical'], result)
+        self.assertIn('Required executable docker is missing.', result)
+
     def test_runner_does_not_leak_captured_output_on_failure(self):
         with self.assertRaises(cli.Failure) as caught:
             cli.Runner().run(['python3', '-c', 'print("SECRET"); raise SystemExit(7)'], capture=True)

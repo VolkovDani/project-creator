@@ -60,3 +60,20 @@ test('invalidation refreshes a completed result to stale without rerunning the m
  });
  await page.goto('/projects/demo');await expect(page.getByText('Возможная коллизия найдена',{exact:true})).toBeVisible();current=complete({stale:true});release();await expect(page.getByText('Результат устарел: требования или профиль модели изменились. Повторите анализ.',{exact:true})).toBeVisible();expect(calls).toBe(0);
 });
+
+test('incomplete index has a specific explanation and source links',async({page})=>{
+ await fixture(page,complete({outcome:'insufficient',reasonCode:'INDEX_INCOMPLETE',missingRequirementIds:['right'],findings:[]}));
+ await page.goto('/projects/demo');
+ const analysis=page.getByRole('region',{name:'Анализ возможных коллизий'});
+ await expect(analysis.getByText('Не все требования проиндексированы. Проиндексируйте актуальные версии требований и повторите анализ.',{exact:true})).toBeVisible();
+ const missing=analysis.getByRole('group',{name:'Требуют индексации: 1'});
+ await missing.getByRole('link',{name:'right'}).click();await expect(page).toHaveURL(/#requirement-right$/);
+});
+
+test('model insufficient conditions is distinct from missing index',async({page})=>{
+ await fixture(page,complete({outcome:'insufficient',reasonCode:'MODEL_INSUFFICIENT',missingRequirementIds:[],findings:[]}));
+ await page.goto('/projects/demo');
+ const analysis=page.getByRole('region',{name:'Анализ возможных коллизий'});
+ await expect(analysis.getByText('В требованиях недостаточно условий для сравнения. Уточните их с учётом объяснения модели.',{exact:true})).toBeVisible();
+ await expect(analysis.getByText('Не все требования проиндексированы.',{exact:false})).toHaveCount(0);
+});

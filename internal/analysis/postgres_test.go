@@ -293,3 +293,58 @@ func TestBoundedAnalysisIsExplicitlyInsufficient(t *testing.T) {
 		t.Fatalf("bounded analysis: %+v %v", run, err)
 	}
 }
+
+func TestAnalysisDiagnosticsPersistMissingIndexAndSeparateModelOutcome(t *testing.T) {
+	for _, mode := range []string{"missing", "old-version", "old-profile", "failed", "ready", "model-insufficient"} {
+		t.Run(mode, func(t *testing.T) {
+			db, retriever, _ := analysisDB(t)
+			ready(t, retriever)
+			var statement string
+			switch mode {
+			case "missing":
+				statement = `DELETE FROM requirement_index WHERE requirement_id='right'`
+			case "old-version":
+				statement = `UPDATE requirements SET version=2 WHERE id='right'`
+			case "old-profile":
+				statement = `DELETE FROM requirement_chunks WHERE requirement_id='right'; UPDATE requirement_index SET profile='old' WHERE requirement_id='right'`
+			case "failed":
+				statement = `UPDATE requirement_index SET status='failed',error_code='EMBEDDING_FAILED' WHERE requirement_id='right'`
+			}
+			if statement != "" {
+				if _, err := db.Exec(statement); err != nil {
+					t.Fatal(err)
+				}
+			}
+			gen := &fakeGenerator{profile: "gen-a"}
+			var provider Generator = gen
+			if mode == "model-insufficient" {
+				provider = generatorFunc(func(_ context.Context, pair Pair) (Finding, error) {
+					return Finding{LeftID: pair.Left.ID, RightID: pair.Right.ID, LeftVersion: pair.Left.Version, RightVersion: pair.Right.Version, Verdict: "insufficient", Explanation: "Missing conditions"}, nil
+				})
+			}
+			service := New(db, retriever, provider, "embed-a")
+			run, err := service.Start(context.Background(), "a", "p")
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch mode {
+			case "ready":
+				if run.ReasonCode != "" || run.Outcome != "possible_collision" {
+					t.Fatal(run)
+				}
+			case "model-insufficient":
+				if run.ReasonCode != "MODEL_INSUFFICIENT" || len(run.MissingRequirementIDs) != 0 {
+					t.Fatal(run)
+				}
+			default:
+				if run.Status != "completed" || run.Outcome != "insufficient" || run.ReasonCode != "INDEX_INCOMPLETE" || len(run.MissingRequirementIDs) != 1 || run.MissingRequirementIDs[0] != "right" || gen.calls.Load() != 0 {
+					t.Fatal(run)
+				}
+			}
+			latest, err := New(db, retriever, provider, "embed-a").Latest(context.Background(), "a", "p")
+			if err != nil || latest == nil || latest.ReasonCode != run.ReasonCode || strings.Join(latest.MissingRequirementIDs, ",") != strings.Join(run.MissingRequirementIDs, ",") {
+				t.Fatalf("persisted: %+v %v", latest, err)
+			}
+		})
+	}
+}

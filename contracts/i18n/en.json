@@ -70,5 +70,12 @@
   "analysis.verdict.insufficient": "Conditions need clarification",
   "analysis.verdict.compatible": "No contradiction found in this pair",
   "analysis.failureHelp": "Check local model availability, profile settings and index readiness. A retry creates a new attempt.",
-  "analysis.sources": "Source versions saved at analysis time"
+  "analysis.sources": "Source versions saved at analysis time",
+  "analysis.reason.INDEX_INCOMPLETE": "Some requirements are not indexed. Index their current versions and run the analysis again.",
+  "analysis.reason.TOO_FEW_REQUIREMENTS": "At least two requirements are needed for comparison. Add requirements and run the analysis again.",
+  "analysis.reason.REQUIREMENT_LIMIT": "The project has more than 100 requirements, exceeding the current analysis limit.",
+  "analysis.reason.ANALYSIS_LIMIT": "Some requirements could not be compared due to analysis limits or source changes. Refine the requirements and run the analysis again.",
+  "analysis.reason.NO_CANDIDATES": "No candidate pairs were found. Refine the requirement wording.",
+  "analysis.reason.MODEL_INSUFFICIENT": "The requirements lack conditions needed for comparison. Refine them using the model explanation.",
+  "analysis.missingIndexes": "Requirements needing indexing: {count}"
 }

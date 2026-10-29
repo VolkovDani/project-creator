@@ -43,6 +43,19 @@ func TestGraphQLAnalysisPreservesSourcesAndScope(t *testing.T) {
 		}
 		return out
 	}
+
+	unindexed := run("token-a", `mutation{startProjectAnalysis(projectId:"p"){status outcome reasonCode missingRequirementIds}}`)
+	if unindexed["errors"] != nil {
+		t.Fatal(unindexed)
+	}
+	diagnostic := unindexed["data"].(map[string]any)["startProjectAnalysis"].(map[string]any)
+	if diagnostic["reasonCode"] != "INDEX_INCOMPLETE" || len(diagnostic["missingRequirementIds"].([]any)) != 2 {
+		t.Fatal(diagnostic)
+	}
+	deniedDiagnostic := run("token-b", `{projectAnalysis(projectId:"p"){reasonCode missingRequirementIds}}`)
+	if deniedDiagnostic["errors"] == nil {
+		t.Fatal("cross-workspace diagnostics exposed")
+	}
 	for _, id := range []string{"r1", "r2"} {
 		out := run("token-a", `mutation{indexRequirement(projectId:"p",requirementId:"`+id+`"){status}}`)
 		if out["errors"] != nil {

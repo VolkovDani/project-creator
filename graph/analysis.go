@@ -9,7 +9,10 @@ import (
 )
 
 func projectAnalysis(value analysis.Run) *ProjectAnalysis {
-	out := &ProjectAnalysis{ID: graphql.ID(value.ID), ProjectId: graphql.ID(value.ProjectID), Status: value.Status, Outcome: value.Outcome, ErrorCode: value.ErrorCode, CreatedAt: value.CreatedAt, CompletedAt: value.CompletedAt, Stale: value.Stale, GeneratorProfile: value.GeneratorProfile, EmbeddingProfile: value.EmbeddingProfile, Sources: []*AnalysisSource{}, Findings: []*AnalysisFinding{}}
+	out := &ProjectAnalysis{ReasonCode: value.ReasonCode, MissingRequirementIds: []graphql.ID{}, ID: graphql.ID(value.ID), ProjectId: graphql.ID(value.ProjectID), Status: value.Status, Outcome: value.Outcome, ErrorCode: value.ErrorCode, CreatedAt: value.CreatedAt, CompletedAt: value.CompletedAt, Stale: value.Stale, GeneratorProfile: value.GeneratorProfile, EmbeddingProfile: value.EmbeddingProfile, Sources: []*AnalysisSource{}, Findings: []*AnalysisFinding{}}
+	for _, id := range value.MissingRequirementIDs {
+		out.MissingRequirementIds = append(out.MissingRequirementIds, graphql.ID(id))
+	}
 	for _, source := range value.Sources {
 		out.Sources = append(out.Sources, &AnalysisSource{ID: graphql.ID(source.ID), Version: int32(source.Version), Text: source.Text})
 	}

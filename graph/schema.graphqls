@@ -17,4 +17,4 @@ type RequirementSearchHit { requirementId: ID! projectId: ID! text: String! sour
 
 type AnalysisSource { id: ID! version: Int! text: String! }
 type AnalysisFinding { leftId: ID! rightId: ID! leftVersion: Int! rightVersion: Int! verdict: String! explanation: String! }
-type ProjectAnalysis { id: ID! projectId: ID! status: String! outcome: String! errorCode: String! createdAt: String! completedAt: String! stale: Boolean! generatorProfile: String! embeddingProfile: String! sources: [AnalysisSource!]! findings: [AnalysisFinding!]! }
+type ProjectAnalysis { reasonCode: String! missingRequirementIds: [ID!]! id: ID! projectId: ID! status: String! outcome: String! errorCode: String! createdAt: String! completedAt: String! stale: Boolean! generatorProfile: String! embeddingProfile: String! sources: [AnalysisSource!]! findings: [AnalysisFinding!]! }

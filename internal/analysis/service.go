@@ -18,6 +18,8 @@ var ErrNotFound = errors.New("project not found")
 var errStorage = errors.New("analysis storage unavailable")
 
 type Run struct {
+	ReasonCode                                                                                            string
+	MissingRequirementIDs                                                                                 []string
 	ID, ProjectID, Status, Outcome, ErrorCode, CreatedAt, CompletedAt, GeneratorProfile, EmbeddingProfile string
 	Stale                                                                                                 bool
 	Findings                                                                                              []Finding
@@ -79,18 +81,18 @@ func snapshot(ctx context.Context, q queryer, workspace, project string) ([]Sour
 	return sources, signature, count > 100, nil
 }
 
-const runColumns = `id,project_id,status,outcome,error_code,generator_profile,embedding_profile,source_signature,sources,findings,created_at,completed_at`
+const runColumns = `id,project_id,status,outcome,error_code,generator_profile,embedding_profile,source_signature,sources,findings,created_at,completed_at,reason_code,missing_requirement_ids`
 
 func scanRun(row *sql.Row) (*Run, error) {
 	r := &Run{Sources: []Source{}, Findings: []Finding{}}
-	var sources, findings []byte
+	var sources, findings, missing []byte
 	var created time.Time
 	var completed sql.NullTime
-	err := row.Scan(&r.ID, &r.ProjectID, &r.Status, &r.Outcome, &r.ErrorCode, &r.GeneratorProfile, &r.EmbeddingProfile, &r.signature, &sources, &findings, &created, &completed)
+	err := row.Scan(&r.ID, &r.ProjectID, &r.Status, &r.Outcome, &r.ErrorCode, &r.GeneratorProfile, &r.EmbeddingProfile, &r.signature, &sources, &findings, &created, &completed, &r.ReasonCode, &missing)
 	if err != nil {
 		return nil, err
 	}
-	if json.Unmarshal(sources, &r.Sources) != nil || json.Unmarshal(findings, &r.Findings) != nil {
+	if json.Unmarshal(sources, &r.Sources) != nil || json.Unmarshal(findings, &r.Findings) != nil || json.Unmarshal(missing, &r.MissingRequirementIDs) != nil {
 		return nil, errStorage
 	}
 	r.CreatedAt = created.UTC().Format(time.RFC3339Nano)
@@ -169,8 +171,10 @@ func (s *Service) Start(ctx context.Context, workspace, project string) (Run, er
 	}
 	analysisCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	findings, code, incomplete := s.analyze(analysisCtx, workspace, project, sources, incomplete)
+	findings, code, incomplete, diagnostic := s.analyze(analysisCtx, workspace, project, sources, incomplete)
 	r.Findings = findings
+	r.ReasonCode = diagnostic.ReasonCode
+	r.MissingRequirementIDs = diagnostic.MissingRequirementIDs
 	r.Status = "completed"
 	r.Outcome = outcome(findings, incomplete)
 	if code != "" {
@@ -181,7 +185,8 @@ func (s *Service) Start(ctx context.Context, workspace, project string) (Run, er
 	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer finishCancel()
 	raw, _ = json.Marshal(findings)
-	if _, err = s.db.ExecContext(finishCtx, `UPDATE analysis_runs SET status=$4,outcome=$5,error_code=$6,findings=$7::jsonb,completed_at=clock_timestamp(),lease_until=clock_timestamp() WHERE workspace=$1 AND project_id=$2 AND id=$3 AND status='running'`, workspace, project, r.ID, r.Status, r.Outcome, r.ErrorCode, string(raw)); err != nil {
+	missingRaw, _ := json.Marshal(r.MissingRequirementIDs)
+	if _, err = s.db.ExecContext(finishCtx, `UPDATE analysis_runs SET status=$4,outcome=$5,error_code=$6,findings=$7::jsonb,reason_code=$8,missing_requirement_ids=$9::jsonb,completed_at=clock_timestamp(),lease_until=clock_timestamp() WHERE workspace=$1 AND project_id=$2 AND id=$3 AND status='running'`, workspace, project, r.ID, r.Status, r.Outcome, r.ErrorCode, string(raw), r.ReasonCode, string(missingRaw)); err != nil {
 		return r, errStorage
 	}
 	stored, err := scanRun(s.db.QueryRowContext(finishCtx, `SELECT `+runColumns+` FROM analysis_runs WHERE workspace=$1 AND project_id=$2 AND id=$3`, workspace, project, r.ID))
@@ -210,31 +215,31 @@ func outcome(findings []Finding, incomplete bool) string {
 	}
 	return "no_collisions_found"
 }
-func (s *Service) analyze(ctx context.Context, workspace, project string, sources []Source, incomplete bool) ([]Finding, string, bool) {
+func (s *Service) analyze(ctx context.Context, workspace, project string, sources []Source, incomplete bool) ([]Finding, string, bool, diagnostic) {
 	findings := []Finding{}
-	if incomplete || len(sources) < 2 {
-		return findings, "", true
+	d := diagnostic{MissingRequirementIDs: []string{}}
+	if incomplete {
+		d.ReasonCode = "REQUIREMENT_LIMIT"
+		return findings, "", true, d
+	}
+	if len(sources) < 2 {
+		d.ReasonCode = "TOO_FEW_REQUIREMENTS"
+		return findings, "", true, d
 	}
 	if s.generator == nil || s.generatorProfile() == "" || s.retriever == nil || s.embeddingProfile == "" {
-		return findings, "NOT_CONFIGURED", true
+		return findings, "NOT_CONFIGURED", true, d
 	}
 	states, err := s.retriever.Status(ctx, workspace, project, 100, 0)
 	if err != nil {
 		if ctx.Err() != nil {
-			return findings, "TIMEOUT", true
+			return findings, "TIMEOUT", true, d
 		}
-		return findings, "RETRIEVAL_FAILED", true
+		return findings, "RETRIEVAL_FAILED", true, d
 	}
-	ready := map[string]int{}
-	for _, state := range states {
-		if state.Status == "ready" && state.Profile == s.embeddingProfile {
-			ready[state.RequirementID] = state.Version
-		}
-	}
-	for _, source := range sources {
-		if ready[source.ID] != source.Version {
-			return findings, "", true
-		}
+	d.MissingRequirementIDs = missingIndexes(sources, states, s.embeddingProfile)
+	if len(d.MissingRequirementIDs) > 0 {
+		d.ReasonCode = "INDEX_INCOMPLETE"
+		return findings, "", true, d
 	}
 	byID := map[string]Source{}
 	for _, source := range sources {
@@ -250,9 +255,9 @@ func (s *Service) analyze(ctx context.Context, workspace, project string, source
 		hits, e := s.retriever.Search(ctx, workspace, project, source.Text, 6)
 		if e != nil {
 			if ctx.Err() != nil {
-				return findings, "TIMEOUT", true
+				return findings, "TIMEOUT", true, d
 			}
-			return findings, "RETRIEVAL_FAILED", true
+			return findings, "RETRIEVAL_FAILED", true, d
 		}
 		for _, hit := range hits {
 			other, exists := byID[hit.RequirementID]
@@ -281,15 +286,15 @@ func (s *Service) analyze(ctx context.Context, workspace, project string, source
 	}
 	for _, pair := range pairs {
 		if ctx.Err() != nil {
-			return findings, "TIMEOUT", true
+			return findings, "TIMEOUT", true, d
 		}
 		var current int
 		err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM requirements WHERE workspace=$1 AND project_id=$2 AND ((id=$3 AND version=$4) OR (id=$5 AND version=$6))`, workspace, project, pair.Left.ID, pair.Left.Version, pair.Right.ID, pair.Right.Version).Scan(&current)
 		if err != nil {
 			if ctx.Err() != nil {
-				return findings, "TIMEOUT", true
+				return findings, "TIMEOUT", true, d
 			}
-			return findings, "RETRIEVAL_FAILED", true
+			return findings, "RETRIEVAL_FAILED", true, d
 		}
 		if current != 2 {
 			incomplete = true
@@ -297,11 +302,23 @@ func (s *Service) analyze(ctx context.Context, workspace, project string, source
 		}
 		finding, code := checkedCompare(ctx, s.generator, pair)
 		if code != "" {
-			return findings, code, true
+			return findings, code, true, d
 		}
 		findings = append(findings, finding)
 	}
-	return findings, "", incomplete
+	if incomplete {
+		d.ReasonCode = "ANALYSIS_LIMIT"
+	} else if len(findings) == 0 {
+		d.ReasonCode = "NO_CANDIDATES"
+	} else {
+		for _, f := range findings {
+			if f.Verdict == "insufficient" {
+				d.ReasonCode = "MODEL_INSUFFICIENT"
+				break
+			}
+		}
+	}
+	return findings, "", incomplete, d
 }
 
 // Even a replacement provider that ignores cancellation cannot publish a late
@@ -318,4 +335,26 @@ func checkedCompare(ctx context.Context, generator Generator, pair Pair) (Findin
 		return Finding{}, "INVALID_OUTPUT"
 	}
 	return finding, ""
+}
+
+// Diagnostic describes the saved attempt, not the current index state.
+type diagnostic struct {
+	ReasonCode            string
+	MissingRequirementIDs []string
+}
+
+func missingIndexes(sources []Source, states []rag.State, profile string) []string {
+	ready := map[string]int{}
+	for _, state := range states {
+		if state.Status == "ready" && state.Profile == profile {
+			ready[state.RequirementID] = state.Version
+		}
+	}
+	missing := []string{}
+	for _, source := range sources {
+		if ready[source.ID] != source.Version {
+			missing = append(missing, source.ID)
+		}
+	}
+	return missing
 }

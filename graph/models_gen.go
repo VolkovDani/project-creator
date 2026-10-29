@@ -132,16 +132,18 @@ type AnalysisFinding struct {
 	Explanation  string
 }
 type ProjectAnalysis struct {
-	ID               graphql.ID
-	ProjectId        graphql.ID
-	Status           string
-	Outcome          string
-	ErrorCode        string
-	CreatedAt        string
-	CompletedAt      string
-	Stale            bool
-	GeneratorProfile string
-	EmbeddingProfile string
-	Sources          []*AnalysisSource
-	Findings         []*AnalysisFinding
+	ReasonCode            string
+	MissingRequirementIds []graphql.ID
+	ID                    graphql.ID
+	ProjectId             graphql.ID
+	Status                string
+	Outcome               string
+	ErrorCode             string
+	CreatedAt             string
+	CompletedAt           string
+	Stale                 bool
+	GeneratorProfile      string
+	EmbeddingProfile      string
+	Sources               []*AnalysisSource
+	Findings              []*AnalysisFinding
 }

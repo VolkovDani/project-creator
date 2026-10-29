@@ -62,7 +62,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&version); err != nil {
 		return err
 	}
-	if version > 4 {
+	if version > 5 {
 		return errors.New("database schema version is newer than supported")
 	}
 	// Install only if absent: runtime users can use an extension installed by an administrator.
@@ -82,7 +82,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if !vectorType {
 		return errors.New("pgvector extension has no vector type")
 	}
-	for i, name := range []string{"001_initial.sql", "002_cache_events.sql", "003_rag.sql", "004_analysis.sql"} {
+	for i, name := range []string{"001_initial.sql", "002_cache_events.sql", "003_rag.sql", "004_analysis.sql", "005_analysis_diagnostics.sql"} {
 		next := i + 1
 		if version >= next {
 			continue

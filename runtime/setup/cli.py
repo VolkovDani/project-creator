@@ -1,0 +1,814 @@
+"""Explicit local installer. Standard library only; never downloads from up/doctor."""
+import argparse
+import contextlib
+import fcntl
+import hashlib
+import http.client
+import json
+import math
+import os
+from pathlib import Path
+import platform
+import re
+import secrets
+import shlex
+import shutil
+import signal
+import stat
+import socket
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+MESSAGES = {
+    'en': {
+        'title': 'Install and run Project Creator on native Linux x86_64.',
+        'setup': 'Check prerequisites, explicitly download local models and start the application.',
+        'up': 'Start an installation already prepared by setup; no model downloads.',
+        'down': 'Stop containers and the managed NPU runtime; preserve all data and weights.',
+        'doctor': 'Check prerequisites and an existing installation; no downloads or changes.',
+        'device': 'Explicit execution device (NPU uses CPU embeddings).',
+        'project': 'Keep the existing Compose project name; only sets the name on first setup.',
+        'switch': 'Explicitly change execution device; keep existing data and pinned weights.',
+        'locale': 'Diagnostic language.',
+        'step': '[{step}] {detail}',
+        'error': '{code}: {detail}\nRun ./project-creator doctor for diagnostics. Details: docs/setup-cli.md',
+        'ready': 'Application: {url}\nFull synthetic AI verification passed. Diagnostics: ./project-creator doctor',
+        'stopped': 'Stopped. Database volumes, model weights and configuration are preserved.',
+        'checks': 'Prerequisites passed for {device}; RAM {ram:.1f} GiB, swap {swap:.1f} GiB, free disk {disk:.1f} GiB.',
+        'doctor_ok': 'Installation diagnostics passed. A fresh full AI check runs with ./project-creator up.',
+        'prerequisites': 'Native Linux x86_64, Docker Engine + Compose v2, device access and sufficient memory/disk are required.',
+        'config': 'Private configuration and stable Compose project.',
+        'models': 'Local model download/cache, immutable digests and licenses.',
+        'npu': 'Pinned Python environments, source snapshot, INT4 export and manifest.',
+        'runtime': 'Managed NPU runtime, socket and profile.',
+        'start': 'Build/start containers without deleting volumes.',
+        'verify': 'UI/API, index and analysis with fixed synthetic sources and expected findings.',
+        'fixture': 'Synthetic diagnostic project retained: {id}',
+        'download': 'Model download is explicit; interrupted files are reused on retry.',
+    },
+    'ru': {
+        'title': 'Установка и запуск Project Creator на нативном Linux x86_64.',
+        'setup': 'Проверить окружение, явно скачать локальные модели и запустить приложение.',
+        'up': 'Запустить подготовленную установку без скачивания моделей.',
+        'down': 'Остановить контейнеры и управляемый NPU runtime, сохранить данные и веса.',
+        'doctor': 'Проверить окружение и текущую установку без скачивания и изменений.',
+        'device': 'Явное устройство выполнения (для NPU embeddings работают на CPU).',
+        'project': 'Сохранить имя существующего Compose-проекта; задаётся только при первой установке.',
+        'switch': 'Явно изменить устройство, сохранить данные и закреплённые веса.',
+        'locale': 'Язык диагностики.',
+        'step': '[{step}] {detail}',
+        'error': '{code}: {detail}\nДиагностика: ./project-creator doctor. Подробнее: docs/setup-cli.md',
+        'ready': 'Приложение: {url}\nПолная синтетическая AI-проверка пройдена. Диагностика: ./project-creator doctor',
+        'stopped': 'Остановлено. Тома БД, веса моделей и конфигурация сохранены.',
+        'checks': 'Окружение для {device} проверено: RAM {ram:.1f} GiB, swap {swap:.1f} GiB, свободно {disk:.1f} GiB.',
+        'doctor_ok': 'Диагностика установки пройдена. Полная AI-проверка выполняется командой ./project-creator up.',
+        'prerequisites': 'Нужны нативный Linux x86_64, Docker Engine + Compose v2, доступ к устройству, память и место на диске.',
+        'config': 'Приватная конфигурация и постоянное имя Compose-проекта.',
+        'models': 'Скачивание/кеш локальных моделей, закрепление digest и лицензий.',
+        'npu': 'Закреплённые Python-окружения, snapshot исходников, экспорт INT4 и манифест.',
+        'runtime': 'Управляемый NPU runtime, сокет и профиль.',
+        'start': 'Сборка/запуск контейнеров с сохранением томов.',
+        'verify': 'UI/API, индексация и анализ с синтетическими источниками и ожидаемыми выводами.',
+        'fixture': 'Сохранён синтетический проект диагностики: {id}',
+        'download': 'Скачивание явно запрошено; после прерывания готовые файлы используются повторно.',
+    },
+}
+
+
+class Failure(Exception):
+    def __init__(self, code, detail):
+        self.code, self.detail = code, detail
+        super().__init__(f'{code}: {detail}')
+
+
+def atomic(path, content, mode=0o600):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = path.with_name(path.name + '.tmp-' + secrets.token_hex(5))
+    try:
+        with open(temporary, 'x', opener=lambda p, flags: os.open(p, flags, mode)) as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def read_env(path):
+    return parse_env(path.read_text() if path.exists() else '')
+
+
+def parse_env(content):
+    values = {}
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        match = re.fullmatch(r'(?:export\s+)?([A-Za-z_][A-Za-z_0-9]*)\s*=\s*(.*)', line)
+        if not match:
+            raise Failure('CONFIG_FORMAT', 'Unsupported .env syntax; use KEY=value or quoted literal values.')
+        name, value = match.groups()
+        try:
+            words = shlex.split(value, comments=True)
+        except ValueError:
+            raise Failure('CONFIG_FORMAT', f'Invalid quoting for {name}.') from None
+        if len(words) > 1 or '$' in value or '`' in value:
+            raise Failure('CONFIG_FORMAT', f'Interpolation/multiline syntax is unsupported for {name}; use literal values.')
+        if name in values:
+            raise Failure('CONFIG_FORMAT', f'Duplicate setting {name}.')
+        values[name] = words[0] if words else ''
+    return values
+
+
+class Config:
+    def __init__(self, root):
+        self.root = root.resolve()
+        self.path = self.root / '.project-creator' / 'state.json'
+        try:
+            self.state = json.loads(self.path.read_text()) if self.path.exists() else {}
+        except (ValueError, OSError):
+            raise Failure('CONFIG_STATE', 'Cannot read state.json; restore it before retrying.') from None
+        if not isinstance(self.state, dict) or self.state.get('version', 1) != 1:
+            raise Failure('CONFIG_STATE', 'Unsupported setup state version.')
+        self.values = read_env(self.root / '.env')
+
+    def save(self):
+        atomic(self.path, json.dumps(self.state, indent=2, ensure_ascii=False)+'\n')
+
+    def update_env(self, updates):
+        path = self.root / '.env'
+        content = path.read_text() if path.exists() else ''
+        for name, value in updates.items():
+            if '\n' in value or '\r' in value or "'" in value or '$' in value:
+                raise Failure('CONFIG_FORMAT', f'Unsupported literal value for {name}.')
+            line = f"{name}='{value}'"
+            pattern = rf'(?m)^[ \t]*(?:export[ \t]+)?{re.escape(name)}[ \t]*=.*$'
+            if re.search(pattern, content):
+                content = re.sub(pattern, lambda _: line, content)
+            else:
+                content += ('' if not content or content.endswith('\n') else '\n') + line + '\n'
+        future = parse_env(content)
+        atomic(path, content)
+        self.values = future
+
+    def ensure(self, device, project=None, switch=False):
+        prior = self.state.get('device')
+        if prior and prior != device and not switch:
+            raise Failure('DEVICE_CHANGE', 'Use setup --device ... --switch-device to explicitly change devices.')
+        desired = project or os.environ.get('COMPOSE_PROJECT_NAME') or self.values.get('COMPOSE_PROJECT_NAME') or self.root.name.lower()
+        if not re.fullmatch(r'[a-z0-9][a-z0-9_-]*', desired):
+            raise Failure('CONFIG_PROJECT', 'Use a lowercase Compose project name starting with a letter or digit.')
+        if self.state.get('project') and self.state['project'] != desired:
+            raise Failure('PROJECT_CHANGE', 'Project name differs from the saved installation; preserve the original volumes.')
+        updates = {}
+        for key in ('POSTGRES_PASSWORD', 'PROJECT_CREATOR_TOKEN'):
+            value = self.values.get(key)
+            if value is None:
+                updates[key] = secrets.token_hex(24)
+            elif not value or value.startswith('replace-') or (key == 'PROJECT_CREATOR_TOKEN' and len(value) < 32):
+                raise Failure('CONFIG_SECRET', f'Replace the placeholder or invalid {key} privately in .env; existing values were preserved.')
+        password = updates.get('POSTGRES_PASSWORD', self.values.get('POSTGRES_PASSWORD', ''))
+        if not re.fullmatch(r'[A-Za-z0-9._~-]+', password):
+            raise Failure('CONFIG_SECRET', 'POSTGRES_PASSWORD must be URL-safe for the existing Compose database URL.')
+        port = self.values.get('APP_PORT', '3000')
+        if not port.isdigit() or not 1024 <= int(port) <= 65535:
+            raise Failure('CONFIG_PORT', 'APP_PORT must be between 1024 and 65535.')
+        if 'APP_PORT' not in self.values:
+            updates['APP_PORT'] = port
+        if 'COMPOSE_PROJECT_NAME' not in self.values:
+            updates['COMPOSE_PROJECT_NAME'] = desired
+        self.update_env(updates)
+        self.state.update(version=1, device=device, project=desired)
+        self.save()
+        return dict(self.values)
+
+
+class Runner:
+    def run(self, args, *, capture=False, env=None, timeout=120, code='COMMAND'):
+        try:
+            result = subprocess.run(list(map(str, args)), check=False, text=True, cwd=None,
+                                    env=env, stdout=subprocess.PIPE if capture else None,
+                                    stderr=subprocess.PIPE if capture else None, timeout=timeout)
+        except FileNotFoundError:
+            raise Failure(code, f'Required executable {Path(args[0]).name} is missing.') from None
+        except subprocess.TimeoutExpired:
+            raise Failure(code, f'{Path(args[0]).name} timed out; repeat setup to reuse completed artifacts.') from None
+        if result.returncode:
+            # Captured commands can contain secrets in their output; do not include it.
+            raise Failure(code, f'{Path(args[0]).name} exited with status {result.returncode}; see the step and local tool diagnostics.')
+        return result.stdout if capture else ''
+
+
+CASES = [
+    ('collision', [
+        'При любом заказе оплата разрешена только банковской картой. Другие способы запрещены.',
+        'При любом заказе оплата разрешена только наличными. Другие способы запрещены.']),
+    ('compatible', ['Пользователь может оплатить заказ банковской картой.',
+                    'Пользователь может выбрать оплату наличными вместо банковской карты.']),
+    ('insufficient', ['Заказ должен быть обработан быстро.',
+                      'Для некоторых заказов обработка может занимать больше времени.']),
+]
+
+
+def validate_analysis(result, expected, verdict):
+    if result.get('status') != 'completed':
+        raise Failure('MODEL_RESPONSE', f'Analysis did not complete ({result.get("errorCode", "unknown")}).')
+    expected_outcome = {'collision': 'possible_collision', 'compatible': 'no_collisions_found', 'insufficient': 'insufficient'}[verdict]
+    if result.get('stale') or result.get('outcome') != expected_outcome:
+        raise Failure('MODEL_QUALITY', f'Expected {verdict}; inspect synthetic diagnostic project before relying on analysis.')
+    sources = {x['id']: x for x in expected}
+    if result.get('sources') != expected and {x['id']: x for x in result.get('sources', [])} != sources:
+        raise Failure('MODEL_SOURCES', 'Analysis source snapshots do not match the synthetic requirements.')
+    findings = result.get('findings', [])
+    for finding in findings:
+        left, right = sources.get(finding.get('leftId')), sources.get(finding.get('rightId'))
+        if not left or not right or left['id'] == right['id'] or finding.get('leftVersion') != left['version'] or finding.get('rightVersion') != right['version']:
+            raise Failure('MODEL_SOURCES', 'Analysis cited an unknown source or incorrect version.')
+    if len(findings) != 1 or findings[0].get('verdict') != verdict or not findings[0].get('explanation', '').strip():
+        raise Failure('MODEL_QUALITY', f'Expected one explained {verdict} finding; inspect the diagnostic project.')
+
+
+class UnixConnection(http.client.HTTPConnection):
+    def __init__(self, path):
+        super().__init__('localhost', timeout=5)
+        self.path = str(path)
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self.path)
+
+
+class Installer:
+    def __init__(self, root, runner=None, output=None, lang='ru'):
+        self.root = root.resolve()
+        self.config = Config(root)
+        self.runner = runner or Runner()
+        self.output = output or sys.stdout
+        self.lang = lang
+
+    @property
+    def npu(self):
+        return self.root / '.npu'
+
+    @property
+    def url(self):
+        return 'http://127.0.0.1:' + self.config.values.get('APP_PORT', '3000')
+
+    def say(self, key, **params):
+        print(MESSAGES[self.lang][key].format(**params), file=self.output, flush=True)
+
+    def step(self, name):
+        self.say('step', step=name, detail=MESSAGES[self.lang][name])
+
+    def environment(self):
+        # Compose shell variables override .env; never inherit an unrelated installation.
+        return {key: value for key, value in os.environ.items()
+                if not key.startswith(('PROJECT_CREATOR_', 'COMPOSE_', 'OLLAMA_', 'NPU_SOCKET_', 'GGML_'))
+                and key not in ('POSTGRES_PASSWORD', 'APP_PORT', 'POSTGRES_PORT')}
+
+    def compose(self, *args, capture=False, timeout=240, code='COMPOSE'):
+        if not self.config.state.get('project'):
+            raise Failure('CONFIG_STATE', 'Run setup with an explicit --device first.')
+        command = ['docker', 'compose', '--project-directory', str(self.root), '--env-file', str(self.root / '.env'),
+                   '--project-name', self.config.state['project'], '-f', str(self.root / 'compose.yml')]
+        if self.config.state['device'] == 'arc':
+            command += ['-f', str(self.root / 'compose.intel.yml')]
+        if self.config.state['device'] == 'npu':
+            command += ['-f', str(self.root / 'compose.npu.yml')]
+        return self.runner.run(command + list(args), capture=capture, timeout=timeout, env=self.environment(), code=code)
+
+    def prerequisites(self, device):
+        if platform.system() != 'Linux' or platform.machine() not in ('x86_64', 'amd64'):
+            raise Failure('PLATFORM', MESSAGES[self.lang]['prerequisites'])
+        version = self.runner.run(['docker', 'compose', 'version', '--short'], capture=True, code='DOCKER')
+        match = re.match(r'v?(\d+)\.(\d+)', version.strip())
+        if not match or tuple(map(int, match.groups())) < (2, 20):
+            raise Failure('DOCKER', 'Install Docker Compose v2.20 or newer using the official Docker instructions.')
+        try:
+            info = json.loads(self.runner.run(['docker', 'info', '--format', '{{json .}}'], capture=True, code='DOCKER'))
+        except ValueError:
+            raise Failure('DOCKER', 'Invalid Docker Engine diagnostics.') from None
+        if info.get('OSType') != 'linux' or 'desktop' in info.get('OperatingSystem', '').lower():
+            raise Failure('PLATFORM', 'Use native Linux Docker Engine; Docker Desktop is outside the supported matrix.')
+        memory = {}
+        for line in Path('/proc/meminfo').read_text().splitlines():
+            key, value = line.split(':', 1)
+            memory[key] = int(value.split()[0]) * 1024
+        gib = 1024**3
+        ram, swap = memory['MemTotal']/gib, memory['SwapTotal']/gib
+        disk = shutil.disk_usage(self.root).free/gib
+        # Already exported NPU weights need much less temporary space on restart.
+        exported = (self.npu / 'profile.json').exists()
+        ollama_prepared = bool(self.config.values.get('PROJECT_CREATOR_EMBEDDING_DIGEST') and self.config.values.get('PROJECT_CREATOR_GENERATOR_DIGEST'))
+        minimum_disk = (8 if exported else 50) if device == 'npu' else (6 if ollama_prepared else 24)
+        if ram < (20 if device == 'npu' else 8) or ram+swap < (28 if device == 'npu' else 12) or disk < minimum_disk:
+            raise Failure('RESOURCES', f'Need RAM >= {20 if device == "npu" else 8} GiB, RAM+swap >= {28 if device == "npu" else 12} GiB and disk >= {minimum_disk} GiB; found {ram:.1f}/{swap:.1f}/{disk:.1f}.')
+        if device in ('npu', 'arc'):
+            devices = list(Path('/dev/accel').glob('accel*')) if device == 'npu' else list(Path('/dev/dri').glob('renderD*'))
+            if not devices or not any(os.access(path, os.R_OK | os.W_OK) for path in devices):
+                raise Failure('DEVICE_ACCESS', f'No accessible {device} device; install the vendor driver and join its device group, then log in again. See docs/intel-{ "npu" if device == "npu" else "arc"}.md.')
+            if device == 'arc' and not any(path.read_text().strip() == '0x8086' for path in Path('/sys/class/drm').glob('renderD*/device/vendor')):
+                raise Failure('DEVICE_ACCESS', 'No Intel render device detected; select CPU explicitly or install the Intel graphics driver.')
+            if device == 'npu':
+                if not Path('/sys/module/intel_vpu').exists():
+                    raise Failure('DEVICE_DRIVER', 'intel_vpu is not loaded. Follow docs/intel-npu.md; CLI does not install drivers or change permissions.')
+                if any('rootless' in option.lower() for option in info.get('SecurityOptions', [])):
+                    raise Failure('DEVICE_ACCESS', 'NPU socket group mapping with rootless Docker needs manual configuration; use native rootful Engine for this automated path.')
+        self.say('checks', device=device, ram=ram, swap=swap, disk=disk)
+
+    def ollama(self, path, body=None):
+        # Node tools container reaches the private Compose service, not an exposed port.
+        program = "const r=await fetch('http://ollama:11434'+process.argv[1],{method:process.argv[2]==='null'?'GET':'POST',headers:{'content-type':'application/json'},body:process.argv[2]==='null'?undefined:process.argv[2],signal:AbortSignal.timeout(30000)});if(!r.ok)process.exit(2);console.log(JSON.stringify(await r.json()));"
+        text = self.compose('run', '--rm', '-T', '--no-deps', '--pull', 'never', '--entrypoint', 'node', 'model-info',
+                            '--input-type=module', '-e', program, path, json.dumps(body), capture=True, code='MODEL_API')
+        try:
+            return json.loads(text)
+        except ValueError:
+            raise Failure('MODEL_API', 'Invalid local Ollama response.') from None
+
+    def pin_model(self, model, role):
+        if not re.fullmatch(r'[a-z0-9][a-z0-9._:/-]*', model) or any(x in model for x in ('..', '://')):
+            raise Failure('MODEL_CONFIG', 'Use an explicit local Ollama model name.')
+        records = self.config.state.setdefault('models', {})
+        pin = records.get(model, {}).get('digest') or self.config.values.get('PROJECT_CREATOR_'+role+'_DIGEST')
+        def digest():
+            return next((item.get('digest') for item in self.ollama('/api/tags').get('models', []) if item.get('name') == model), None)
+        actual = digest()
+        if not actual:
+            self.say('download')
+            self.compose('exec', '-T', 'ollama', 'ollama', 'pull', model, timeout=7200, code='MODEL_DOWNLOAD')
+            actual = digest()
+        if not actual or not re.fullmatch(r'sha256:[a-f0-9]{64}', actual):
+            raise Failure('MODEL_DIGEST', 'Downloaded model has no complete immutable digest.')
+        if pin and actual != pin:
+            raise Failure('MODEL_DRIFT', f'{model} differs from the saved digest; restore the pinned weights. No profile was changed.')
+        details = self.ollama('/api/show', {'model': model})
+        license_text = details.get('license', '')
+        if not isinstance(license_text, str) or not license_text.strip():
+            raise Failure('MODEL_LICENSE', f'No license returned for {model}; inspect model provenance before retrying.')
+        records[model] = {'digest': actual, 'license': license_text, 'source': 'https://ollama.com/library/'+model,
+                          'details': details.get('details', {})}
+        self.config.save()
+        self.config.update_env({'PROJECT_CREATOR_'+role+'_MODEL': model, 'PROJECT_CREATOR_'+role+'_DIGEST': actual})
+
+    def python_npu(self):
+        executable = shutil.which('python3.12')
+        if executable:
+            return executable
+        python = self.npu / 'python/cpython-3.12.14-linux-x86_64-gnu/bin/python3.12'
+        if not python.exists():
+            if not shutil.which('uv'):
+                raise Failure('PYTHON', 'Install Python 3.12 with venv/pip or uv before NPU setup; do not replace the system Python.')
+            self.runner.run(['uv', 'python', 'install', '3.12.14', '--install-dir', self.npu/'python', '--no-bin', '--cache-dir', self.npu/'uv-cache'], timeout=1200, code='PYTHON_DOWNLOAD')
+        return str(python)
+
+    def environments_npu(self, prepare_export=True):
+        python = self.python_npu()
+        environments = [('runtime-env', 'requirements.txt')]
+        if prepare_export:
+            environments.insert(0, ('export-env', 'requirements-export.txt'))
+        for name, requirement in environments:
+            folder = self.npu/name
+            requirements = self.root/'runtime/npu'/requirement
+            digest = hashlib.sha256(requirements.read_bytes()).hexdigest()
+            marker = folder/'project-creator-requirements.sha256'
+            if not (folder/'bin/python').exists():
+                self.runner.run([python, '-m', 'venv', folder], code='PYTHON_ENV')
+            if not marker.exists() or marker.read_text().strip() != digest:
+                self.runner.run([folder/'bin/python', '-m', 'pip', 'install', '--report', self.npu/(name+'-install.json'), '-r', requirements], timeout=7200, env=self.npu_environment(), code='PYTHON_INSTALL')
+                self.runner.run([folder/'bin/opt_in_out', '--opt_out'], env=self.npu_environment(), code='PYTHON_ENV')
+                freeze = self.runner.run([folder/'bin/python', '-m', 'pip', 'freeze'], capture=True, code='PYTHON_ENV')
+                atomic(self.npu/(name+'-freeze.txt'), freeze)
+                atomic(marker, digest+'\n')
+        # Check userspace driver/runtime before downloading 15 GB of source weights.
+        self.runner.run([self.npu/'runtime-env/bin/python', '-c', "import openvino as ov; c=ov.Core(); assert 'NPU' in c.available_devices, 'NPU unavailable'; print(c.get_property('NPU','FULL_DEVICE_NAME'))"], code='DEVICE_DRIVER', env=self.npu_environment())
+
+    def npu_environment(self):
+        result = self.environment()
+        result.update(HF_HOME=str(self.npu/'huggingface'), HF_HUB_DISABLE_TELEMETRY='1', HF_HUB_DISABLE_IMPLICIT_TOKEN='1',
+                      TMPDIR=str(self.npu/'export-tmp'), HF_HUB_DISABLE_PROGRESS_BARS='0')
+        (self.npu/'export-tmp').mkdir(parents=True, exist_ok=True)
+        return result
+
+    def download_npu(self):
+        # SDK pins a commit once, resumes cache transfers and checks Safetensors SHA256 from LFS metadata.
+        self.runner.run([self.npu/'export-env/bin/python', self.root/'runtime/setup/source.py', self.npu],
+                        timeout=10800, env=self.npu_environment(), code='SOURCE_DOWNLOAD')
+        try:
+            source = json.loads((self.npu/'source.json').read_text())
+        except (ValueError, OSError):
+            raise Failure('SOURCE_MANIFEST', 'Missing or invalid verified source snapshot manifest.') from None
+        self.config.state['source'] = source
+        self.config.save()
+
+    def manifest(self, model):
+        value = self.runner.run([self.npu/'runtime-env/bin/python', self.root/'runtime/npu/npu_runtime.py', 'manifest',
+            '--model', model, '--model-id', 'Qwen/Qwen2.5-7B-Instruct', '--revision', self.config.state['source']['revision'],
+            '--license', 'Apache-2.0', '--export-command', 'optimum-intel==2.1.0; TMPDIR=.npu/export-tmp optimum-cli export openvino --task text-generation-with-past --weight-format int4 --sym --ratio 1.0 --group-size -1',
+            '--max-prompt-tokens', '2048', '--max-new-tokens', '512', '--output', self.npu/'profile.json'], capture=True, env=self.npu_environment(), code='MODEL_MANIFEST').strip()
+        if not re.fullmatch(r'[a-f0-9]{64}', value):
+            raise Failure('MODEL_MANIFEST', 'Manifest did not return a complete profile.')
+        atomic(self.npu/'profile.sha256', value+'\n')
+        return value
+
+    def export_npu(self):
+        model = self.npu/'models/qwen2.5-7b-int4'
+        profile = self.npu/'profile.sha256'
+        if model.exists() and profile.exists() and (self.npu/'profile.json').exists():
+            # Runtime verifies every hash at startup; do not silently trust marker alone.
+            return
+        partial = self.npu/'models/qwen2.5-7b-int4.partial'
+        if partial.exists():
+            shutil.rmtree(partial)  # Only this CLI-owned incomplete export; source cache remains.
+        if model.exists():
+            marker = model/'project-creator-export.json'
+            if marker.exists() and json.loads(marker.read_text()).get('revision') == self.config.state['source']['revision']:
+                self.manifest(model)
+                return
+            raise Failure('MODEL_EXPORT', 'Existing export has no verified CLI completion marker/profile; preserve it and inspect recovery documentation.')
+        source = Path(self.config.state['source']['path'])
+        env = self.npu_environment()
+        env.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1')
+        self.runner.run([self.npu/'export-env/bin/optimum-cli', 'export', 'openvino', '--model', source,
+                         '--task', 'text-generation-with-past', '--weight-format', 'int4', '--sym', '--ratio', '1.0', '--group-size', '-1', partial],
+                        timeout=7200, env=env, code='MODEL_EXPORT')
+        if not (partial/'openvino_model.xml').is_file() or not (partial/'openvino_model.bin').is_file():
+            raise Failure('MODEL_EXPORT', 'Export did not produce complete IR files; retry setup.')
+        shutil.copyfile(source/'LICENSE', partial/'SOURCE-LICENSE')
+        freeze = self.npu/'export-env-freeze.txt'
+        if freeze.exists():
+            shutil.copyfile(freeze, partial/'export-freeze.txt')
+        atomic(partial/'project-creator-export.json', json.dumps({'revision': self.config.state['source']['revision']}))
+        partial.rename(model)
+        self.manifest(model)
+
+    def npu_health(self):
+        connection = UnixConnection(self.npu/'run/runtime.sock')
+        try:
+            connection.request('GET', '/health')
+            response = connection.getresponse()
+            data = json.loads(response.read(65536))
+            if response.status != 200:
+                raise Failure('NPU_RUNTIME', 'Runtime health failed; inspect .npu/runtime.log.')
+            return data
+        except (OSError, ValueError, http.client.HTTPException):
+            raise Failure('NPU_SOCKET', 'NPU socket is unavailable; inspect .npu/runtime.log and device permissions.') from None
+        finally:
+            connection.close()
+
+    def process_stamp(self, pid):
+        try:
+            fields = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+            return {'pid': pid, 'start': fields[19], 'boot': Path('/proc/sys/kernel/random/boot_id').read_text().strip()}
+        except (OSError, IndexError):
+            return None
+
+    def process_identity(self, pid, record=None):
+        try:
+            raw = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
+            expected = record or {}
+            stamp = self.process_stamp(pid)
+            return bool(stamp and all(stamp[key] == expected.get(key) for key in ('pid', 'start', 'boot'))
+                        and str(self.root/'runtime/npu/npu_runtime.py').encode() in raw and b'serve' in raw)
+        except OSError:
+            return False
+
+    def socket_stamp(self):
+        try:
+            value = (self.npu/'run/runtime.sock').lstat()
+            if not stat.S_ISSOCK(value.st_mode) or value.st_uid != os.getuid():
+                return None
+            return {'device': value.st_dev, 'inode': value.st_ino, 'uid': value.st_uid}
+        except OSError:
+            return None
+
+    def runtime_record(self):
+        path = self.npu/'runtime.pid'
+        if not path.exists():
+            return None
+        try:
+            record = json.loads(path.read_text())
+            if not isinstance(record, dict) or not isinstance(record['pid'], int) or record['pid'] < 2 or not record.get('start') or not record.get('boot'):
+                raise ValueError('invalid pid record')
+            return record
+        except (ValueError, KeyError):
+            raise Failure('NPU_PID', 'Invalid managed process record; inspect it without killing unrelated processes.') from None
+
+    def recover_socket(self, record):
+        sock = self.npu/'run/runtime.sock'
+        if not sock.exists():
+            return
+        stamp = self.socket_stamp()
+        if not record or not stamp or record.get('socket') != stamp or self.process_identity(record['pid'], record):
+            raise Failure('NPU_SOCKET', 'Socket ownership is unverified. Confirm the owner stopped it before removing a stale socket.')
+        # A different live runtime may have reused the pathname; never unlink a working listener.
+        try:
+            self.npu_health()
+        except Failure as error:
+            if error.code != 'NPU_SOCKET':
+                raise
+        else:
+            raise Failure('NPU_SOCKET', 'Socket has a live listener; stop its owner before starting another runtime.')
+        if self.socket_stamp() != stamp:
+            raise Failure('NPU_SOCKET', 'Socket changed during stale recovery; no path was removed.')
+        sock.unlink()
+
+    def start_npu(self):
+        run = self.npu/'run'
+        run.mkdir(parents=True, exist_ok=True, mode=0o750)
+        os.chmod(run, 0o750)
+        sock = run/'runtime.sock'
+        if len(str(sock).encode()) > 100:
+            raise Failure('NPU_SOCKET', 'Repository path is too long for the runtime socket; move the repository to a shorter path.')
+        profile = (self.npu/'profile.sha256').read_text().strip()
+        pidfile = self.npu/'runtime.pid'
+        prior = self.runtime_record()
+        if prior and self.process_identity(prior['pid'], prior):
+            health = self.npu_health()
+            if health != {'device': 'NPU', 'profile': profile}:
+                raise Failure('NPU_PROFILE', 'Running runtime differs from the saved profile; run down before up.')
+        else:
+            self.recover_socket(prior)
+            arguments = [str(self.npu/'runtime-env/bin/python'), str(self.root/'runtime/npu/npu_runtime.py'), 'serve',
+                '--model', str(self.npu/'models/qwen2.5-7b-int4'), '--manifest', str(self.npu/'profile.json'),
+                '--profile', profile, '--socket', str(sock), '--cache', str(self.npu/'compiled-cache')]
+            with open(self.npu/'runtime.log', 'a', opener=lambda p, flags: os.open(p, flags, 0o600)) as log:
+                process = subprocess.Popen(arguments, env=self.npu_environment(), stdin=subprocess.DEVNULL,
+                                           stdout=log, stderr=log, start_new_session=True)
+            record = self.process_stamp(process.pid)
+            if not record:
+                raise Failure('NPU_PID', 'Could not record managed runtime identity; inspect runtime.log.')
+            atomic(pidfile, json.dumps(record)+'\n')
+            deadline = time.monotonic()+600
+            while True:
+                if process.poll() is not None:
+                    raise Failure('NPU_RUNTIME', 'NPU compilation/start failed; inspect .npu/runtime.log. No fallback was enabled.')
+                try:
+                    stamp = self.socket_stamp()
+                    if stamp and record.get('socket') != stamp:
+                        record['socket'] = stamp
+                        atomic(pidfile, json.dumps(record)+'\n')
+                    health = self.npu_health()
+                    if health == {'device': 'NPU', 'profile': profile}:
+                        break
+                except Failure:
+                    pass
+                if time.monotonic() > deadline:
+                    self.stop_npu()
+                    raise Failure('NPU_RUNTIME', 'NPU compilation exceeded 10 minutes; inspect .npu/runtime.log.')
+                time.sleep(0.5)
+        self.config.update_env({'PROJECT_CREATOR_NPU_PROFILE': profile, 'NPU_SOCKET_DIR': str(run), 'NPU_SOCKET_GID': str(run.stat().st_gid)})
+
+    def stop_npu(self):
+        pidfile = self.npu/'runtime.pid'
+        if not pidfile.exists():
+            return
+        record = self.runtime_record()
+        pid = record['pid']
+        if self.process_identity(pid, record):
+            os.killpg(pid, signal.SIGTERM)
+            deadline = time.monotonic()+10
+            while self.process_identity(pid, record) and time.monotonic() < deadline:
+                time.sleep(0.1)
+            if self.process_identity(pid, record):
+                os.killpg(pid, signal.SIGKILL)
+                deadline = time.monotonic()+5
+                while self.process_identity(pid, record) and time.monotonic() < deadline:
+                    time.sleep(0.1)
+            if self.process_identity(pid, record):
+                raise Failure('NPU_PID', 'Managed process did not stop; inspect runtime.log before retrying.')
+        self.recover_socket(record)
+        pidfile.unlink(missing_ok=True)
+
+    def probe_embedding(self):
+        model = self.config.values.get('PROJECT_CREATOR_EMBEDDING_MODEL', 'bge-m3:567m')
+        response = self.ollama('/api/embed', {'model': model, 'input': ['Synthetic installation verification.'], 'truncate': False})
+        embeddings = response.get('embeddings', [])
+        if len(embeddings) != 1 or len(embeddings[0]) != 1024 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in embeddings[0]) or not any(v != 0 for v in embeddings[0]):
+            raise Failure('MODEL_EMBEDDING', 'Embedding probe did not return one finite nonzero 1024-dimensional vector.')
+        self.check_execution('EMBEDDING')
+
+    def check_execution(self, role):
+        device = self.config.state['device']
+        if device == 'npu' and role == 'GENERATOR':
+            expected = self.config.values.get('PROJECT_CREATOR_NPU_PROFILE')
+            if self.npu_health() != {'device': 'NPU', 'profile': expected}:
+                raise Failure('DEVICE_EXECUTION', 'Generation did not confirm NPU execution with the configured profile.')
+            return
+        model = self.config.values['PROJECT_CREATOR_'+role+'_MODEL']
+        digest = self.config.values['PROJECT_CREATOR_'+role+'_DIGEST']
+        loaded = next((item for item in self.ollama('/api/ps').get('models', []) if item.get('name') == model), None)
+        if not loaded or loaded.get('digest') != digest or not isinstance(loaded.get('size_vram'), int):
+            raise Failure('DEVICE_EXECUTION', f'Loaded {role.lower()} model/digest is not confirmed by Ollama.')
+        uses_gpu = loaded['size_vram'] > 0
+        if uses_gpu != (device == 'arc'):
+            raise Failure('DEVICE_EXECUTION', f'{role} is not executing on the explicitly selected {device} path. Inspect Ollama logs; no fallback accepted.')
+
+    def graphql(self, query, variables=None):
+        request = urllib.request.Request(self.url+'/api/graphql', data=json.dumps({'query': query, 'variables': variables or {}}).encode(), headers={'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(request, timeout=210) as response:
+                value = json.load(response)
+            if value.get('errors') or not value.get('data'):
+                raise Failure('API', 'GraphQL rejected the diagnostic operation; inspect backend logs without publishing secrets.')
+            return value['data']
+        except (OSError, ValueError, urllib.error.URLError):
+            raise Failure('API', 'Frontend GraphQL proxy is unavailable or returned invalid JSON.') from None
+
+    def fixture(self, name, texts):
+        records = self.config.state.setdefault('fixtures', {})
+        record = records.setdefault(name, {})
+        if not record.get('project'):
+            # Persist an ownership marker before a potentially interrupted create response.
+            record.setdefault('marker', secrets.token_hex(8))
+            self.config.save()
+            title = 'Installation diagnostic: '+name+' ['+record['marker']+']'
+            offset = 0
+            while True:
+                page = self.graphql('query($offset:Int!){projects(limit:100,offset:$offset){id name}}', {'offset': offset})['projects']
+                matches = [project['id'] for project in page if project['name'] == title]
+                if matches:
+                    if len(matches) != 1:
+                        raise Failure('FIXTURE_CHANGED', 'Duplicate installation marker; inspect synthetic projects.')
+                    record['project'] = matches[0]
+                    break
+                if len(page) < 100:
+                    break
+                offset += len(page)
+            if not record.get('project'):
+                result = self.graphql('mutation($input:ProjectInput!){createProject(input:$input){project{id} fieldErrors{code}}}', {'input': {'name': title, 'goal': 'Synthetic local AI installation verification.', 'description': 'Generated by project-creator setup. No customer data.'}})['createProject']
+                if result.get('fieldErrors') or not result.get('project'):
+                    raise Failure('FIXTURE', 'Could not create the synthetic diagnostic project.')
+                record['project'] = result['project']['id']
+            self.config.save()
+            self.say('fixture', id=record['project'])
+        project = record['project']
+        # Discover requirements after an interrupted request before creating more.
+        requirements = self.graphql('query($p:ID!){requirements(projectId:$p,limit:20,offset:0){id version text}}', {'p': project})['requirements']
+        if len(requirements) > 2 or any(item['text'] not in texts for item in requirements):
+            raise Failure('FIXTURE_CHANGED', 'The diagnostic project contains manual changes; preserve it and inspect state.json before a new diagnostic run.')
+        for text in texts:
+            if not any(item['text'] == text for item in requirements):
+                result = self.graphql('mutation($input:CreateRequirementInput!){createRequirement(input:$input){requirement{id version text} fieldErrors{code}}}', {'input': {'projectId': project, 'text': text}})['createRequirement']
+                if result.get('fieldErrors') or not result.get('requirement'):
+                    raise Failure('FIXTURE', 'Could not create a synthetic requirement.')
+                requirements.append(result['requirement'])
+        if len(requirements) != 2 or len({item['text'] for item in requirements}) != 2:
+            raise Failure('FIXTURE_CHANGED', 'Duplicate diagnostic requirements; inspect the diagnostic project.')
+        for item in requirements:
+            result = self.graphql('mutation($p:ID!,$r:ID!){indexRequirement(projectId:$p,requirementId:$r){status version errorCode}}', {'p': project, 'r': item['id']})['indexRequirement']
+            if result['status'] != 'ready' or result['version'] != item['version']:
+                raise Failure('INDEX', f'Synthetic requirement indexing failed ({result.get("errorCode", "unknown")}).')
+        # Already-ready indexes do not reload Ollama after a restart; probe explicitly.
+        self.probe_embedding()
+        return project, requirements
+
+    def verify(self):
+        self.config.state['verified'] = False
+        self.config.save()
+        for name, texts in CASES:
+            project, expected = self.fixture(name, texts)
+            result = self.graphql('mutation($p:ID!){startProjectAnalysis(projectId:$p){status outcome stale errorCode sources{id version text} findings{leftId rightId leftVersion rightVersion verdict explanation}}}', {'p': project})['startProjectAnalysis']
+            validate_analysis(result, expected, name)
+            self.check_execution('GENERATOR')
+            self.config.state.setdefault('verification', {})[name] = {'project': project, 'checkedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'device': self.config.state['device']}
+            self.config.save()
+        self.config.state['verified'] = True
+        self.config.save()
+
+    def up(self):
+        device = self.config.state.get('device')
+        if not device:
+            raise Failure('CONFIG_STATE', 'Run setup --device cpu|arc|npu first.')
+        self.config.state['verified'] = False
+        self.config.save()
+        self.prerequisites(device)
+        if device == 'npu':
+            self.step('runtime')
+            self.start_npu()
+        self.step('start')
+        self.compose('up', '-d', '--build', '--wait', '--wait-timeout', '600', timeout=3600)
+        self.check_ui()
+        self.step('verify')
+        self.verify()
+        self.say('ready', url=self.url)
+
+    def check_ui(self):
+        try:
+            with urllib.request.urlopen(self.url, timeout=15) as response:
+                if response.status != 200 or b'<html' not in response.read(1000000):
+                    raise Failure('UI', 'Frontend did not return an HTML application page.')
+        except OSError:
+            raise Failure('UI', 'Frontend is unavailable; inspect docker compose logs.') from None
+        self.graphql('{projects(limit:1,offset:0){id}}')
+
+    def setup(self, device, project=None, switch=False):
+        self.prerequisites(device)
+        self.step('config')
+        previous_device = self.config.state.get('device')
+        self.config.ensure(device, project=project, switch=switch)
+        self.config.state['verified'] = False
+        self.config.save()
+        if previous_device == 'npu' and device != 'npu':
+            self.stop_npu()
+        self.step('models')
+        # A newly selected NPU profile needs a nonempty profile variable even for parsing
+        # the Compose tools service; use a placeholder only until preparation completes.
+        if device == 'npu' and not self.config.values.get('PROJECT_CREATOR_NPU_PROFILE'):
+            run = self.npu/'run'
+            run.mkdir(parents=True, exist_ok=True, mode=0o750)
+            self.config.update_env({'PROJECT_CREATOR_NPU_PROFILE': '0'*64, 'NPU_SOCKET_DIR': str(run), 'NPU_SOCKET_GID': str(run.stat().st_gid)})
+        self.compose('up', '-d', '--build', '--wait', 'ollama', timeout=1800)
+        self.compose('pull', 'model-info', timeout=1800, code='TOOLS_DOWNLOAD')
+        self.pin_model(self.config.values.get('PROJECT_CREATOR_EMBEDDING_MODEL') or 'bge-m3:567m', 'EMBEDDING')
+        if device != 'npu':
+            self.pin_model(self.config.values.get('PROJECT_CREATOR_GENERATOR_MODEL') or 'qwen2.5:7b', 'GENERATOR')
+        else:
+            self.step('npu')
+            exported = (self.npu/'profile.json').exists() and (self.npu/'profile.sha256').exists() and (self.npu/'models/qwen2.5-7b-int4').exists()
+            self.environments_npu(prepare_export=not exported)
+            if not exported:
+                self.download_npu()
+                self.export_npu()
+        self.up()
+
+    def down(self):
+        self.compose('down', timeout=300)
+        self.stop_npu()
+        self.say('stopped')
+
+    def doctor(self, device=None):
+        device = device or self.config.state.get('device') or 'cpu'
+        self.prerequisites(device)
+        if self.config.state:
+            self.compose('config', '--quiet', capture=True)
+            self.check_ui()
+            for role in ('EMBEDDING', 'GENERATOR'):
+                if device == 'npu' and role == 'GENERATOR':
+                    self.check_execution(role)
+                    continue
+                model = self.config.values.get('PROJECT_CREATOR_'+role+'_MODEL')
+                pin = self.config.values.get('PROJECT_CREATOR_'+role+'_DIGEST')
+                actual = next((item.get('digest') for item in self.ollama('/api/tags').get('models', []) if item.get('name') == model), None)
+                if not pin or pin != actual:
+                    raise Failure('MODEL_DRIFT', f'{role} model is missing or differs from the pinned digest; repeat setup with the same device.')
+        self.say('doctor_ok')
+
+
+@contextlib.contextmanager
+def locked(root):
+    directory = root/'.project-creator'
+    directory.mkdir(exist_ok=True, mode=0o700)
+    with open(directory/'setup.lock', 'a', opener=lambda p, flags: os.open(p, flags, 0o600)) as stream:
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Failure('BUSY', 'Another setup/up/down command is active; wait for it to complete.') from None
+        yield
+
+
+def main(root=None, argv=None):
+    root = Path(root or Path(__file__).resolve().parents[2])
+    argv = sys.argv[1:] if argv is None else argv
+    lang = 'en' if '--lang=en' in argv or ('--lang' in argv and argv[argv.index('--lang')+1:][:1] == ['en']) else 'ru'
+    messages = MESSAGES[lang]
+    parser = argparse.ArgumentParser(description=messages['title'])
+    parser.add_argument('--lang', choices=['ru', 'en'], default=lang, help=messages['locale'])
+    sub = parser.add_subparsers(dest='command', required=True)
+    for name in ('setup', 'up', 'down', 'doctor'):
+        command = sub.add_parser(name, help=messages[name])
+        if name in ('setup', 'doctor'):
+            command.add_argument('--device', choices=['cpu', 'arc', 'npu'], required=name == 'setup', help=messages['device'])
+        if name == 'setup':
+            command.add_argument('--project-name', help=messages['project'])
+            command.add_argument('--switch-device', action='store_true', help=messages['switch'])
+    args = parser.parse_args(argv)
+    try:
+        app = Installer(root, lang=args.lang)
+        if args.command == 'doctor':
+            app.doctor(args.device)
+        else:
+            with locked(root):
+                if args.command == 'setup':
+                    app.setup(args.device, project=args.project_name, switch=args.switch_device)
+                else:
+                    getattr(app, args.command)()
+        return 0
+    except Failure as error:
+        print(messages['error'].format(code=error.code, detail=error.detail), file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print(messages['error'].format(code='INTERRUPTED', detail='Repeat the same command; completed downloads and exports are retained.'), file=sys.stderr)
+        return 130
+    except (OSError, ValueError, KeyError) as error:
+        # Avoid tracebacks containing configuration values or user model responses.
+        print(messages['error'].format(code='LOCAL_STATE', detail=f'Local operation failed ({type(error).__name__}); inspect the current step and private state.'), file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

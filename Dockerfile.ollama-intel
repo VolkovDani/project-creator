@@ -3,4 +3,8 @@
 FROM ollama/ollama:0.40.11
 RUN apt-get update \
     && apt-get install -y --no-install-recommends mesa-vulkan-drivers \
+    && set -- /usr/share/vulkan/icd.d/intel_icd*.json \
+    && test "$#" -eq 1 && test -s "$1" \
+    && ln -s "$1" /etc/project-creator-intel-vulkan.json \
     && rm -rf /var/lib/apt/lists/*
+

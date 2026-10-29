@@ -1,0 +1,11 @@
+# Native Linux, supported AMD ROCm GPU/iGPU only. Do not combine GPU overrides.
+services:
+  ollama:
+    image: ollama/ollama:0.40.11-rocm
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    environment:
+      OLLAMA_VULKAN: '0'
+      CUDA_VISIBLE_DEVICES: '-1'
+      ROCR_VISIBLE_DEVICES: ${PROJECT_CREATOR_GPU_ID:?Select an AMD GPU UUID using setup --device amd}

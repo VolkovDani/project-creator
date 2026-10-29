@@ -6,5 +6,8 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              device_ids: ["${PROJECT_CREATOR_GPU_ID:-0}"]
               capabilities: [gpu]
+    environment:
+      OLLAMA_VULKAN: '0'
+

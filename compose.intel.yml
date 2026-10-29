@@ -11,5 +11,11 @@ services:
       - /dev/dri:/dev/dri
     environment:
       OLLAMA_VULKAN: '1'
+      CUDA_VISIBLE_DEVICES: '-1'
+      ROCR_VISIBLE_DEVICES: '-1'
+      # Restrict Vulkan discovery to Intel even on mixed Intel/AMD laptops.
+      VK_DRIVER_FILES: /etc/project-creator-intel-vulkan.json
+      VK_ICD_FILENAMES: /etc/project-creator-intel-vulkan.json
       # Empty means automatic discovery; IDs come from Ollama's Vulkan logs.
       GGML_VK_VISIBLE_DEVICES: ${GGML_VK_VISIBLE_DEVICES:-}
+

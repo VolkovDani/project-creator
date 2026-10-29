@@ -1,5 +1,22 @@
 # Project Creator
 
+## Установка одной командой
+
+На нативном Linux x86_64 с Python 3.12 и Docker Engine/Compose:
+
+```bash
+./project-creator setup --device cpu  # либо arc, либо npu
+./project-creator up
+./project-creator doctor
+./project-creator down
+```
+
+`setup` явно скачивает локальные модели, подготавливает NPU при выборе этого
+устройства, запускает приложение и проверяет настоящий AI-сценарий. Существующие
+`.env`, имя Compose-проекта, данные и веса сохраняются. Системные prerequisites,
+диагностика, повтор после прерывания и аппаратные ограничения описаны в
+[инструкции CLI](docs/setup-cli.md). Установка драйверов выполняется отдельно.
+
 Система знаний о продукте и проверки бизнес-требований на возможные коллизии.
 Цели — [GOAL.md](GOAL.md), архитектурные контракты — [ARCHITECTURE.md](ARCHITECTURE.md).
 

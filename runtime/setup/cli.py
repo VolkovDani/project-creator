@@ -333,6 +333,13 @@ class UnixConnection(http.client.HTTPConnection):
         self.sock.connect(self.path)
 
 
+def normalized_digest(value):
+    """Ollama APIs accept full SHA256 with or without the algorithm prefix."""
+    if isinstance(value, str) and re.fullmatch(r'(sha256:)?[a-f0-9]{64}', value):
+        return 'sha256:' + value.removeprefix('sha256:')
+    return None
+
+
 class Installer:
     def __init__(self, root, runner=None, output=None, lang='ru'):
         self.root = root.resolve()
@@ -483,9 +490,10 @@ class Installer:
             self.say('download')
             self.compose('exec', '-T', 'ollama', 'ollama', 'pull', model, timeout=7200, code='MODEL_DOWNLOAD')
             actual = digest()
-        if not actual or not re.fullmatch(r'sha256:[a-f0-9]{64}', actual):
+        actual = normalized_digest(actual)
+        if not actual:
             raise Failure('MODEL_DIGEST', 'Downloaded model has no complete immutable digest.')
-        if pin and actual != pin:
+        if pin and actual != normalized_digest(pin):
             raise Failure('MODEL_DRIFT', f'{model} differs from the saved digest; restore the pinned weights. No profile was changed.')
         details = self.ollama('/api/show', {'model': model})
         license_text = details.get('license', '')
@@ -521,6 +529,8 @@ class Installer:
             if not (folder/'bin/python').exists():
                 self.runner.run([python, '-m', 'venv', folder], code='PYTHON_ENV')
             if not marker.exists() or marker.read_text().strip() != digest:
+                # Reuse uv-created environments, which do not include pip by default.
+                self.runner.run([folder/'bin/python', '-m', 'ensurepip', '--upgrade'], env=self.npu_environment(), code='PYTHON_ENV')
                 self.runner.run([folder/'bin/python', '-m', 'pip', 'install', '--report', self.logs/(name+'-install.json'), '-r', requirements], timeout=7200, env=self.npu_environment(), code='PYTHON_INSTALL')
                 self.runner.run([folder/'bin/opt_in_out', '--opt_out'], env=self.npu_environment(), code='PYTHON_ENV')
                 freeze = self.runner.run([folder/'bin/python', '-m', 'pip', 'freeze'], capture=True, code='PYTHON_ENV')
@@ -743,9 +753,10 @@ class Installer:
                 raise Failure('DEVICE_EXECUTION', 'Generation did not confirm NPU execution with the configured profile.')
             return
         model = self.config.values['PROJECT_CREATOR_'+role+'_MODEL']
-        digest = self.config.values['PROJECT_CREATOR_'+role+'_DIGEST']
+        digest = normalized_digest(self.config.values['PROJECT_CREATOR_'+role+'_DIGEST'])
         loaded = next((item for item in self.ollama('/api/ps').get('models', []) if item.get('name') == model), None)
-        if not loaded or loaded.get('digest') != digest or type(loaded.get('size_vram')) is not int or loaded['size_vram'] < 0:
+        if (not digest or not loaded or normalized_digest(loaded.get('digest')) != digest
+                or type(loaded.get('size_vram')) is not int or loaded['size_vram'] < 0):
             raise Failure('DEVICE_EXECUTION', f'Loaded {role.lower()} model/digest is not confirmed by Ollama.')
         uses_gpu = loaded['size_vram'] > 0
         if uses_gpu != (device in gpu.GPU_DEVICES):
@@ -928,7 +939,7 @@ class Installer:
                 model = self.config.values.get('PROJECT_CREATOR_'+role+'_MODEL')
                 pin = self.config.values.get('PROJECT_CREATOR_'+role+'_DIGEST')
                 actual = next((item.get('digest') for item in self.ollama('/api/tags').get('models', []) if item.get('name') == model), None)
-                if not pin or pin != actual:
+                if not normalized_digest(pin) or normalized_digest(pin) != normalized_digest(actual):
                     raise Failure('MODEL_DRIFT', f'{role} model is missing or differs from the pinned digest; repeat setup with the same device.')
                 if device in gpu.GPU_DEVICES:
                     if any(item.get('name') == model for item in self.ollama('/api/ps').get('models', [])):

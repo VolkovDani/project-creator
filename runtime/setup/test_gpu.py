@@ -85,12 +85,12 @@ class GPUTests(unittest.TestCase):
             app.config.ensure(device, switch=True)
             for role in ('GENERATOR', 'EMBEDDING'):
                 app.config.values['PROJECT_CREATOR_'+role+'_MODEL'] = 'model'
-                app.config.values['PROJECT_CREATOR_'+role+'_DIGEST'] = 'sha256:abc'
+                app.config.values['PROJECT_CREATOR_'+role+'_DIGEST'] = 'sha256:'+'a'*64
                 for amount in (0, -1, True):
-                    app.ollama = lambda *_: {'models': [{'name': 'model', 'digest': 'sha256:abc', 'size_vram': amount}]}
+                    app.ollama = lambda *_: {'models': [{'name': 'model', 'digest': 'sha256:'+'a'*64, 'size_vram': amount}]}
                     with self.assertRaisesRegex(cli.Failure, 'DEVICE_EXECUTION'):
                         app.check_execution(role)
-                app.ollama = lambda *_: {'models': [{'name': 'model', 'digest': 'sha256:abc', 'size_vram': 100, 'size': 200}]}
+                app.ollama = lambda *_: {'models': [{'name': 'model', 'digest': 'sha256:'+'a'*64, 'size_vram': 100, 'size': 200}]}
                 app.check_execution(role)
                 self.assertEqual(app.config.state['execution'][role]['size_vram'], 100)
                 self.assertIn(role, app.output.getvalue())
@@ -185,11 +185,11 @@ class GPUTests(unittest.TestCase):
         app.config.ensure('amd', gpu_id='GPU-1234')
         for role in ('GENERATOR', 'EMBEDDING'):
             app.config.values['PROJECT_CREATOR_'+role+'_MODEL'] = 'model'
-            app.config.values['PROJECT_CREATOR_'+role+'_DIGEST'] = 'digest'
+            app.config.values['PROJECT_CREATOR_'+role+'_DIGEST'] = 'a'*64
         paths = []
         def api(path):
             paths.append(path)
-            return {'models': [{'name': 'model', 'digest': 'digest'}]} if path == '/api/tags' else {'models': []}
+            return {'models': [{'name': 'model', 'digest': 'a'*64}]} if path == '/api/tags' else {'models': []}
         app.ollama = api
         with patch.object(app, 'prerequisites'), patch.object(app, 'compose'), patch.object(app, 'check_ui'):
             app.doctor()

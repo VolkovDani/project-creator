@@ -32,7 +32,7 @@ func NewOpenVINO(socket, profile string) (*OpenVINO, error) {
 	transport := &http.Transport{Proxy: nil, MaxConnsPerHost: 1, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}
-	sum := sha256.Sum256([]byte("openvino-npu-unix-v1\ncomparison-prompt-v1:2000\n" + profile))
+	sum := sha256.Sum256([]byte("openvino-npu-unix-v1\ncomparison-prompt-v2:2000\nsource-aliases-v2:text-order\n" + systemPrompt + "\n" + profile))
 	return &OpenVINO{pinnedProfile: profile, profile: hex.EncodeToString(sum[:]), client: &http.Client{Transport: transport, Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirects disabled") }}}, nil
 }
 
@@ -92,7 +92,19 @@ func (o *OpenVINO) Compare(ctx context.Context, pair Pair) (Finding, error) {
 	if err := o.verify(ctx); err != nil {
 		return Finding{}, err
 	}
-	body, err := json.Marshal(map[string]any{"profile": o.pinnedProfile, "system": systemPrompt, "pair": pair, "schema": findingSchema()})
+	// Opaque IDs and revision numbers are references, not requirement semantics.
+	// Keep their per-request mapping in the adapter so incidental identifiers do
+	// not influence the model's verdict. Source texts remain byte-for-byte intact.
+	aliases := Pair{
+		Left:  Source{ID: "left", Version: 1, Text: pair.Left.Text},
+		Right: Source{ID: "right", Version: 1, Text: pair.Right.Text},
+	}
+	// Contradiction is symmetric. Canonical text order keeps the same comparison
+	// independent of the caller's source order while preserving every source byte.
+	if aliases.Right.Text < aliases.Left.Text {
+		aliases.Left.Text, aliases.Right.Text = aliases.Right.Text, aliases.Left.Text
+	}
+	body, err := json.Marshal(map[string]any{"profile": o.pinnedProfile, "system": systemPrompt, "pair": aliases, "schema": findingSchema()})
 	if err != nil {
 		return Finding{}, errors.New("invalid NPU comparison request")
 	}
@@ -107,9 +119,14 @@ func (o *OpenVINO) Compare(ctx context.Context, pair Pair) (Finding, error) {
 	if err := o.verifyIdentity(response.Profile, response.Device); err != nil {
 		return Finding{}, err
 	}
-	finding, err := decodeFinding(string(response.Finding), pair)
+	finding, err := decodeFinding(string(response.Finding), aliases)
 	if err != nil {
 		return Finding{}, err
+	}
+	finding.LeftID, finding.LeftVersion = pair.Left.ID, pair.Left.Version
+	finding.RightID, finding.RightVersion = pair.Right.ID, pair.Right.Version
+	if !validFinding(pair, finding) {
+		return Finding{}, errors.New("invalid NPU comparison source mapping")
 	}
 	if err := o.verify(ctx); err != nil {
 		return Finding{}, err

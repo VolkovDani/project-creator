@@ -13,6 +13,7 @@
 *.db-*
 *.dump
 backups
+logs/
 
 
 # Host-only NPU weights, environments, caches and live sockets.

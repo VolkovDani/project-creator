@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -195,6 +196,53 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(export_env['TMPDIR'], str(self.root / '.npu' / 'export-tmp'))
         self.assertEqual(export_env['HF_HUB_OFFLINE'], '1')
         self.assertTrue((self.root / '.npu/models/qwen2.5-7b-int4/SOURCE-LICENSE').exists())
+
+
+class LogTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.addCleanup(self.temp.cleanup)
+        self.runner = FakeRunner()
+        self.app = cli.Installer(self.root, runner=self.runner, output=io.StringIO())
+        self.app.config.ensure('npu')
+
+    def test_runtime_stdout_and_stderr_share_private_log_under_logs(self):
+        profile = 'a'*64
+        cli.atomic(self.app.npu/'profile.sha256', profile+'\n')
+        def start(arguments, **kwargs):
+            self.assertIs(kwargs['stdout'], kwargs['stderr'])
+            kwargs['stdout'].write('runtime output\n')
+            return SimpleNamespace(pid=1234, poll=lambda: None)
+        with patch.object(cli.subprocess, 'Popen', side_effect=start), \
+             patch.object(self.app, 'process_stamp', return_value={'pid': 1234, 'start': '1', 'boot': 'test'}), \
+             patch.object(self.app, 'npu_health', return_value={'device': 'NPU', 'profile': profile}):
+            self.app.start_npu()
+        logfile = self.root/'logs/npu/runtime.log'
+        self.assertEqual(logfile.read_text(), 'runtime output\n')
+        self.assertEqual(logfile.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(logfile.parent.stat().st_mode & 0o777, 0o700)
+        self.assertFalse((self.app.npu/'runtime.log').exists())
+
+    def test_install_reports_go_to_logs_and_freeze_remains_model_provenance(self):
+        requirements = self.root/'runtime/npu'
+        requirements.mkdir(parents=True)
+        for filename in ['requirements.txt', 'requirements-export.txt']:
+            (requirements/filename).write_text('example==1.0\n')
+        def run(arguments, **kwargs):
+            arguments = list(map(str, arguments))
+            self.runner.calls.append(arguments)
+            if '--report' in arguments:
+                destination = Path(arguments[arguments.index('--report')+1])
+                self.assertEqual(destination.parent, self.root/'logs/npu')
+                self.assertTrue(destination.parent.is_dir())
+            return 'example==1.0\n' if 'freeze' in arguments else ''
+        self.runner.run = run
+        with patch.object(self.app, 'python_npu', return_value='python3.12'):
+            self.app.environments_npu()
+        self.assertEqual(len([call for call in self.runner.calls if '--report' in call]), 2)
+        self.assertEqual((self.app.npu/'export-env-freeze.txt').read_text(), 'example==1.0\n')
+        self.assertEqual((self.app.npu/'runtime-env-freeze.txt').read_text(), 'example==1.0\n')
 
 
 class VerifyTests(InstallTests):

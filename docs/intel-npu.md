@@ -25,7 +25,12 @@ BGE-M3 не подтверждена; модель и размерность н�
 | `models/qwen2.5-7b-int4/` | Экспортированные веса, токенизаторы, лицензия и freeze exporter |
 | `profile.json`, `profile.sha256` | Манифест целостности/режима генерации и его профиль |
 | `run/`, `compiled-cache/` | Сокет работающего runtime и кеш компиляции |
-| `export-tmp/`, `*-freeze.txt`, отчёты установки | Временные файлы экспорта и сведения об окружениях |
+| `export-tmp/`, `*-freeze.txt` | Временные файлы экспорта и зафиксированные зависимости окружений |
+
+Логи runtime, отчёты установки и результаты диагностических прогонов хранятся
+в корневом `logs/npu/`, исключённом из Git и Docker build context. Веса,
+профили, source revision и `pip freeze` остаются в `.npu/` как сведения
+о происхождении модели и окружений.
 
 Дополнительные скрипты диагностики и логи ниже — артефакты конкретной проверки,
 они не поставляются с репозиторием и не требуются для выполнения команд инструкции.
@@ -79,14 +84,14 @@ export NPU_PYTHON="$PWD/.npu/python/cpython-3.12.14-linux-x86_64-gnu/bin/python3
 `NPU_PYTHON=python3.12`. Команды ниже используют выбранный интерпретатор.
 
 ```bash
-mkdir -p .npu
+mkdir -p .npu logs/npu
 "${NPU_PYTHON:-python3.12}" -m venv .npu/export-env
-.npu/export-env/bin/python -m pip install --report .npu/export-install.json -r runtime/npu/requirements-export.txt
+.npu/export-env/bin/python -m pip install --report logs/npu/export-env-install.json -r runtime/npu/requirements-export.txt
 .npu/export-env/bin/opt_in_out --opt_out
 .npu/export-env/bin/python -m pip freeze > .npu/export-freeze.txt
 
 "${NPU_PYTHON:-python3.12}" -m venv .npu/runtime-env
-.npu/runtime-env/bin/python -m pip install --report .npu/runtime-install.json -r runtime/npu/requirements.txt
+.npu/runtime-env/bin/python -m pip install --report logs/npu/runtime-env-install.json -r runtime/npu/requirements.txt
 .npu/runtime-env/bin/opt_in_out --opt_out
 .npu/runtime-env/bin/python -m pip freeze > .npu/runtime-freeze.txt
 .npu/runtime-env/bin/python -c 'import openvino as ov; c=ov.Core(); print(c.available_devices); print(c.get_property("NPU", "FULL_DEVICE_NAME"))'
@@ -185,17 +190,21 @@ JSON Schema в нативную генерацию и затем строго п
   --max-prompt-tokens 2048 --max-new-tokens 512 \
   --output .npu/profile.json > .npu/profile.sha256
 
-mkdir -p .npu/run
+mkdir -p .npu/run logs/npu
 chmod 750 .npu/run
+set -o pipefail
 .npu/runtime-env/bin/python runtime/npu/npu_runtime.py serve \
   --model .npu/models/qwen2.5-7b-int4 --manifest .npu/profile.json \
   --profile "$(cat .npu/profile.sha256)" \
-  --socket "$PWD/.npu/run/runtime.sock" --cache .npu/compiled-cache
+  --socket "$PWD/.npu/run/runtime.sock" --cache .npu/compiled-cache \
+  2>&1 | tee -a logs/npu/runtime.log
 ```
 
 Первый запуск компилирует модель; бюджет старта 10 минут. Процесс остаётся
 в этом терминале. Он выводит имя NPU, время загрузки и профиль. Затем каждый
 успешный запрос пишет prompt tokens и задержку, без текста требований.
+Команда сохраняет stdout и stderr в `logs/npu/runtime.log`, продолжая показывать
+их в терминале; `pipefail` сохраняет ошибку runtime в коде завершения pipeline.
 Абсолютный путь Unix-сокета ограничен 100 байтами UTF-8. Если путь репозитория
 слишком длинный, используйте более короткий каталог сокета и согласуйте его
 в `--socket`, командах curl и `NPU_SOCKET_DIR` при подключении приложения.
@@ -259,11 +268,12 @@ inference; повторная компиляция может занять вр�
 проверяются ожидаемые ID/версии/вердикты:
 
 ```bash
+mkdir -p logs/npu
 set -o pipefail
 NPU_REAL_SMOKE=1 \
 PROJECT_CREATOR_NPU_SOCKET="$PWD/.npu/run/runtime.sock" \
 PROJECT_CREATOR_NPU_PROFILE="$(cat .npu/profile.sha256)" \
-go test ./internal/analysis -run '^TestOpenVINORealNPU' -v -count=1 -timeout=8m 2>&1 | tee .npu/smoke-results.txt
+go test ./internal/analysis -run '^TestOpenVINORealNPU' -v -count=1 -timeout=8m 2>&1 | tee logs/npu/smoke-results.txt
 ```
 
 Этот opt-in smoke требует Go версии из go.mod на хосте; дополнительно проверьте полный
@@ -321,8 +331,8 @@ Pipeline создавалась явно с `NPU`. Счётчик драйвер
 аппаратное выполнение. 16 детерминированных Python-тестов прошли на хосте.
 Песочница скрывала `/dev/accel` и запрещала сетевые сокеты, поэтому аппаратные
 проверки и транспортные тесты запускались вне неё. Локальные артефакты:
-`.npu/export-disk-tmp.log`, `.npu/runtime-first.log`, `.npu/runtime-repeat.log`,
-`.npu/smoke-first.txt`, `.npu/smoke-repeat.txt`, `.npu/repeat-metrics.json`.
+`logs/npu/export-disk-tmp.log`, `logs/npu/runtime-first.log`, `logs/npu/runtime-repeat.log`,
+`logs/npu/smoke-first.txt`, `logs/npu/smoke-repeat.txt`, `logs/npu/repeat-metrics.json`.
 Веса, окружения и кеш не коммитятся. Полная проверка качества и сравнение
 CPU/GPU остаются открытыми; наличие генерации на NPU не завершает приёмку #22.
 
@@ -335,7 +345,7 @@ CPU/GPU остаются открытыми; наличие генерации �
 на синтетическом запросе найден повтор ключа `explanation`; ID и версии были
 правильными. Успешный smoke с короткими ID `left`/`right` не гарантирует успех
 полного сценария.
-Подробности синтетического прогона — `.npu/app-smoke.json` и `.npu/runtime-app.log`.
+Подробности синтетического прогона — `logs/npu/app-smoke.json` и `logs/npu/runtime-app.log`.
 Этот результат относится к прежнему runtime с манифестом v1; исправление и
 повторная проверка описаны ниже.
 
@@ -356,8 +366,8 @@ CPU/GPU остаются открытыми; наличие генерации �
 `possible_collision`, оба исходных ID и версии, `stale=false`, 9.73 s.
 На момент проверки host runtime оставлен работающим для ручного запуска;
 после перезагрузки его нужно запустить вновь по разделу 3. Логи нового прогона —
-`.npu/runtime-structured.log`, `.npu/smoke-structured.txt`,
-`.npu/app-smoke-structured.json`.
+`logs/npu/runtime-structured.log`, `logs/npu/smoke-structured.txt`,
+`logs/npu/app-smoke-structured.json`.
 
 21 детерминированный Python-тест прошёл на хосте; выполнены `gofmt`,
 `go test ./...`, `go vet ./...` (Go 1.27.3), `git diff --check`.

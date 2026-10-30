@@ -120,8 +120,8 @@ ERROR_MESSAGES = {
     'MODEL_SOURCES': ('Ответ модели ссылается на неверные источники или версии. Изучите диагностический проект и ответ runtime.', 'The model response cites incorrect sources or versions. Inspect the diagnostic project and runtime response.'),
     'NPU_PID': ('Не удалось подтвердить личность управляемого NPU-процесса. Проверьте приватную запись PID; посторонние процессы не завершаются.', 'The managed NPU process identity could not be confirmed. Inspect the private PID record; unrelated processes are not terminated.'),
     'NPU_PROFILE': ('Профиль работающего NPU runtime отличается от настроенного. Выполните down, затем up.', 'The running NPU runtime profile differs from configuration. Run down, then up.'),
-    'NPU_RUNTIME': ('NPU runtime не запустился или не прошёл проверку. Изучите .npu/runtime.log и состояние драйвера; fallback не включён.', 'The NPU runtime failed to start or pass health checks. Inspect .npu/runtime.log and the driver; fallback is disabled.'),
-    'NPU_SOCKET': ('NPU-сокет недоступен или его владелец не подтверждён. Проверьте runtime.log, права и инструкцию восстановления сокета.', 'The NPU socket is unavailable or its owner is unverified. Check runtime.log, permissions and the socket recovery guide.'),
+    'NPU_RUNTIME': ('NPU runtime не запустился или не прошёл проверку. Изучите logs/npu/runtime.log и состояние драйвера; fallback не включён.', 'The NPU runtime failed to start or pass health checks. Inspect logs/npu/runtime.log and the driver; fallback is disabled.'),
+    'NPU_SOCKET': ('NPU-сокет недоступен или его владелец не подтверждён. Проверьте logs/npu/runtime.log, права и инструкцию восстановления сокета.', 'The NPU socket is unavailable or its owner is unverified. Check logs/npu/runtime.log, permissions and the socket recovery guide.'),
     'PLATFORM': ('Эта конфигурация не поддерживается. Нужен нативный Linux x86_64 с Docker Engine; подробная матрица приведена в инструкции.', 'This configuration is unsupported. Native Linux x86_64 with Docker Engine is required; see the support matrix.'),
     'PROJECT_CHANGE': ('Имя Compose-проекта отличается от сохранённого. Используйте прежнее имя, чтобы сохранить доступ к существующим томам.', 'The Compose project name differs from saved state. Use the original name to preserve access to existing volumes.'),
     'PYTHON': ('Для NPU нужен Python 3.12 с venv/pip либо установленный uv. Подготовьте его отдельно, не заменяя системный Python.', 'NPU requires Python 3.12 with venv/pip or an installed uv. Prepare it separately without replacing system Python.'),
@@ -338,6 +338,10 @@ class Installer:
         return self.root / '.npu'
 
     @property
+    def logs(self):
+        return self.root / 'logs' / 'npu'
+
+    @property
     def url(self):
         return 'http://127.0.0.1:' + self.config.values.get('APP_PORT', '3000')
 
@@ -496,6 +500,7 @@ class Installer:
         return str(python)
 
     def environments_npu(self, prepare_export=True):
+        self.logs.mkdir(parents=True, exist_ok=True, mode=0o700)
         python = self.python_npu()
         environments = [('runtime-env', 'requirements.txt')]
         if prepare_export:
@@ -508,7 +513,7 @@ class Installer:
             if not (folder/'bin/python').exists():
                 self.runner.run([python, '-m', 'venv', folder], code='PYTHON_ENV')
             if not marker.exists() or marker.read_text().strip() != digest:
-                self.runner.run([folder/'bin/python', '-m', 'pip', 'install', '--report', self.npu/(name+'-install.json'), '-r', requirements], timeout=7200, env=self.npu_environment(), code='PYTHON_INSTALL')
+                self.runner.run([folder/'bin/python', '-m', 'pip', 'install', '--report', self.logs/(name+'-install.json'), '-r', requirements], timeout=7200, env=self.npu_environment(), code='PYTHON_INSTALL')
                 self.runner.run([folder/'bin/opt_in_out', '--opt_out'], env=self.npu_environment(), code='PYTHON_ENV')
                 freeze = self.runner.run([folder/'bin/python', '-m', 'pip', 'freeze'], capture=True, code='PYTHON_ENV')
                 atomic(self.npu/(name+'-freeze.txt'), freeze)
@@ -582,10 +587,10 @@ class Installer:
             response = connection.getresponse()
             data = json.loads(response.read(65536))
             if response.status != 200:
-                raise Failure('NPU_RUNTIME', 'Runtime health failed; inspect .npu/runtime.log.')
+                raise Failure('NPU_RUNTIME', 'Runtime health failed; inspect logs/npu/runtime.log.')
             return data
         except (OSError, ValueError, http.client.HTTPException):
-            raise Failure('NPU_SOCKET', 'NPU socket is unavailable; inspect .npu/runtime.log and device permissions.') from None
+            raise Failure('NPU_SOCKET', 'NPU socket is unavailable; inspect logs/npu/runtime.log and device permissions.') from None
         finally:
             connection.close()
 
@@ -665,17 +670,18 @@ class Installer:
             arguments = [str(self.npu/'runtime-env/bin/python'), str(self.root/'runtime/npu/npu_runtime.py'), 'serve',
                 '--model', str(self.npu/'models/qwen2.5-7b-int4'), '--manifest', str(self.npu/'profile.json'),
                 '--profile', profile, '--socket', str(sock), '--cache', str(self.npu/'compiled-cache')]
-            with open(self.npu/'runtime.log', 'a', opener=lambda p, flags: os.open(p, flags, 0o600)) as log:
+            self.logs.mkdir(parents=True, exist_ok=True, mode=0o700)
+            with open(self.logs/'runtime.log', 'a', opener=lambda p, flags: os.open(p, flags, 0o600)) as log:
                 process = subprocess.Popen(arguments, env=self.npu_environment(), stdin=subprocess.DEVNULL,
                                            stdout=log, stderr=log, start_new_session=True)
             record = self.process_stamp(process.pid)
             if not record:
-                raise Failure('NPU_PID', 'Could not record managed runtime identity; inspect runtime.log.')
+                raise Failure('NPU_PID', 'Could not record managed runtime identity; inspect logs/npu/runtime.log.')
             atomic(pidfile, json.dumps(record)+'\n')
             deadline = time.monotonic()+600
             while True:
                 if process.poll() is not None:
-                    raise Failure('NPU_RUNTIME', 'NPU compilation/start failed; inspect .npu/runtime.log. No fallback was enabled.')
+                    raise Failure('NPU_RUNTIME', 'NPU compilation/start failed; inspect logs/npu/runtime.log. No fallback was enabled.')
                 try:
                     stamp = self.socket_stamp()
                     if stamp and record.get('socket') != stamp:
@@ -688,7 +694,7 @@ class Installer:
                     pass
                 if time.monotonic() > deadline:
                     self.stop_npu()
-                    raise Failure('NPU_RUNTIME', 'NPU compilation exceeded 10 minutes; inspect .npu/runtime.log.')
+                    raise Failure('NPU_RUNTIME', 'NPU compilation exceeded 10 minutes; inspect logs/npu/runtime.log.')
                 time.sleep(0.5)
         self.config.update_env({'PROJECT_CREATOR_NPU_PROFILE': profile, 'NPU_SOCKET_DIR': str(run), 'NPU_SOCKET_GID': str(run.stat().st_gid)})
 
@@ -709,7 +715,7 @@ class Installer:
                 while self.process_identity(pid, record) and time.monotonic() < deadline:
                     time.sleep(0.1)
             if self.process_identity(pid, record):
-                raise Failure('NPU_PID', 'Managed process did not stop; inspect runtime.log before retrying.')
+                raise Failure('NPU_PID', 'Managed process did not stop; inspect logs/npu/runtime.log before retrying.')
         self.recover_socket(record)
         pidfile.unlink(missing_ok=True)
 

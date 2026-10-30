@@ -69,7 +69,9 @@ CLI проверяет обнаружение устройства отдель�
 Если `python3.12` отсутствует, CLI явно скачивает через `uv` локальный
 CPython **3.12.14** в `.npu/python`, не заменяя системный Python.
 Runtime и exporter получают отдельные venv с версиями из
-`runtime/npu/requirements*.txt`. Сохраняются install reports и `pip freeze`;
+`runtime/npu/requirements*.txt`. Отчёты установки сохраняются в
+`logs/npu/export-env-install.json` и `logs/npu/runtime-env-install.json`,
+а `pip freeze` — в `.npu/` вместе с происхождением модели;
 телеметрия OpenVINO и неявная авторизация Hugging Face отключаются.
 Окружение проверяет `ov.Core().available_devices` до скачивания исходных весов.
 
@@ -98,6 +100,20 @@ CLI использует только штатные `compose.yml` и выбра
 обычный literal `.env`; сложная shell-интерполяция, многострочные значения и
 дублирующиеся ключи требуют предварительного упрощения вручную.
 Секреты не печатаются; не публикуйте `.env`, runtime logs и install reports.
+
+Логи и диагностические отчёты находятся в корневом `logs/`, исключённом из
+Git и Docker build context. CLI создаёт `logs/npu/` для NPU runtime и отчётов
+установки; stdout/stderr runtime дописываются в `logs/npu/runtime.log`.
+Веса, профили и freeze окружений остаются в `.npu/`.
+Логи контейнеров хранятся в Docker. При необходимости сохраните их отдельно:
+
+```bash
+mkdir -p logs
+docker compose logs --no-color > logs/compose.log
+```
+
+При ручном запуске используйте те же Compose-файлы и имя проекта, что при
+запуске приложения.
 
 Ни одна команда CLI не использует `down --volumes`, не удаляет БД и не выполняет
 автоматическую миграцию между разными именами проектов. `down` останавливает
@@ -271,7 +287,7 @@ pin не обновляется сам при повреждении. Полно
 | `MODEL_DOWNLOAD`, `SOURCE_DOWNLOAD`, `PYTHON_*`, `TOOLS_DOWNLOAD` | Сеть и кеш; повторить ту же setup-команду после устранения причины. |
 | `MODEL_DRIFT`, `MODEL_DIGEST`, `SOURCE_INTEGRITY`, `MODEL_MANIFEST` | Сохранённый pin, целостность weights и source snapshot. |
 | `MODEL_EXPORT` | Python 3.12 exporter, disk TMPDIR, свободное место и partial output. |
-| `NPU_SOCKET`, `NPU_RUNTIME`, `NPU_PROFILE`, `NPU_PID` | `.npu/runtime.log`, доступ к сокету, PID и профиль. |
+| `NPU_SOCKET`, `NPU_RUNTIME`, `NPU_PROFILE`, `NPU_PID` | `logs/npu/runtime.log`, доступ к сокету, PID и профиль. |
 | `UI`, `API`, `INDEX` | Compose logs frontend/backend/Ollama, готовность БД и индекса. |
 | `MODEL_RESPONSE`, `MODEL_SOURCES`, `MODEL_QUALITY`, `MODEL_EMBEDDING` | Ответ реальной модели, синтетические источники и качество; ошибка не маскируется. |
 

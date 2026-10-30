@@ -345,6 +345,76 @@ class VerifyTests(InstallTests):
             self.assertFalse(self.app.process_identity(1234, record))
 
 
+class AsyncAnalysisTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.app = cli.Installer(Path(self.temp.name), output=io.StringIO())
+        self.app.config.ensure('cpu')
+        self.expected = [{'id': 'a', 'version': 1, 'text': 'one'},
+                         {'id': 'b', 'version': 1, 'text': 'two'}]
+        self.completed = {'id': 'run-a', 'status': 'completed', 'outcome': 'possible_collision',
+                          'stale': False, 'errorCode': '', 'sources': self.expected,
+                          'findings': [{'leftId': 'a', 'rightId': 'b', 'leftVersion': 1,
+                                        'rightVersion': 1, 'verdict': 'collision', 'explanation': 'Explanation.'}]}
+        self.running = dict(self.completed, status='running', findings=[], outcome='')
+        self.calls = []
+        self.executions = []
+        self.app.fixture = lambda *_: ('p', self.expected)
+        self.app.check_execution = self.executions.append
+
+    def verify_sequence(self, results, *, clock=None):
+        results = iter(results)
+        def graphql(query, variables):
+            self.calls.append(query)
+            self.assertEqual(variables, {'p': 'p'})
+            field = 'startProjectAnalysis' if query.startswith('mutation') else 'projectAnalysis'
+            self.assertIn(field+'(', query)
+            return {field: next(results)}
+        self.app.graphql = graphql
+        with patch.object(cli, 'CASES', [('collision', ['one', 'two'])]), \
+             patch.object(cli.time, 'sleep') as sleep, \
+             patch.object(cli.time, 'monotonic', side_effect=clock or (lambda: 0)):
+            self.app.verify()
+        return sleep
+
+    def test_running_analysis_is_polled_to_completion_without_starting_another_run(self):
+        self.verify_sequence([self.running, self.running, self.completed])
+        self.assertEqual(len(self.calls), 3)
+        self.assertEqual(sum(query.startswith('mutation') for query in self.calls), 1)
+        self.assertTrue(self.app.config.state['verified'])
+        self.assertEqual(self.executions, ['GENERATOR'])
+
+    def test_async_failure_keeps_verification_failed_without_restarting(self):
+        with self.assertRaisesRegex(cli.Failure, 'MODEL_RESPONSE.*GENERATION_FAILED'):
+            self.verify_sequence([self.running, dict(self.running, status='failed', errorCode='GENERATION_FAILED')])
+        self.assertEqual(len(self.calls), 2)
+        self.assertFalse(self.app.config.state['verified'])
+        self.assertEqual(self.executions, [])
+
+    def test_different_run_cannot_satisfy_wait_for_the_started_analysis(self):
+        with self.assertRaisesRegex(cli.Failure, 'MODEL_RESPONSE'):
+            self.verify_sequence([self.running, dict(self.completed, id='different-run')])
+        self.assertEqual(len(self.calls), 2)
+        self.assertFalse(self.app.config.state['verified'])
+
+    def test_running_analysis_requires_an_id_before_polling(self):
+        with self.assertRaisesRegex(cli.Failure, 'MODEL_RESPONSE'):
+            self.verify_sequence([dict(self.running, id=None)])
+        self.assertEqual(len(self.calls), 1)
+
+    def test_changed_source_snapshot_is_rejected_even_while_still_running(self):
+        with self.assertRaisesRegex(cli.Failure, 'MODEL_SOURCES'):
+            self.verify_sequence([self.running, dict(self.running, sources=[dict(self.expected[0], version=2), self.expected[1]])])
+        self.assertEqual(len(self.calls), 2)
+
+    def test_async_wait_has_a_monotonic_deadline_and_never_restarts(self):
+        with self.assertRaisesRegex(cli.Failure, 'MODEL_RESPONSE.*[Tt]im'):
+            self.verify_sequence([self.running], clock=[0, 2701])
+        self.assertEqual(len(self.calls), 1)
+        self.assertFalse(self.app.config.state['verified'])
+
+
 class UtilityTests(unittest.TestCase):
     def test_all_failure_categories_have_localized_explanations(self):
         import ast

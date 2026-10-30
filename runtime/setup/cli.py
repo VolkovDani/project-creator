@@ -296,6 +296,15 @@ CASES = [
 ]
 
 
+ANALYSIS_FIELDS = 'id status outcome stale errorCode sources{id version text} findings{leftId rightId leftVersion rightVersion verdict explanation}'
+
+
+def validate_analysis_sources(result, expected):
+    actual = result.get('sources', [])
+    if len(actual) != len(expected) or {x['id']: x for x in actual} != {x['id']: x for x in expected}:
+        raise Failure('MODEL_SOURCES', 'Analysis source snapshots do not match the synthetic requirements.')
+
+
 def validate_analysis(result, expected, verdict):
     if result.get('status') != 'completed':
         raise Failure('MODEL_RESPONSE', f'Analysis did not complete ({result.get("errorCode", "unknown")}).')
@@ -303,8 +312,7 @@ def validate_analysis(result, expected, verdict):
     if result.get('stale') or result.get('outcome') != expected_outcome:
         raise Failure('MODEL_QUALITY', f'Expected {verdict}; inspect synthetic diagnostic project before relying on analysis.')
     sources = {x['id']: x for x in expected}
-    if result.get('sources') != expected and {x['id']: x for x in result.get('sources', [])} != sources:
-        raise Failure('MODEL_SOURCES', 'Analysis source snapshots do not match the synthetic requirements.')
+    validate_analysis_sources(result, expected)
     findings = result.get('findings', [])
     for finding in findings:
         left, right = sources.get(finding.get('leftId')), sources.get(finding.get('rightId'))
@@ -806,12 +814,34 @@ class Installer:
         self.probe_embedding()
         return project, requirements
 
+    def wait_analysis(self, project, result, expected):
+        if result.get('status') != 'running':
+            return result
+        run_id = result.get('id')
+        if not isinstance(run_id, str) or not run_id:
+            raise Failure('MODEL_RESPONSE', 'Running analysis is missing its ID; cannot safely poll it.')
+        # Twenty sequential pairs may each use the full 120-second model budget.
+        deadline = time.monotonic() + 45*60
+        while result.get('status') == 'running':
+            validate_analysis_sources(result, expected)
+            if result.get('stale'):
+                raise Failure('MODEL_QUALITY', 'Analysis became stale while waiting; inspect the synthetic project.')
+            remaining = deadline-time.monotonic()
+            if remaining <= 0:
+                raise Failure('MODEL_RESPONSE', 'Timed out waiting for the started analysis; progress remains saved in the project.')
+            time.sleep(min(1, remaining))
+            result = self.graphql('query($p:ID!){projectAnalysis(projectId:$p){'+ANALYSIS_FIELDS+'}}', {'p': project}).get('projectAnalysis')
+            if not result or result.get('id') != run_id:
+                raise Failure('MODEL_RESPONSE', 'Analysis run changed while waiting; refusing another attempt\'s result.')
+        return result
+
     def verify(self):
         self.config.state['verified'] = False
         self.config.save()
         for name, texts in CASES:
             project, expected = self.fixture(name, texts)
-            result = self.graphql('mutation($p:ID!){startProjectAnalysis(projectId:$p){status outcome stale errorCode sources{id version text} findings{leftId rightId leftVersion rightVersion verdict explanation}}}', {'p': project})['startProjectAnalysis']
+            result = self.graphql('mutation($p:ID!){startProjectAnalysis(projectId:$p){'+ANALYSIS_FIELDS+'}}', {'p': project})['startProjectAnalysis']
+            result = self.wait_analysis(project, result, expected)
             validate_analysis(result, expected, name)
             self.check_execution('GENERATOR')
             self.config.state.setdefault('verification', {})[name] = {'project': project, 'checkedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'device': self.config.state['device']}

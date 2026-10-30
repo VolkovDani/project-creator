@@ -56,15 +56,34 @@ for (const requirement of requirements) {
   assert.equal(data.indexRequirement.version, 1);
 }
 const analysisFields = 'id status outcome stale errorCode findings{leftId rightId leftVersion rightVersion verdict explanation} sources{id version text}';
+const known = new Map(requirements.map(requirement => [requirement.id, requirement]));
+function validateSourceSnapshots(sources) {
+  assert.equal(sources.length, requirements.length, 'Analysis source snapshot changed');
+  assert.equal(new Set(sources.map(source => source.id)).size, requirements.length, 'Analysis source snapshot contains duplicate sources');
+  for (const source of sources) assert.deepEqual(source, known.get(source.id), 'Analysis source snapshot changed');
+}
 const started = await graphql(`mutation($project:ID!){startProjectAnalysis(projectId:$project){${analysisFields}}}`, {project: project.id});
-const analysis = started.startProjectAnalysis;
+let analysis = started.startProjectAnalysis;
+if (analysis.status === 'running') {
+  assert.ok(typeof analysis.id === 'string' && analysis.id, 'Running analysis is missing its ID; cannot safely poll it');
+  const runID = analysis.id;
+  // Twenty sequential pairs can each take up to 120 seconds on real hardware.
+  const deadline = performance.now() + 45 * 60_000;
+  while (analysis.status === 'running') {
+    assert.equal(analysis.stale, false, 'Analysis became stale while waiting');
+    validateSourceSnapshots(analysis.sources);
+    const remaining = deadline - performance.now();
+    assert.ok(remaining > 0, 'Analysis timed out; progress remains saved in the project');
+    await delay(Math.min(1000, remaining));
+    analysis = (await graphql(`query($project:ID!){projectAnalysis(projectId:$project){${analysisFields}}}`, {project: project.id})).projectAnalysis;
+    assert.equal(analysis?.id, runID, 'Analysis run changed while waiting; refusing another attempt\'s result');
+  }
+}
 assert.equal(analysis.status, 'completed', `Analysis failed: ${analysis.errorCode}`);
 assert.equal(analysis.outcome, 'possible_collision');
 assert.equal(analysis.stale, false);
-assert.equal(analysis.sources.length, 2);
+validateSourceSnapshots(analysis.sources);
 assert.ok(analysis.findings.some(finding => finding.verdict === 'collision'), 'Known collision was not reported');
-const known = new Map(requirements.map(requirement => [requirement.id, requirement]));
-for (const source of analysis.sources) assert.deepEqual(source, known.get(source.id), 'Analysis did not preserve the source snapshot');
 for (const finding of analysis.findings) {
   assert.ok(known.has(finding.leftId) && known.has(finding.rightId), 'Analysis invented a source');
   assert.equal(finding.leftVersion, 1); assert.equal(finding.rightVersion, 1);

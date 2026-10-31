@@ -21,7 +21,8 @@
       "!!**/test-results",
       "!!**/playwright-report",
       "!!**/blob-report",
-      "!!**/lib/generated.ts"
+      "!!**/lib/generated.ts",
+      "!!**/next-env.d.ts"
     ]
   },
   "formatter": {

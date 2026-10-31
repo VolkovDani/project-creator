@@ -16,11 +16,11 @@ test('screenshots: desktop projects and requirements',async({page},testInfo)=>{
    await route.fulfill({json:{data}});
   });
  }
- await page.setViewportSize({width:1920,height:1080});await page.goto('/');
+ await page.setViewportSize({width:1920,height:1080});await page.goto('/projects/new');
  await page.getByLabel('Название').fill('Контроль бизнес-требований');await page.getByLabel('Цель').fill('Согласовывать требования и находить возможные противоречия до начала разработки.');await page.getByLabel('Описание').fill('Единое пространство для проектов, требований и истории изменений.');await page.getByRole('button',{name:'Создать проект'}).click();
- const link=page.getByRole('link',{name:'Контроль бизнес-требований',exact:true});await expect(link).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Контроль бизнес-требований',exact:true})).toBeVisible();await page.getByRole('link',{name:'Все проекты',exact:true}).click();const link=page.getByRole('link',{name:'Контроль бизнес-требований',exact:true});await expect(link).toBeVisible();
  const directory=resolve('screenshots');await mkdir(directory,{recursive:true});const projects=resolve(directory,'projects-desktop.png');await page.screenshot({path:projects,fullPage:false});await testInfo.attach('Projects — 1920×1080',{path:projects,contentType:'image/png'});
- await link.click();await expect(page.getByRole('heading',{name:'Контроль бизнес-требований',exact:true})).toBeVisible();
+ await link.click();await expect(page.getByRole('heading',{name:'Контроль бизнес-требований',exact:true})).toBeVisible();await page.getByRole('link',{name:'Требования',exact:true}).first().click();
  for(const text of ['Менеджер может создавать проекты и описывать их цели.','Требования сохраняются между перезапусками приложения.','При одновременном редактировании система предотвращает потерю изменений.']){await page.getByLabel('Текст требования').fill(text);await page.getByRole('button',{name:'Добавить требование'}).click();await expect(page.getByText(text,{exact:true})).toBeVisible()}
  const requirements=resolve(directory,'project-requirements-desktop.png');await page.screenshot({path:requirements,fullPage:false});await testInfo.attach('Project requirements — 1920×1080',{path:requirements,contentType:'image/png'});
 });

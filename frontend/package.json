@@ -12,8 +12,9 @@
     "e2e": "playwright test",
     "prebuild": "npm test",
     "test:ux": "playwright test --config ux.playwright.config.ts",
-    "format": "biome check --write --unsafe",
-    "format:check": "biome check"
+    "format": "biome check --write .",
+    "format:check": "biome check .",
+    "lint:ci": "biome ci ."
   },
   "dependencies": {
     "@graphql-typed-document-node/core": "3.2.0",
@@ -23,7 +24,7 @@
     "react-dom": "19.2.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.6.2",
+    "@biomejs/biome": "2.6.4",
     "@graphql-codegen/cli": "6.1.0",
     "@graphql-codegen/typed-document-node": "6.0.0",
     "@graphql-codegen/typescript": "5.0.0",

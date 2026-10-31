@@ -11,6 +11,7 @@
       "**/*.{ts,tsx,json,jsonc}",
       "!!**/*.openapi.ts",
       "!!**/node_modules",
+      "!!**/.next",
       "!!**/dist",
       "!!**/dist-ssr",
       "!!**/dev-dist",
@@ -19,13 +20,14 @@
       "!!**/coverage",
       "!!**/test-results",
       "!!**/playwright-report",
-      "!!**/blob-report"
+      "!!**/blob-report",
+      "!!**/lib/generated.ts"
     ]
   },
   "formatter": {
     "indentStyle": "space",
     "indentWidth": 2,
-    "lineWidth": 80,
+    "lineWidth": 100,
     "lineEnding": "lf"
   },
   "javascript": {
@@ -45,7 +47,7 @@
   "linter": {
     // ESLint remains responsible for the application's other lint rules.
     "rules": {
-      "preset": "none",
+      "preset": "recommended",
       "correctness": {
         "noUnusedImports": "error"
       }

@@ -6,9 +6,11 @@
 ./project-creator setup --device cpu
 # либо Intel Arc:
 ./project-creator setup --device arc
-# либо NVIDIA GPU / совместимая AMD dGPU или iGPU:
+# либо NVIDIA GPU / AMD GPU с поддержкой ROCm:
 ./project-creator setup --device nvidia
 ./project-creator setup --device amd
+# либо AMD GPU/iGPU с Vulkan (без ROCm):
+./project-creator setup --device amd-vulkan
 # либо Intel NPU для генерации + CPU для BGE-M3:
 ./project-creator setup --device npu
 ```
@@ -57,7 +59,8 @@ Python-зависимостей для CPU/GPU. Запускайте его от
 | CPU | RAM не менее 8 GiB, RAM+swap не менее 12 GiB, свободный диск от 24 GiB перед первой установкой. Для Qwen 7B рекомендуется 16–32 GB RAM. |
 | Arc | Те же ресурсы, Intel render device в `/dev/dri`, права чтения/записи; Linux graphics/Vulkan по [инструкции Arc](intel-arc.md). |
 | NVIDIA | Те же ресурсы, совместимая GPU и NVIDIA-драйвер, настроенный NVIDIA Container Toolkit в Docker и `nvidia-smi` на хосте. |
-| AMD | Те же ресурсы, совместимый ROCm 7 driver, `rocminfo` на хосте, доступ к `/dev/kfd` и `/dev/dri`. Только GFX targets из закреплённой upstream-матрицы. |
+| AMD ROCm (`amd`) | Те же ресурсы, совместимый ROCm 7 driver, `rocminfo` на хосте, доступ к `/dev/kfd` и `/dev/dri`. Только GFX targets из закреплённой upstream-матрицы Ollama. |
+| AMD Vulkan (`amd-vulkan`) | Те же ресурсы и достаточно памяти для обеих моделей; ядро `amdgpu`, доступный AMD `/dev/dri/renderD*` и Vulkan-совместимая GPU/iGPU. Mesa RADV включается в отдельный контейнер; ROCm и `rocminfo` не нужны. Не все адаптеры или комбинации kernel/driver работают. |
 | NPU | RAM от 20 GiB, RAM+swap от 28 GiB, свободный диск от 50 GiB для исходных Safetensors, промежуточного экспорта, INT4 и кешей. Загруженный `intel_vpu`, доступный `/dev/accel/accel*`, firmware/userspace driver по [инструкции NPU](intel-npu.md). |
 
 После подготовки требуется как минимум 6 GiB свободного диска для CPU/Arc
@@ -137,7 +140,8 @@ CLI путь NPU использует CPU embeddings; ручной NPU+Arc ва�
 ## GPU и выбор адаптера
 
 `arc` означает GPU, включая встроенную Intel Arc; `npu` — отдельный
-OpenVINO-генератор. NVIDIA использует CUDA, AMD — ROCm. Один CLI-профиль
+OpenVINO-генератор. NVIDIA использует CUDA, `amd` — ROCm,
+`amd-vulkan` — Mesa RADV/Vulkan для AMD dGPU/iGPU без ROCm. Один CLI-профиль
 подключает ровно один override; сочетать разные GPU overrides не нужно.
 
 ```bash
@@ -145,17 +149,18 @@ nvidia-smi -L
 ./project-creator setup --device nvidia --gpu-id GPU-полный-uuid
 rocminfo
 ./project-creator setup --device amd --gpu-id GPU-полный-uuid
-# Intel: числовой Vulkan ID из логов Ollama, не номер renderD*:
+# Vulkan: числовой ID из логов Ollama, не номер renderD* и не ROCm UUID:
 ./project-creator setup --device arc --gpu-id 0
+./project-creator setup --device amd-vulkan --gpu-id 0
 ./project-creator setup --device cpu --switch-device
 ```
 
-Это примеры: замените UUID фактическим значением утилиты. При одной NVIDIA/AMD
-GPU CLI выбирает её автоматически; при нескольких требует `--gpu-id`.
+Это примеры: замените UUID фактическим значением утилиты. При одной NVIDIA или
+AMD ROCm GPU CLI выбирает её автоматически; при нескольких требует `--gpu-id`.
 NVIDIA принимает индекс `nvidia-smi` или UUID, затем сохраняет UUID. Для AMD
 используйте `Uuid: GPU-...` из `rocminfo`; допустимый числовой индекс CLI —
 порядок GPU начиная с нуля, без CPU agents, **не** `Agent N` из вывода.
-Предпочтителен UUID. Выбранная AMD GPU должна входить в GFX-матрицу из README;
+Предпочтителен UUID. Выбранная AMD ROCm GPU должна входить в GFX-матрицу из README;
 чужой или неподдерживаемый адаптер отклоняется до скачивания моделей.
 
 NVIDIA Container Toolkit предварительно настраивается по
@@ -163,13 +168,32 @@ NVIDIA Container Toolkit предварительно настраивается
 CLI проверяет наличие NVIDIA runtime в Docker и драйвера 550+; некоторые старые
 карты требуют 570+. Совместимость самой карты проверяйте по
 [документации закреплённой версии Ollama](https://github.com/ollama/ollama/blob/v0.40.11/docs/gpu.mdx).
-AMD требует [ROCm 7 Linux driver](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/)
+Для `amd` требуется [ROCm 7 Linux driver](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/)
 и `rocminfo`; используется официальный образ `ollama/ollama:0.40.11-rocm`.
-Системные драйверы CLI не устанавливает. Поддержка AMD ограничена upstream
-GFX-матрицей: проект не проводил аппаратную приёмку AMD/NVIDIA на этой версии CLI.
+Сверьте **именно устройство и ОС** по [матрице AMD](https://rocm.docs.amd.com/en/latest/compatibility/compatibility-matrix.html)
+и GFX target по [Ollama v0.40.11](https://github.com/ollama/ollama/blob/v0.40.11/docs/gpu.mdx).
+Даже официально поддерживаемая новой ROCm iGPU может отсутствовать в
+закреплённой версии Ollama. Системные драйверы CLI не устанавливает.
 
-Intel-профиль загружает только Intel Mesa ICD: AMD и NVIDIA Vulkan-драйверы
-не участвуют в обнаружении. При нескольких Intel render devices явно задайте
+Для `amd-vulkan` нужен работающий `amdgpu` и Vulkan, но **не** ROCm:
+проверьте `ls -l /dev/dri/renderD*` и при наличии `vulkaninfo` —
+`vulkaninfo --summary` на хосте. Контейнер собирается из
+`Dockerfile.ollama-amd-vulkan` с Mesa RADV и единственным AMD Vulkan ICD.
+Список GFX targets ROCm здесь не применяется. При одной доступной AMD GPU
+индекс можно не задавать; при нескольких AMD render devices обязателен
+`--gpu-id` с числовым индексом **из логов Ollama внутри этого контейнера**.
+Индекс Vulkan может измениться после обновления драйвера, контейнера или
+оборудования. Для ручного запуска смотрите логи командой
+`docker compose -f compose.yml -f compose.amd-vulkan.yml logs ollama`;
+при запуске через CLI сохраняйте исходное имя Compose-проекта.
+Если выбранный Vulkan backend не поддерживает модель либо доступную GPU-память,
+`setup` завершится ошибкой; не обещаем работу на любой Radeon/Ryzen APU.
+Подробности: [Vulkan в Ollama v0.40.11](https://github.com/ollama/ollama/blob/v0.40.11/docs/gpu.mdx)
+и [Mesa RADV](https://docs.mesa3d.org/drivers/radv.html).
+Проект не проводил аппаратную приёмку AMD/NVIDIA на этой версии CLI.
+
+Intel-профиль загружает только Intel Mesa ICD; AMD Vulkan — только AMD RADV ICD:
+другие производители не участвуют в обнаружении. При нескольких Intel render devices явно задайте
 ID из логов **этого** контейнера; порядок может измениться после обновления
 драйвера или оборудования. Неверный индекс должен приводить к ошибке offload.
 Для первоначального получения логов используйте ручной Arc-запуск по
@@ -179,6 +203,7 @@ ID из логов **этого** контейнера; порядок може�
 UUID/индекс сохраняется в `.project-creator/state.json`; для его смены нужен
 `setup --switch-device`. Для существующего Arc state без нового поля сохраняется
 старый `GGML_VK_VISIBLE_DEVICES` из `.env` (один ID либо автоматический выбор).
+Для `amd-vulkan` новый выбор хранится отдельно от ROCm UUID.
 Сохранённый выбор имеет приоритет над `.env` и переменными shell, в том числе
 при `up`, `down`, `doctor`. CUDA/ROCr/HIP/HSA overrides из shell не наследуются.
 Секреты, имя Compose-проекта, БД и weights при смене GPU не заменяются.
@@ -201,9 +226,12 @@ offload на CPU. Идентичность устройства ограниче
 
 ```bash
 PROJECT_CREATOR_GPU_ID=GPU-полный-uuid docker compose -f compose.yml -f compose.amd.yml up -d --wait
+# или Vulkan (без ROCm); индекс при одной AMD GPU можно не указывать:
+GGML_VK_VISIBLE_DEVICES=0 docker compose -f compose.yml -f compose.amd-vulkan.yml up -d --build --wait
 ```
 
-При ручном запуске сохраняйте те же `-f` и UUID для следующих команд.
+При ручном запуске сохраняйте те же `-f` и соответствующий UUID/Vulkan индекс
+для следующих команд; никогда не комбинируйте оба AMD overrides.
 Для NVIDIA доступен прежний `compose.gpu.yml` (без UUID выбирается индекс 0).
 
 Аппаратная приёмка выполняется отдельно: запишите GPU/iGPU, ОС, kernel,
@@ -326,4 +354,3 @@ venv без доступа к сети; тестовому Python нужны м�
 python3 -m unittest discover -s runtime/setup -v
 python3 -m compileall -q runtime/setup project-creator
 ```
-

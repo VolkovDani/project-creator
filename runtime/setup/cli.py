@@ -50,7 +50,7 @@ MESSAGES = {
         'verify': 'UI/API, index and analysis with fixed synthetic sources and expected findings.',
         'fixture': 'Synthetic diagnostic project retained: {id}',
         'download': 'Model download is explicit; interrupted files are reused on retry.',
-        'gpu_id': 'GPU UUID/index (Vulkan numeric index for Arc); explicit change requires --switch-device.',
+        'gpu_id': 'GPU UUID/index (numeric Ollama Vulkan index for Arc/AMD Vulkan); explicit change requires --switch-device.',
         'gpu_detected': 'Detected {device}: {name}; backend {backend}; requested adapter {id}. Inference is checked separately.',
         'execution': '{role}: {device}, requested adapter {id}; GPU offload bytes {vram}, model bytes {size}. Partial offload is possible; adapter identity/full GPU execution is not established by this metric.',
         'execution_unchecked': '{role}: no loaded-model measurement; doctor does not run inference. Run up for a fresh offload check.',
@@ -80,7 +80,7 @@ MESSAGES = {
         'verify': 'UI/API, индексация и анализ с синтетическими источниками и ожидаемыми выводами.',
         'fixture': 'Сохранён синтетический проект диагностики: {id}',
         'download': 'Скачивание явно запрошено; после прерывания готовые файлы используются повторно.',
-        'gpu_id': 'UUID/индекс GPU (для Arc числовой индекс Vulkan); смена требует --switch-device.',
+        'gpu_id': 'UUID/индекс GPU (для Arc/AMD Vulkan числовой индекс Ollama Vulkan); смена требует --switch-device.',
         'gpu_detected': 'Обнаружено {device}: {name}; backend {backend}; выбран адаптер {id}. Inference проверяется отдельно.',
         'execution': '{role}: {device}, выбран адаптер {id}; GPU offload {vram} байт, модель {size} байт. Возможен частичный offload; метрика не подтверждает личность адаптера и полное выполнение на GPU.',
         'execution_unchecked': '{role}: нет измерения загруженной модели; doctor не запускает inference. Для новой проверки offload выполните up.',
@@ -230,8 +230,10 @@ class Config:
     def ensure(self, device, project=None, switch=False, gpu_id=None):
         if device not in gpu.DEVICES:
             raise Failure('CONFIG_STATE', 'Unknown device; use setup --help.')
-        if gpu_id is not None and (device not in gpu.GPU_DEVICES or not re.fullmatch(r'(?:[0-9]+|GPU-[a-fA-F0-9-]+)', gpu_id)):
-            raise Failure('GPU_SELECTION', 'Use a single GPU UUID/index with a GPU device.')
+        if gpu_id is not None:
+            allowed = r'[0-9]+' if device in gpu.VULKAN_DEVICES else r'(?:[0-9]+|GPU-[a-fA-F0-9-]+)'
+            if device not in gpu.GPU_DEVICES or not re.fullmatch(allowed, gpu_id):
+                raise Failure('GPU_SELECTION', 'Use a numeric Ollama Vulkan index for Arc/AMD Vulkan, or one UUID/index for NVIDIA/AMD ROCm.')
         prior = self.state.get('device')
         if prior and prior != device and not switch:
             raise Failure('DEVICE_CHANGE', 'Use setup --device ... --switch-device to explicitly change devices.')
@@ -243,9 +245,9 @@ class Config:
         selected = gpu_id if gpu_id is not None else (self.state.get('gpu_id') if prior == device else None)
         if gpu_id is not None and prior == device and self.state.get('gpu_id') != gpu_id and self.state.get('gpu_id') is not None and not switch:
             raise Failure('DEVICE_CHANGE', 'Changing the selected GPU requires --switch-device.')
-        updates = {'PROJECT_CREATOR_GPU_ID': selected or ''}
-        if device == 'arc' and gpu_id is not None:
-            updates['GGML_VK_VISIBLE_DEVICES'] = gpu_id
+        updates = {'PROJECT_CREATOR_GPU_ID': (selected or '') if device in ('nvidia', 'amd') else ''}
+        if device == 'amd-vulkan' or (device == 'arc' and (gpu_id is not None or (prior != device and switch))):
+            updates['GGML_VK_VISIBLE_DEVICES'] = selected or ''
         for key in ('POSTGRES_PASSWORD', 'PROJECT_CREATOR_TOKEN'):
             value = self.values.get(key)
             if value is None:
@@ -389,9 +391,9 @@ class Installer:
             if selected is not None and not re.fullmatch(r'(?:[0-9]+|GPU-[a-fA-F0-9-]+)', selected):
                 raise Failure('GPU_SELECTION', 'Invalid saved GPU selector; restore state or explicitly switch devices.')
             environment['PROJECT_CREATOR_GPU_ID'] = selected or ('0' if device == 'nvidia' else '')
-        elif device == 'arc':
+        elif device in gpu.VULKAN_DEVICES:
             if selected is not None and not re.fullmatch(r'[0-9]+', selected):
-                raise Failure('GPU_SELECTION', 'Arc requires one numeric Vulkan index; explicitly switch to CPU if desired.')
+                raise Failure('GPU_SELECTION', 'Vulkan requires one numeric Ollama GPU index; explicitly switch devices if desired.')
             environment['GGML_VK_VISIBLE_DEVICES'] = selected or ''
         return self.runner.run(command + list(args), capture=capture, timeout=timeout, env=environment, code=code)
 
@@ -412,16 +414,22 @@ class Installer:
                     raise Failure('DEVICE_ACCESS', 'AMD ROCm requires accessible /dev/kfd; install the supported driver and check groups.')
                 inventory = self.runner.run(['rocminfo'], capture=True, env=self.environment(), code='DEVICE_DRIVER')
                 selected = gpu.select(gpu.amd_devices(inventory), identifier)
-            else:
+            elif device in gpu.VULKAN_DEVICES:
                 # Vulkan IDs are Ollama enumeration IDs, not DRM render-node numbers.
-                vendors = [p.read_text().strip() for p in Path('/sys/class/drm').glob('renderD*/device/vendor')]
-                if '0x8086' not in vendors:
-                    raise Failure('DEVICE_ACCESS', 'No Intel render device detected.')
+                vendor = '0x8086' if device == 'arc' else '0x1002'
+                render_nodes = [p for p in Path('/sys/class/drm').glob('renderD*')
+                                if (p/'device/vendor').is_file() and (p/'device/vendor').read_text().strip() == vendor]
+                if not render_nodes:
+                    raise Failure('DEVICE_ACCESS', f'No {device} render device detected.')
+                if device == 'amd-vulkan' and not any(os.access('/dev/dri/'+p.name, os.R_OK | os.W_OK) for p in render_nodes):
+                    raise Failure('DEVICE_ACCESS', 'AMD Vulkan requires an accessible AMD /dev/dri/renderD* device.')
                 if identifier is not None and not re.fullmatch(r'[0-9]+', identifier):
-                    raise Failure('GPU_SELECTION', 'Arc needs one numeric Vulkan ID from Ollama logs.')
-                if vendors.count('0x8086') > 1 and identifier is None:
-                    raise Failure('GPU_SELECTION', 'Multiple Intel render devices; specify --gpu-id using Ollama Vulkan logs.')
-                selected = dict(id=identifier, name='Intel render device (Vulkan identity requires runtime logs)', backend='Vulkan')
+                    raise Failure('GPU_SELECTION', 'Vulkan needs one numeric GPU ID from Ollama logs.')
+                if len(render_nodes) > 1 and identifier is None:
+                    raise Failure('GPU_SELECTION', 'Multiple vendor render devices; specify --gpu-id using Ollama Vulkan logs.')
+                selected = dict(id=identifier, name=f'{device} render device (Vulkan identity requires runtime logs)', backend='Vulkan')
+            else:
+                raise Failure('CONFIG_STATE', f'Unknown GPU mode: {device}')
         except gpu.GPUError as error:
             raise Failure(error.code, str(error)) from None
         self.say('gpu_detected', device=device, name=selected['name'], backend=selected['backend'], id=selected['id'] or 'auto')
@@ -455,7 +463,7 @@ class Installer:
         minimum_disk = (8 if exported else 50) if device == 'npu' else (6 if ollama_prepared else 24)
         if ram < (20 if device == 'npu' else 8) or ram+swap < (28 if device == 'npu' else 12) or disk < minimum_disk:
             raise Failure('RESOURCES', f'Need RAM >= {20 if device == "npu" else 8} GiB, RAM+swap >= {28 if device == "npu" else 12} GiB and disk >= {minimum_disk} GiB; found {ram:.1f}/{swap:.1f}/{disk:.1f}.')
-        if device in ('npu', 'arc', 'amd'):
+        if device in ('npu', 'arc', 'amd', 'amd-vulkan'):
             devices = list(Path('/dev/accel').glob('accel*')) if device == 'npu' else list(Path('/dev/dri').glob('renderD*'))
             if not devices or not any(os.access(path, os.R_OK | os.W_OK) for path in devices):
                 raise Failure('DEVICE_ACCESS', f'No accessible {device} device; install the vendor driver and check device groups. See docs/setup-cli.md.')
@@ -889,7 +897,7 @@ class Installer:
 
     def setup(self, device, project=None, switch=False, gpu_id=None):
         if gpu_id is not None and device not in gpu.GPU_DEVICES:
-            raise Failure('GPU_SELECTION', '--gpu-id requires arc, nvidia or amd.')
+            raise Failure('GPU_SELECTION', '--gpu-id requires arc, nvidia, amd or amd-vulkan.')
         selected = self.prerequisites(device, gpu_id=gpu_id)
         self.step('config')
         previous_device = self.config.state.get('device')

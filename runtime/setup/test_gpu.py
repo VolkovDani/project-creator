@@ -56,6 +56,29 @@ class GPUTests(unittest.TestCase):
         self.assertEqual(config.values['PROJECT_CREATOR_TOKEN'], token)
         self.assertEqual(config.values['PROJECT_CREATOR_GPU_ID'], 'GPU-1234')
 
+    def test_amd_vulkan_uses_numeric_selector_and_preserves_existing_models(self):
+        config = cli.Config(self.root)
+        config.ensure('amd', gpu_id='GPU-1234')
+        config.state['models'] = {'bge-m3:567m': {'digest': 'sha256:'+'a'*64}}
+        config.save()
+        with self.assertRaisesRegex(cli.Failure, 'GPU_SELECTION'):
+            config.ensure('amd-vulkan', gpu_id='GPU-1234', switch=True)
+        with self.assertRaisesRegex(cli.Failure, 'DEVICE_CHANGE'):
+            config.ensure('amd-vulkan', gpu_id='1')
+        config.ensure('amd-vulkan', gpu_id='1', switch=True)
+        self.assertEqual(config.state['gpu_id'], '1')
+        self.assertEqual(config.state['device'], 'amd-vulkan')
+        self.assertEqual(config.state['models']['bge-m3:567m']['digest'], 'sha256:'+'a'*64)
+        self.assertEqual(config.values['PROJECT_CREATOR_GPU_ID'], '')
+        self.assertEqual(config.values['GGML_VK_VISIBLE_DEVICES'], '1')
+
+    def test_amd_vulkan_switch_without_selector_does_not_reuse_arc_index(self):
+        config = cli.Config(self.root)
+        config.ensure('arc', gpu_id='3')
+        config.ensure('amd-vulkan', switch=True)
+        self.assertEqual(config.state['gpu_id'], None)
+        self.assertEqual(config.values['GGML_VK_VISIBLE_DEVICES'], '')
+
     def test_old_arc_state_keeps_existing_vulkan_selector(self):
         config = cli.Config(self.root)
         config.ensure('arc')
@@ -66,7 +89,7 @@ class GPUTests(unittest.TestCase):
         self.assertEqual(app.config.values['PROJECT_CREATOR_GPU_ID'], '')
 
     def test_gpu_profile_is_exclusive_and_shell_selectors_do_not_leak(self):
-        for device, filename in [('nvidia', 'compose.gpu.yml'), ('amd', 'compose.amd.yml'), ('arc', 'compose.intel.yml')]:
+        for device, filename in [('nvidia', 'compose.gpu.yml'), ('amd', 'compose.amd.yml'), ('arc', 'compose.intel.yml'), ('amd-vulkan', 'compose.amd-vulkan.yml')]:
             app = cli.Installer(self.root, output=io.StringIO())
             app.config.ensure(device, switch=True)
             calls = []
@@ -75,12 +98,12 @@ class GPUTests(unittest.TestCase):
                 app.compose('up', '-d')
             command, options = calls[-1]
             self.assertIn(str(self.root/filename), command)
-            self.assertEqual(sum(str(x).endswith(('.gpu.yml', '.amd.yml', '.intel.yml', '.npu.yml')) for x in command), 1)
+            self.assertEqual(sum(str(x).endswith(('.gpu.yml', '.amd.yml', '.intel.yml', '.amd-vulkan.yml', '.npu.yml')) for x in command), 1)
             for key in ('CUDA_VISIBLE_DEVICES', 'ROCR_VISIBLE_DEVICES', 'HIP_VISIBLE_DEVICES', 'HSA_OVERRIDE_GFX_VERSION'):
                 self.assertNotIn(key, options['env'])
 
     def test_all_gpu_roles_require_positive_offload_and_report_it(self):
-        for device in ('arc', 'nvidia', 'amd'):
+        for device in ('arc', 'nvidia', 'amd', 'amd-vulkan'):
             app = cli.Installer(self.root, output=io.StringIO())
             app.config.ensure(device, switch=True)
             for role in ('GENERATOR', 'EMBEDDING'):
@@ -103,7 +126,7 @@ class GPUTests(unittest.TestCase):
             app.doctor('nvidia')
 
     def test_saved_selection_overrides_env_drift_for_every_gpu(self):
-        for device, selected, key in [('nvidia', 'GPU-aaaa', 'PROJECT_CREATOR_GPU_ID'), ('amd', 'GPU-1234', 'PROJECT_CREATOR_GPU_ID'), ('arc', '1', 'GGML_VK_VISIBLE_DEVICES')]:
+        for device, selected, key in [('nvidia', 'GPU-aaaa', 'PROJECT_CREATOR_GPU_ID'), ('amd', 'GPU-1234', 'PROJECT_CREATOR_GPU_ID'), ('arc', '1', 'GGML_VK_VISIBLE_DEVICES'), ('amd-vulkan', '0', 'GGML_VK_VISIBLE_DEVICES')]:
             app = cli.Installer(self.root, output=io.StringIO())
             app.config.ensure(device, gpu_id=selected, switch=True)
             app.config.update_env({key: 'wrong'})
@@ -164,6 +187,31 @@ class GPUTests(unittest.TestCase):
             with self.assertRaisesRegex(cli.Failure, 'GPU_SELECTION'):
                 app.inspect_gpu('arc')
             self.assertEqual(app.inspect_gpu('arc', '1'), '1')
+
+    def test_amd_vulkan_inventory_rejects_non_amd_and_inaccessible_render_device(self):
+        sysroot = self.root/'drm'
+        def vendor(node, value):
+            path = sysroot/node/'device/vendor'
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(value)
+        app = cli.Installer(self.root, output=io.StringIO())
+        app.runner.run = lambda *a, **kw: self.fail('AMD Vulkan must not call rocminfo')
+        vendor('renderD128', '0x8086')
+        with patch('cli.Path', side_effect=lambda p: sysroot if p == '/sys/class/drm' else Path(p)):
+            with self.assertRaisesRegex(cli.Failure, 'DEVICE_ACCESS'):
+                app.inspect_gpu('amd-vulkan')
+            vendor('renderD129', '0x1002')
+            with patch('cli.os.access', return_value=False):
+                with self.assertRaisesRegex(cli.Failure, 'DEVICE_ACCESS'):
+                    app.inspect_gpu('amd-vulkan')
+            with patch('cli.os.access', return_value=True):
+                self.assertIsNone(app.inspect_gpu('amd-vulkan'))
+                with self.assertRaisesRegex(cli.Failure, 'GPU_SELECTION'):
+                    app.inspect_gpu('amd-vulkan', 'GPU-1234')
+                vendor('renderD130', '0x1002')
+                with self.assertRaisesRegex(cli.Failure, 'GPU_SELECTION'):
+                    app.inspect_gpu('amd-vulkan')
+                self.assertEqual(app.inspect_gpu('amd-vulkan', '1'), '1')
 
     def test_setup_pins_resolved_uuid_and_up_reuses_without_download(self):
         app = cli.Installer(self.root, output=io.StringIO())

@@ -5,7 +5,7 @@
 На нативном Linux x86_64 с Python 3.12 и Docker Engine/Compose:
 
 ```bash
-./project-creator setup --device cpu  # либо arc, nvidia, amd, npu
+./project-creator setup --device cpu  # либо arc, nvidia, amd, amd-vulkan, npu
 ./project-creator up
 ./project-creator doctor
 ./project-creator down
@@ -205,18 +205,31 @@ CLI поддерживает нативный Linux x86_64, Python 3.12 и Docke
 | `cpu` | Ollama 0.40.11 на CPU | Базовый вариант, GPU не нужен. |
 | `arc` | Intel Arc dGPU/iGPU, в том числе Core Ultra 7 268V; Ollama 0.40.11/Vulkan | Intel Linux graphics, доступ к `/dev/dri`; [инструкция Arc](docs/intel-arc.md). Intel ICD изолирован от AMD/NVIDIA. Новая логика выбора проверена тестами без GPU. |
 | `nvidia` | Поддерживаемая NVIDIA GPU; Ollama 0.40.11/CUDA | NVIDIA driver и Container Toolkit, `nvidia-smi`; аппаратная проверка новой CLI-интеграции ещё не выполнена. |
-| `amd` | Совместимые AMD dGPU/iGPU; Ollama 0.40.11-rocm | ROCm 7, `rocminfo`, `/dev/kfd` и `/dev/dri`; ограниченная матрица targets и отсутствие аппаратной приёмки описаны ниже. |
+| `amd` (ROCm) | Только AMD dGPU/iGPU из матрицы Ollama 0.40.11; `ollama/ollama:0.40.11-rocm` | ROCm 7, `rocminfo`, `/dev/kfd` и `/dev/dri`. Строгая проверка GFX target; аппаратная приёмка не проведена. |
+| `amd-vulkan` (RADV) | AMD dGPU/iGPU с работоспособным Vulkan; Ollama 0.40.11 + Mesa RADV | `amdgpu`, доступный `/dev/dri/renderD*` и поддержка Vulkan в драйвере. ROCm и `/dev/kfd` не требуются. Более широкий, но **не универсальный** вариант; аппаратная приёмка не проведена. |
 | `npu` | Intel NPU; OpenVINO GenAI, embeddings на CPU | Фиксированные аппаратные примеры на Core Ultra 7 268V проходят; результаты и ограничения — в [инструкции NPU](docs/intel-npu.md). |
 
-Пример AMD: `./project-creator setup --device amd --gpu-id GPU-...`, где полный
-UUID берётся из `rocminfo`. При единственном адаптере `--gpu-id` можно опустить.
-AMD iGPU поддерживается только при совместимости её GFX target и драйвера:
-сам факт встроенной графики не гарантирует запуск. CLI принимает targets
+**Нельзя гарантировать работу на любой AMD GPU или любом Ryzen APU.** Для ROCm
+проверьте модель, ОС и драйвер по [матрице AMD](https://rocm.docs.amd.com/en/latest/compatibility/compatibility-matrix.html)
+и [матрице Ollama 0.40.11](https://github.com/ollama/ollama/blob/v0.40.11/docs/gpu.mdx).
+Даже если новая версия ROCm поддерживает iGPU, это не расширяет возможности
+закреплённого контейнера Ollama автоматически. Пример ROCm:
+`./project-creator setup --device amd --gpu-id GPU-...`, где UUID берётся из
+`rocminfo`. CLI принимает targets
 `gfx908`, `gfx90a`, `gfx942`, `gfx950`, `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`,
 `gfx1150`, `gfx1151`, `gfx1200`, `gfx1201` из
 [матрицы Ollama v0.40.11](https://github.com/ollama/ollama/blob/v0.40.11/docs/gpu.mdx).
 Это upstream-матрица, не список проверенных проектом видеокарт. Неизвестный target
 отклоняется; подмена `HSA_OVERRIDE_GFX_VERSION` не применяется.
+
+Для другой AMD GPU/iGPU можно **попробовать Vulkan**:
+`./project-creator setup --device amd-vulkan`. Драйвер RADV из Mesa запускается
+без ROCm, а Vulkan ICD изолирован от Intel/NVIDIA. При нескольких AMD render
+devices укажите `--gpu-id 0` (или иной **индекс Vulkan из логов Ollama**, не UUID
+из `rocminfo` и не номер `renderD*`). Если Vulkan/модель/объём доступной памяти
+несовместимы, установка завершится ошибкой; автоматического переключения на
+ROCm или CPU нет. Встроенная графика использует общую системную память,
+поэтому даже доступный Vulkan не гарантирует загрузку обеих моделей.
 
 Для смены устройства или адаптера повторите `setup` с `--switch-device`.
 Данные и закреплённые модели сохраняются. `setup`/`up` проверяют GPU offload

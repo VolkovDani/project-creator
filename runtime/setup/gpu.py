@@ -2,10 +2,12 @@
 import csv
 import re
 
-GPU_DEVICES = ('arc', 'nvidia', 'amd')
+GPU_DEVICES = ('arc', 'nvidia', 'amd', 'amd-vulkan')
+VULKAN_DEVICES = ('arc', 'amd-vulkan')
 DEVICES = ('cpu', *GPU_DEVICES, 'npu')
 OVERRIDES = {'arc': 'compose.intel.yml', 'nvidia': 'compose.gpu.yml',
-             'amd': 'compose.amd.yml', 'npu': 'compose.npu.yml'}
+             'amd': 'compose.amd.yml', 'amd-vulkan': 'compose.amd-vulkan.yml',
+             'npu': 'compose.npu.yml'}
 # Ollama v0.40.11 docs/gpu.mdx, Linux ROCm targets. Never spoof a target.
 AMD_TARGETS = frozenset(('gfx908', 'gfx90a', 'gfx942', 'gfx950', 'gfx1030',
                          'gfx1100', 'gfx1101', 'gfx1102', 'gfx1150', 'gfx1151',

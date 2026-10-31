@@ -87,6 +87,9 @@ class ContractTests(unittest.TestCase):
     def test_output_is_strict_and_references_exact_versions(self):
         pair = request()['pair']
         self.assertEqual(npu.parse_finding(json.dumps(finding()), pair)['verdict'], 'collision')
+        duplicate = finding()
+        duplicate['verdict'] = 'duplicate'
+        self.assertEqual(npu.parse_finding(json.dumps(duplicate), pair)['verdict'], 'duplicate')
         for output in [dict(finding(), leftVersion=3), dict(finding(), extra=True),
                        dict(finding(), verdict='certain'), dict(finding(), explanation=''),
                        dict(finding(), leftVersion=True)]:
@@ -96,6 +99,19 @@ class ContractTests(unittest.TestCase):
                        json.dumps(finding())[:-1]+',"verdict":"compatible"}']:
             with self.assertRaises(ValueError):
                 npu.parse_finding(output, pair)
+
+    def test_output_rejection_has_precise_safe_code(self):
+        pair = request()['pair']
+        cases = [('not json', 'OUTPUT_JSON'),
+                 (json.dumps(dict(finding(), extra=True)), 'OUTPUT_SCHEMA'),
+                 (json.dumps(dict(finding(), leftVersion=9)), 'OUTPUT_SOURCE'),
+                 (json.dumps(dict(finding(), verdict='other')), 'OUTPUT_VERDICT'),
+                 (json.dumps(dict(finding(), explanation='')), 'OUTPUT_EXPLANATION')]
+        for text, code in cases:
+            with self.subTest(code=code), self.assertRaises(npu.OutputRejected) as raised:
+                npu.parse_finding(text, pair)
+            self.assertEqual(raised.exception.code, code)
+            self.assertNotIn(text, str(raised.exception))
 
     def test_token_budget_counts_entire_template_without_truncation(self):
         class Tokenizer:

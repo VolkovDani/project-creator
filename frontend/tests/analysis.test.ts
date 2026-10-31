@@ -5,14 +5,14 @@ import fs from 'node:fs';
 
 const left={id:'left',version:1,text:'First saved source'};
 const right={id:'right',version:2,text:'Second saved source'};
-const pair=(id:string,position:number,status:string,verdict=''):AnalysisPairView=>({id,position,status,left,right,verdict,explanation:verdict?'An explanation':'',errorCode:''});
-const run=(pairs:AnalysisPairView[],overrides:Partial<AnalysisRun>={}):AnalysisRun=>({id:'run',projectId:'project',status:'running',stage:'comparing',totalPairs:pairs.length,processedPairs:0,activePairId:'',outcome:'',errorCode:'',reasonCode:'',missingRequirementIds:[],createdAt:'now',completedAt:'',stale:false,generatorProfile:'g',embeddingProfile:'e',sources:[left,right],findings:[],pairs,...overrides});
+const pair=(id:string,position:number,status:string,verdict=''):AnalysisPairView=>({id,position,status,left,right,verdict,explanation:verdict?'An explanation':'',errorCode:'',selectionReasons:[],similarityScore:null,resultOrigin:'model',reusedFrom:'',checkedAt:'',generatorProfile:'g'});
+const run=(pairs:AnalysisPairView[],overrides:Partial<AnalysisRun>={}):AnalysisRun=>({mode:'related',similarityThreshold:.65,selectionProfile:'selection',possiblePairs:100,notSelectedPairs:90,duplicatePairs:0,reusedPairs:0,newPairs:0,completedPairs:0,pendingPairs:0,runningPairs:0,failedPairs:pairs.filter(pair=>pair.status==='failed').length,collisionPairs:0,compatiblePairs:0,insufficientPairs:0,generatorProvenance:'{}',id:'run',projectId:'project',status:'running',stage:'comparing',totalPairs:pairs.length,processedPairs:0,activePairId:'',outcome:'',errorCode:'',reasonCode:'',missingRequirementIds:[],createdAt:'now',completedAt:'',stale:false,generatorProfile:'g',embeddingProfile:'e',sources:[left,right],findings:[],pairs,...overrides});
 
 test('pairs are grouped by verdict and processing state with stable candidate order',()=>{
  const value=run([pair('later',3,'completed','collision'),pair('running',4,'running'),pair('earlier',1,'completed','collision'),pair('compatible',2,'completed','compatible'),pair('pending',5,'pending'),pair('insufficient',6,'completed','insufficient'),pair('failed',7,'failed')]);
  const groups=groupPairs(value);
- assert.deepEqual(groups.map(group=>group.key),['collision','compatible','insufficient','pending','failed']);
- assert.deepEqual(groups.map(group=>group.pairs.map(item=>item.id)),[['earlier','later'],['compatible'],['insufficient'],['running','pending'],['failed']]);
+ assert.deepEqual(groups.map(group=>group.key),['collision','duplicate','compatible','insufficient','pending','failed']);
+ assert.deepEqual(groups.map(group=>group.pairs.map(item=>item.id)),[['earlier','later'],[],['compatible'],['insufficient'],['running','pending'],['failed']]);
  assert.equal(value.pairs[0].id,'later','grouping does not mutate the API snapshot');
 });
 
@@ -53,4 +53,19 @@ test('analysis translations have matching keys and interpolation parameters',()=
  }
  assert.equal(ru['analysis.progress'],'Обработано {processed} из {total}');
  assert.equal(en['analysis.progress'],'Processed {processed} of {total}');
+});
+
+test('group counts and retry depend on full aggregates, not the displayed page',()=>{
+ const value=run([pair('one',0,'completed','compatible')],{status:'failed',totalPairs:4950,failedPairs:40,pendingPairs:4900,runningPairs:1,collisionPairs:2,compatiblePairs:6,insufficientPairs:1});
+ const groups=groupPairs(value);
+ assert.deepEqual(groups.map(group=>group.count),[2,0,6,1,4901,40]);
+ assert.equal(canRetryPairs(value),true);
+});
+
+test('duplicates have their own global group and preserve exact-text versus model origin',()=>{
+ const exact={...pair('exact',0,'completed','duplicate'),resultOrigin:'exact_text_v1',selectionReasons:['exact_text'],similarityScore:null};
+ const semantic={...pair('semantic',1,'completed','duplicate'),resultOrigin:'model',selectionReasons:['semantic_similarity'],similarityScore:0.81};
+ const groups=groupPairs(run([exact,semantic],{duplicatePairs:17}));
+ assert.equal(groups.find(group=>group.key==='duplicate')?.count,17);
+ assert.deepEqual(groups.find(group=>group.key==='duplicate')?.pairs.map(pair=>pair.resultOrigin),['exact_text_v1','model']);
 });

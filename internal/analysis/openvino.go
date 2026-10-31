@@ -3,8 +3,6 @@ package analysis
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,8 +17,8 @@ import (
 // OpenVINO talks only to an explicitly selected local Unix socket. The runtime
 // independently pins model artifacts and refuses unavailable NPU execution.
 type OpenVINO struct {
-	pinnedProfile, profile string
-	client                 *http.Client
+	pinnedProfile, profile, provenance string
+	client                             *http.Client
 }
 
 var npuProfilePattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -32,11 +30,12 @@ func NewOpenVINO(socket, profile string) (*OpenVINO, error) {
 	transport := &http.Transport{Proxy: nil, MaxConnsPerHost: 1, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}
-	sum := sha256.Sum256([]byte("openvino-npu-unix-v1\ncomparison-prompt-v2:2000\nsource-aliases-v2:text-order\n" + systemPrompt + "\n" + profile))
-	return &OpenVINO{pinnedProfile: profile, profile: hex.EncodeToString(sum[:]), client: &http.Client{Transport: transport, Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirects disabled") }}}, nil
+	provenance, key := encodeGenerationProvenance(generationProvenance{Adapter: "openvino-npu-unix-v1", RuntimeProfile: profile, SystemPrompt: systemPrompt, ResponseSchema: findingSchema(), Normalization: "source-aliases-v2:text-order"})
+	return &OpenVINO{pinnedProfile: profile, profile: key, provenance: provenance, client: &http.Client{Transport: transport, Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirects disabled") }}}, nil
 }
 
-func (o *OpenVINO) Profile() string { return o.profile }
+func (o *OpenVINO) Profile() string    { return o.profile }
+func (o *OpenVINO) Provenance() string { return o.provenance }
 
 func (o *OpenVINO) request(ctx context.Context, method, path string, body []byte, out any) error {
 	request, err := http.NewRequestWithContext(ctx, method, "http://npu.local"+path, bytes.NewReader(body))

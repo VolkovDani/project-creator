@@ -4,6 +4,7 @@ test('index retry and search are explicit and retain versioned sources',async({p
  await page.route('**/api/events',route=>route.fulfill({status:200,contentType:'text/event-stream',body:': heartbeat\n\n'}));
  await page.route('**/api/graphql',async route=>{const {query}=route.request().postDataJSON();let data:unknown;
   if(query.includes('indexRequirement(')){indexCalls++;status='failed';data={indexRequirement:{requirementId:'source-1',version:2,status,profile:'test-profile',errorCode:'EMBEDDING_FAILED'}}}
+  else if(query.includes('analysisHistory('))data={analysisHistory:[]};
   else if(query.includes('projectAnalysis('))data={projectAnalysis:null};
   else if(query.includes('requirementIndex('))data={requirementIndex:[{requirementId:'source-1',version:2,status,profile:'test-profile',errorCode:status==='failed'?'EMBEDDING_FAILED':''}]};
   else if(query.includes('searchRequirements(')){searchCalls++;data={searchRequirements:[{requirementId:'source-1',projectId:'demo',text:'сохранить черновик',sourceText:text,version:2,start:23,end:41,score:0.91}]}}
@@ -52,6 +53,7 @@ test('requirement draft is locked until its save response completes',async({page
  await page.route('**/api/events',route=>route.fulfill({status:200,contentType:'text/event-stream',body:': heartbeat\n\n'}));
  await page.route('**/api/graphql',async route=>{const {query}=route.request().postDataJSON();let data:unknown;
   if(query.includes('createRequirement(')){started();await pending;data={createRequirement:{requirement:{id:'r',text:'Draft',version:1},fieldErrors:[]}}}
+  else if(query.includes('analysisHistory('))data={analysisHistory:[]};
   else if(query.includes('projectAnalysis('))data={projectAnalysis:null};
   else if(query.includes('requirementIndex('))data={requirementIndex:[]};
   else if(query.includes('requirements('))data={requirements:[]};

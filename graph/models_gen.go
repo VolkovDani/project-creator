@@ -56,7 +56,21 @@ type DeleteRequirementPayload struct {
 	Deleted bool
 }
 type ProjectAnalysisArgs struct {
+	ProjectId  graphql.ID
+	AnalysisId *graphql.ID
+}
+type AnalysisPairsArgs struct {
+	ProjectId  graphql.ID
+	AnalysisId graphql.ID
+	Limit      int32
+	Offset     int32
+	Status     string
+	Verdict    string
+}
+type AnalysisHistoryArgs struct {
 	ProjectId graphql.ID
+	Limit     int32
+	Offset    int32
 }
 type RequirementIndexArgs struct {
 	ProjectId graphql.ID
@@ -86,6 +100,8 @@ type RetryProjectAnalysisArgs struct {
 }
 type StartProjectAnalysisArgs struct {
 	ProjectId graphql.ID
+	Mode      *string
+	Threshold *float64
 }
 type IndexRequirementArgs struct {
 	ProjectId     graphql.ID
@@ -136,16 +152,38 @@ type AnalysisFinding struct {
 	Explanation  string
 }
 type AnalysisPair struct {
-	ID          graphql.ID
-	Position    int32
-	Status      string
-	Left        *AnalysisSource
-	Right       *AnalysisSource
-	Verdict     string
-	Explanation string
-	ErrorCode   string
+	SelectionReasons []string
+	SimilarityScore  *float64
+	ResultOrigin     string
+	ReusedFrom       graphql.ID
+	CheckedAt        string
+	GeneratorProfile string
+	ID               graphql.ID
+	Position         int32
+	Status           string
+	Left             *AnalysisSource
+	Right            *AnalysisSource
+	Verdict          string
+	Explanation      string
+	ErrorCode        string
 }
 type ProjectAnalysis struct {
+	Mode                  string
+	SimilarityThreshold   float64
+	SelectionProfile      string
+	PossiblePairs         *int32
+	NotSelectedPairs      *int32
+	DuplicatePairs        int32
+	ReusedPairs           int32
+	NewPairs              int32
+	CompletedPairs        int32
+	PendingPairs          int32
+	RunningPairs          int32
+	FailedPairs           int32
+	CollisionPairs        int32
+	CompatiblePairs       int32
+	InsufficientPairs     int32
+	GeneratorProvenance   string
 	Stage                 string
 	TotalPairs            *int32
 	ProcessedPairs        int32

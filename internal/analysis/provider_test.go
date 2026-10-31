@@ -82,6 +82,43 @@ func TestPinnedStructuredComparison(t *testing.T) {
 		t.Fatal("profile ignores weights")
 	}
 }
+
+func TestDuplicateComparisonRequestAndResult(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/tags" {
+			modelTags(w)
+			return
+		}
+		var request struct {
+			Format struct {
+				Properties struct {
+					Verdict struct {
+						Enum []string `json:"enum"`
+					} `json:"verdict"`
+				} `json:"properties"`
+			} `json:"format"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		if !strings.Contains(strings.Join(request.Format.Properties.Verdict.Enum, ","), "duplicate") {
+			t.Error("duplicate absent from output schema")
+		}
+		chatEnvelope(w, strings.Replace(findingJSON(), `"collision"`, `"duplicate"`, 1))
+	}))
+	defer server.Close()
+	generator, _ := NewOllama(server.URL, "qwen2.5:7b", pinnedDigest)
+	finding, err := generator.Compare(context.Background(), pairFixture())
+	if err != nil || finding.Verdict != "duplicate" {
+		t.Fatalf("duplicate rejected: %+v %v", finding, err)
+	}
+	for _, instruction := range []string{"same obligation", "conditions", "scope", "constraints", "Partial overlap"} {
+		if !strings.Contains(systemPrompt, instruction) {
+			t.Errorf("duplicate definition missing %q", instruction)
+		}
+	}
+}
 func TestComparisonRejectsUnsafeResults(t *testing.T) {
 	for _, scenario := range []string{"unknown-field", "foreign-id", "wrong-version", "bad-verdict", "empty-explanation", "long-explanation", "trailing-json", "malformed", "unfinished", "tools", "remote-model", "digest-change", "oversize", "redirect"} {
 		t.Run(scenario, func(t *testing.T) {

@@ -851,7 +851,7 @@ class Installer:
         self.config.save()
         for name, texts in CASES:
             project, expected = self.fixture(name, texts)
-            result = self.graphql('mutation($p:ID!){startProjectAnalysis(projectId:$p){'+ANALYSIS_FIELDS+'}}', {'p': project})['startProjectAnalysis']
+            result = self.graphql('mutation($p:ID!){startProjectAnalysis(projectId:$p,mode:"all"){'+ANALYSIS_FIELDS+'}}', {'p': project})['startProjectAnalysis']
             result = self.wait_analysis(project, result, expected)
             validate_analysis(result, expected, name)
             self.check_execution('GENERATOR')

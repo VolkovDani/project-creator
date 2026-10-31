@@ -25,6 +25,7 @@ async function fixture(page:Page,count=21){
    data={requirements:rows.slice(variables.offset,variables.offset+variables.limit)};
   }else if(query.includes('requirementIndex('))data={requirementIndex:indexes.slice(variables.offset,variables.offset+variables.limit)};
   else if(query.includes('searchRequirements('))data={searchRequirements:[{requirementId:'r20',projectId:'demo',text:'Результат поиска',sourceText:rows[20]?.text||'Требование 20',version:1,start:0,end:12,score:1}]};
+  else if(query.includes('analysisHistory('))data={analysisHistory:[]};
   else if(query.includes('projectAnalysis('))data={projectAnalysis:null};
   else if(query.includes('projects('))data={projects:[project]};
   else data={project};

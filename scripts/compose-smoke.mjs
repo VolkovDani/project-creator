@@ -62,7 +62,7 @@ function validateSourceSnapshots(sources) {
   assert.equal(new Set(sources.map(source => source.id)).size, requirements.length, 'Analysis source snapshot contains duplicate sources');
   for (const source of sources) assert.deepEqual(source, known.get(source.id), 'Analysis source snapshot changed');
 }
-const started = await graphql(`mutation($project:ID!){startProjectAnalysis(projectId:$project){${analysisFields}}}`, {project: project.id});
+const started = await graphql(`mutation($project:ID!){startProjectAnalysis(projectId:$project,mode:"all"){${analysisFields}}}`, {project: project.id});
 let analysis = started.startProjectAnalysis;
 if (analysis.status === 'running') {
   assert.ok(typeof analysis.id === 'string' && analysis.id, 'Running analysis is missing its ID; cannot safely poll it');

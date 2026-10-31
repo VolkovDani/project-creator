@@ -8,7 +8,8 @@ test('screenshots: desktop projects and requirements',async({page},testInfo)=>{
   await page.route('**/api/graphql',async route=>{const {query,variables}=route.request().postDataJSON();let data:unknown;
    if(query.includes('createProject')){project={...variables.input,id:'demo-project',createdAt:'2026-10-27T12:00:00Z',updatedAt:'2026-10-27T12:00:00Z'};data={createProject:{project,fieldErrors:[]}}}
    else if(query.includes('createRequirement')){const requirement={...variables.input,id:`requirement-${requirements.length+1}`,version:1,createdAt:'2026-10-27T12:00:00Z',updatedAt:'2026-10-27T12:00:00Z'};requirements.push(requirement);data={createRequirement:{requirement,fieldErrors:[]}}}
-   else if(query.includes('projectAnalysis('))data={projectAnalysis:null};
+   else if(query.includes('analysisHistory('))data={analysisHistory:[]};
+  else if(query.includes('projectAnalysis('))data={projectAnalysis:null};
   else if(query.includes('requirementIndex('))data={requirementIndex:requirements.map(item=>({requirementId:item.id,version:item.version,status:'pending',profile:'',errorCode:''}))};
    else if(query.includes('requirements('))data={requirements};
    else if(query.includes('projects('))data={projects:project?[project]:[]};

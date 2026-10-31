@@ -166,7 +166,7 @@ func TestConcurrentStartup(t *testing.T) {
 	}
 	defer db.Close()
 	var n int
-	if err = db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil || n != 5 {
+	if err = db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil || n != 6 {
 		t.Fatalf("migration count %d: %v", n, err)
 	}
 }

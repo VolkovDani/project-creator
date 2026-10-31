@@ -5,9 +5,12 @@ import (
 	"github.com/VolkovDani/project-creator/internal/api"
 	"github.com/VolkovDani/project-creator/internal/rag"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -57,6 +60,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer s.Close()
-	log.Fatal(http.ListenAndServe(addr, s))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	err = serveHTTP(ctx, &http.Server{Addr: addr, Handler: s, BaseContext: func(net.Listener) context.Context { return ctx }})
+	closeErr := s.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if closeErr != nil {
+		log.Fatal(closeErr)
+	}
 }

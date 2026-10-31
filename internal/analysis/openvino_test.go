@@ -15,6 +15,10 @@ import (
 	"time"
 )
 
+func npuFindingJSON() string {
+	return `{"leftId":"left","rightId":"right","leftVersion":1,"rightVersion":1,"verdict":"collision","explanation":"В одном сценарии разрешены взаимоисключающие способы оплаты."}`
+}
+
 func npuServer(t *testing.T, h http.HandlerFunc) *OpenVINO {
 	t.Helper()
 	server := httptest.NewServer(h)
@@ -82,7 +86,7 @@ func TestOpenVINOComparisonUsesPinnedNPUAndUntrustedPair(t *testing.T) {
 			t.Errorf("bad request: %+v", request)
 		}
 		var finding Finding
-		json.Unmarshal([]byte(findingJSON()), &finding)
+		json.Unmarshal([]byte(npuFindingJSON()), &finding)
 		json.NewEncoder(w).Encode(map[string]any{"profile": pinnedDigest, "device": "NPU", "finding": finding})
 	})
 	result, err := generator.Compare(context.Background(), pairFixture())
@@ -95,6 +99,111 @@ func TestOpenVINOComparisonUsesPinnedNPUAndUntrustedPair(t *testing.T) {
 	}
 }
 
+func TestOpenVINOAliasReferencesRoundTripAndRejectUnknownSources(t *testing.T) {
+	pair := Pair{
+		Left: Source{ID: "348a9ac1d8a3cce4f2384ad79a3f070c", Version: 7,
+			Text: "При любом заказе оплата разрешена только наличными. Другие способы запрещены."},
+		Right: Source{ID: "f10d2fd077690e2b42821b0f7c2b178a", Version: 19,
+			Text: "При любом заказе оплата разрешена только банковской картой. Другие способы запрещены."},
+	}
+	for _, input := range []struct {
+		name string
+		pair Pair
+	}{{"original", pair}, {"reversed", Pair{Left: pair.Right, Right: pair.Left}}} {
+		t.Run(input.name, func(t *testing.T) {
+			for _, response := range []struct {
+				name                      string
+				leftID, rightID           string
+				leftVersion, rightVersion int
+				valid                     bool
+			}{
+				{"aliases", "left", "right", 1, 1, true},
+				{"foreign_alias", "unknown", "right", 1, 1, false},
+				{"swapped_aliases", "right", "left", 1, 1, false},
+				{"real_references", input.pair.Left.ID, input.pair.Right.ID, input.pair.Left.Version, input.pair.Right.Version, false},
+				{"wrong_left_version", "left", "right", 2, 1, false},
+				{"wrong_right_version", "left", "right", 1, 2, false},
+			} {
+				t.Run(response.name, func(t *testing.T) {
+					generator := npuServer(t, func(w http.ResponseWriter, r *http.Request) {
+						if r.URL.Path == "/health" {
+							json.NewEncoder(w).Encode(map[string]string{"profile": pinnedDigest, "device": "NPU"})
+							return
+						}
+						var request struct {
+							Pair Pair `json:"pair"`
+						}
+						if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+							t.Error(err)
+						}
+						want := Pair{
+							Left:  Source{ID: "left", Version: 1, Text: input.pair.Left.Text},
+							Right: Source{ID: "right", Version: 1, Text: input.pair.Right.Text},
+						}
+						if want.Right.Text < want.Left.Text {
+							want.Left.Text, want.Right.Text = want.Right.Text, want.Left.Text
+						}
+						if request.Pair != want {
+							t.Errorf("model received %+v; want normalized references and unchanged texts %+v", request.Pair, want)
+						}
+						finding := Finding{LeftID: response.leftID, RightID: response.rightID,
+							LeftVersion: response.leftVersion, RightVersion: response.rightVersion,
+							Verdict: "collision", Explanation: "В одном сценарии требуются взаимоисключающие способы оплаты."}
+						json.NewEncoder(w).Encode(map[string]any{"profile": pinnedDigest, "device": "NPU", "finding": finding})
+					})
+					finding, err := generator.Compare(context.Background(), input.pair)
+					if !response.valid {
+						if err == nil {
+							t.Fatalf("accepted invalid model references: %+v", finding)
+						}
+						return
+					}
+					if err != nil || !validFinding(input.pair, finding) || finding.Verdict != "collision" {
+						t.Fatalf("references did not round trip: finding=%+v err=%v", finding, err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestOpenVINOInputOrderDoesNotChangeModelPair(t *testing.T) {
+	first := Source{ID: "a98da36e7bf38c6299ccd09648660d83", Version: 7,
+		Text: "Для заказов стоимостью до 1000 рублей включительно доставка бесплатна."}
+	second := Source{ID: "abd201e6bdf2ea03fd9fa7d29f3c3ebd", Version: 19,
+		Text: "Для заказов стоимостью больше 1000 рублей доставка стоит 100 рублей."}
+	var received []Pair
+	generator := npuServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			json.NewEncoder(w).Encode(map[string]string{"profile": pinnedDigest, "device": "NPU"})
+			return
+		}
+		var request struct {
+			Pair Pair `json:"pair"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		received = append(received, request.Pair)
+		finding := Finding{LeftID: "left", RightID: "right", LeftVersion: 1, RightVersion: 1,
+			Verdict: "compatible", Explanation: "Условия стоимости заказа не пересекаются."}
+		json.NewEncoder(w).Encode(map[string]any{"profile": pinnedDigest, "device": "NPU", "finding": finding})
+	})
+	for _, pair := range []Pair{{Left: first, Right: second}, {Left: second, Right: first}} {
+		finding, err := generator.Compare(context.Background(), pair)
+		if err != nil || !validFinding(pair, finding) || finding.Verdict != "compatible" {
+			t.Fatalf("original references not restored: finding=%+v err=%v", finding, err)
+		}
+	}
+	want := Pair{
+		Left:  Source{ID: "left", Version: 1, Text: second.Text},
+		Right: Source{ID: "right", Version: 1, Text: first.Text},
+	}
+	if len(received) != 2 || received[0] != want || received[1] != want {
+		t.Fatalf("input order changed the model pair: got=%+v want=%+v", received, want)
+	}
+}
+
 func TestOpenVINORejectsConfigurationAndBadResponses(t *testing.T) {
 	for _, cfg := range [][2]string{{"relative.sock", pinnedDigest}, {"/tmp/x", "sha256:" + pinnedDigest}, {"/tmp/x", strings.Repeat("A", 64)}, {"/tmp/x", ""}} {
 		if _, err := NewOpenVINO(cfg[0], cfg[1]); err == nil {
@@ -104,12 +213,12 @@ func TestOpenVINORejectsConfigurationAndBadResponses(t *testing.T) {
 	for _, tc := range []struct{ name, health, response string }{
 		{"cpu", `{"profile":"` + pinnedDigest + `","device":"CPU"}`, ""},
 		{"profile", `{"profile":"` + strings.Repeat("b", 64) + `","device":"NPU"}`, ""},
-		{"response cpu", "", `{"profile":"` + pinnedDigest + `","device":"CPU","finding":` + findingJSON() + `}`},
-		{"response profile", "", `{"profile":"` + strings.Repeat("b", 64) + `","device":"NPU","finding":` + findingJSON() + `}`},
+		{"response cpu", "", `{"profile":"` + pinnedDigest + `","device":"CPU","finding":` + npuFindingJSON() + `}`},
+		{"response profile", "", `{"profile":"` + strings.Repeat("b", 64) + `","device":"NPU","finding":` + npuFindingJSON() + `}`},
 		{"malformed", "", `{"profile":"` + pinnedDigest + `","device":"NPU","finding":{}}`},
-		{"foreign source", "", `{"profile":"` + pinnedDigest + `","device":"NPU","finding":` + strings.Replace(findingJSON(), "left\"", "foreign\"", 1) + `}`},
-		{"extra field", "", `{"profile":"` + pinnedDigest + `","device":"NPU","finding":` + findingJSON() + `,"tool_calls":[]}`},
-		{"trailing", "", `{"profile":"` + pinnedDigest + `","device":"NPU","finding":` + findingJSON() + `} {}`},
+		{"foreign source", "", `{"profile":"` + pinnedDigest + `","device":"NPU","finding":` + strings.Replace(npuFindingJSON(), "left\"", "foreign\"", 1) + `}`},
+		{"extra field", "", `{"profile":"` + pinnedDigest + `","device":"NPU","finding":` + npuFindingJSON() + `,"tool_calls":[]}`},
+		{"trailing", "", `{"profile":"` + pinnedDigest + `","device":"NPU","finding":` + npuFindingJSON() + `} {}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			generator := npuServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +268,7 @@ func TestOpenVINODriftAndCancellation(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]string{"profile": profile, "device": "NPU"})
 			return
 		}
-		w.Write([]byte(`{"profile":"` + pinnedDigest + `","device":"NPU","finding":` + findingJSON() + `}`))
+		w.Write([]byte(`{"profile":"` + pinnedDigest + `","device":"NPU","finding":` + npuFindingJSON() + `}`))
 	})
 	if _, err := generator.Compare(context.Background(), pairFixture()); err == nil {
 		t.Fatal("accepted runtime profile drift")

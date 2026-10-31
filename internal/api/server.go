@@ -18,8 +18,9 @@ import (
 )
 
 type Server struct {
-	db *sql.DB
-	h  http.Handler
+	db       *sql.DB
+	h        http.Handler
+	analysis *analysis.Service
 }
 
 func New(path string, tokens map[string]string) (*Server, error) {
@@ -47,17 +48,20 @@ func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedd
 	if embedder != nil {
 		embeddingProfile = embedder.Profile()
 	}
-	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, RAG: retriever, Analysis: analysis.New(db, retriever, generator, embeddingProfile)}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
+	analyzer := analysis.New(db, retriever, generator, embeddingProfile)
+	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, RAG: retriever, Analysis: analyzer}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
 	if err != nil {
+		analyzer.Close()
 		db.Close()
 		return nil, err
 	}
 	if err = announceStartup(db, tokens); err != nil {
+		analyzer.Close()
 		db.Close()
 		return nil, errors.New("startup cache invalidation unavailable")
 	}
 	h := &relay.Handler{Schema: schema}
-	return &Server{db: db, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return &Server{db: db, analysis: analyzer, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/graphql" && r.URL.Path != "/events" {
 			http.NotFound(w, r)
 			return
@@ -111,4 +115,4 @@ func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedd
 	})}, nil
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.h.ServeHTTP(w, r) }
-func (s *Server) Close() error                                     { return s.db.Close() }
+func (s *Server) Close() error                                     { s.analysis.Close(); return s.db.Close() }

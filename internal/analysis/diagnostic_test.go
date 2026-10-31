@@ -31,7 +31,7 @@ func TestMissingIndexesRequireCurrentVersionAndProfile(t *testing.T) {
 
 func TestTooFewRequirementsDoesNotNeedConfiguredProviders(t *testing.T) {
 	for _, sources := range [][]Source{{}, {{ID: "a", Version: 1}}} {
-		_, code, incomplete, d := (&Service{}).analyze(context.Background(), "a", "p", sources, false)
+		_, code, incomplete, d := (&Service{}).prepare(context.Background(), "a", "p", sources, false, nil)
 		if code != "" || !incomplete || d.ReasonCode != "TOO_FEW_REQUIREMENTS" {
 			t.Fatalf("%s %v %+v", code, incomplete, d)
 		}

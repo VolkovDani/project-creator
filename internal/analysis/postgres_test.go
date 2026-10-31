@@ -124,15 +124,15 @@ func TestAnalysisCollisionCompatibleAndSources(t *testing.T) {
 	db, retriever, _ := analysisDB(t)
 	ready(t, retriever)
 	gen := &fakeGenerator{profile: "gen-a"}
-	s := New(db, retriever, gen, "embed-a")
-	run, err := s.Start(context.Background(), "a", "p")
+	s := testService(t, db, retriever, gen, "embed-a")
+	run, err := s.startAndWait(t, context.Background(), "a", "p")
 	if err != nil || run.Status != "completed" || run.Outcome != "possible_collision" || run.Stale || len(run.Findings) != 1 {
 		t.Fatalf("run: %+v %v", run, err)
 	}
 	if len(run.Sources) != 2 || run.Sources[0].ID != "left" || run.Findings[0].RightVersion != 1 {
 		t.Fatal(run)
 	}
-	latest, err := New(db, retriever, gen, "embed-a").Latest(context.Background(), "a", "p")
+	latest, err := testService(t, db, retriever, gen, "embed-a").Latest(context.Background(), "a", "p")
 	if err != nil || latest == nil || latest.ID != run.ID || latest.Stale {
 		t.Fatalf("restart latest: %+v %v", latest, err)
 	}
@@ -140,7 +140,7 @@ func TestAnalysisCollisionCompatibleAndSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	ready(t, retriever)
-	compatible, err := s.Start(context.Background(), "a", "p")
+	compatible, err := s.startAndWait(t, context.Background(), "a", "p")
 	if err != nil || compatible.Outcome != "no_collisions_found" || compatible.Findings[0].Verdict != "compatible" {
 		t.Fatalf("compatible: %+v %v", compatible, err)
 	}
@@ -148,7 +148,7 @@ func TestAnalysisCollisionCompatibleAndSources(t *testing.T) {
 func TestAnalysisAuthorizationAndPendingIndex(t *testing.T) {
 	db, retriever, embed := analysisDB(t)
 	gen := &fakeGenerator{profile: "gen-a"}
-	s := New(db, retriever, gen, "embed-a")
+	s := testService(t, db, retriever, gen, "embed-a")
 	if _, err := s.Start(context.Background(), "b", "p"); err != ErrNotFound {
 		t.Fatal(err)
 	}
@@ -158,11 +158,11 @@ func TestAnalysisAuthorizationAndPendingIndex(t *testing.T) {
 	if embed.calls.Load() != 0 || gen.calls.Load() != 0 {
 		t.Fatal("provider invoked before access check")
 	}
-	run, err := s.Start(context.Background(), "a", "p")
+	run, err := s.startAndWait(t, context.Background(), "a", "p")
 	if err != nil || run.Status != "completed" || run.Outcome != "insufficient" || gen.calls.Load() != 0 || embed.calls.Load() != 0 {
 		t.Fatalf("unindexed: %+v %v", run, err)
 	}
-	run, err = New(db, retriever, nil, "").Start(context.Background(), "a", "p")
+	run, err = testService(t, db, retriever, nil, "").startAndWait(t, context.Background(), "a", "p")
 	if err != nil || run.Status != "failed" || run.ErrorCode != "NOT_CONFIGURED" {
 		t.Fatalf("disabled: %+v %v", run, err)
 	}
@@ -171,8 +171,8 @@ func TestAnalysisStaleVersionsCreationDeletionAndProfiles(t *testing.T) {
 	db, retriever, _ := analysisDB(t)
 	ready(t, retriever)
 	gen := &fakeGenerator{profile: "gen-a"}
-	s := New(db, retriever, gen, "embed-a")
-	run, err := s.Start(context.Background(), "a", "p")
+	s := testService(t, db, retriever, gen, "embed-a")
+	run, err := s.startAndWait(t, context.Background(), "a", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestAnalysisStaleVersionsCreationDeletionAndProfiles(t *testing.T) {
 			t.Fatalf("stale snapshot: %+v %v", latest, err)
 		}
 	}
-	for _, changed := range []*Service{New(db, retriever, &fakeGenerator{profile: "gen-b"}, "embed-a"), New(db, retriever, gen, "embed-b")} {
+	for _, changed := range []*Service{testService(t, db, retriever, &fakeGenerator{profile: "gen-b"}, "embed-a"), testService(t, db, retriever, gen, "embed-b")} {
 		latest, err := changed.Latest(context.Background(), "a", "p")
 		if err != nil || !latest.Stale {
 			t.Fatalf("profile stale: %+v %v", latest, err)
@@ -196,25 +196,25 @@ func TestAnalysisInvalidOutputRetryAndTimeout(t *testing.T) {
 	db, retriever, _ := analysisDB(t)
 	ready(t, retriever)
 	gen := &fakeGenerator{profile: "gen-a", invalid: true}
-	s := New(db, retriever, gen, "embed-a")
-	run, err := s.Start(context.Background(), "a", "p")
+	s := testService(t, db, retriever, gen, "embed-a")
+	run, err := s.startAndWait(t, context.Background(), "a", "p")
 	if err != nil || run.Status != "failed" || run.ErrorCode != "INVALID_OUTPUT" {
 		t.Fatalf("invalid output: %+v %v", run, err)
 	}
 	gen.invalid = false
 	gen.fail = true
-	run, err = s.Start(context.Background(), "a", "p")
+	run, err = s.startAndWait(t, context.Background(), "a", "p")
 	if err != nil || run.ErrorCode != "GENERATION_FAILED" {
 		t.Fatalf("failure: %+v %v", run, err)
 	}
 	gen.fail = false
-	run, err = s.Start(context.Background(), "a", "p")
+	run, err = s.startAndWait(t, context.Background(), "a", "p")
 	if err != nil || run.Status != "completed" {
 		t.Fatalf("retry: %+v %v", run, err)
 	}
 	gen.release = make(chan struct{})
 	s.timeout = 20 * time.Millisecond
-	run, err = s.Start(context.Background(), "a", "p")
+	run, err = s.startAndWait(t, context.Background(), "a", "p")
 	if err != nil || run.Status != "failed" || run.ErrorCode != "TIMEOUT" {
 		t.Fatalf("timeout persisted: %+v %v", run, err)
 	}
@@ -223,34 +223,35 @@ func TestConcurrentAnalysisAndExpiredAttempt(t *testing.T) {
 	db, retriever, _ := analysisDB(t)
 	ready(t, retriever)
 	gen := &fakeGenerator{profile: "gen-a", started: make(chan struct{}, 1), release: make(chan struct{})}
-	s := New(db, retriever, gen, "embed-a")
-	result := make(chan Run, 1)
-	fail := make(chan error, 1)
-	go func() { run, err := s.Start(context.Background(), "a", "p"); result <- run; fail <- err }()
+	service := testService(t, db, retriever, gen, "embed-a")
+	run, err := service.Start(context.Background(), "a", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case <-gen.started:
 	case <-time.After(3 * time.Second):
 		t.Fatal("generation did not start")
 	}
-	running, err := s.Start(context.Background(), "a", "p")
-	if err != nil || running.Status != "running" || gen.calls.Load() != 1 {
+	running, err := service.Start(context.Background(), "a", "p")
+	if err != nil || running.ID != run.ID || running.Status != "running" || gen.calls.Load() != 1 {
 		t.Fatalf("concurrent claim: %+v %v", running, err)
 	}
-	if _, err = db.Exec(`UPDATE analysis_runs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1`, running.ID); err != nil {
+	if _, err = db.Exec(`UPDATE analysis_runs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1`, run.ID); err != nil {
 		t.Fatal(err)
 	}
-	replacement, err := New(db, retriever, &fakeGenerator{profile: "gen-a"}, "embed-a").Start(context.Background(), "a", "p")
-	if err != nil || replacement.ID == running.ID || replacement.Status != "completed" {
-		t.Fatalf("expired retry: %+v %v", replacement, err)
+	expired, err := service.Latest(context.Background(), "a", "p")
+	if err != nil || expired.Status != "failed" || expired.ErrorCode != "INTERRUPTED" || expired.Pairs[0].Status != "failed" {
+		t.Fatalf("expired: %+v %v", expired, err)
 	}
 	close(gen.release)
-	old := <-result
-	if err = <-fail; err != nil || old.Status != "failed" || old.ErrorCode != "INTERRUPTED" {
-		t.Fatalf("stale completion: %+v %v", old, err)
+	replacement, err := service.startAndWait(t, context.Background(), "a", "p")
+	if err != nil || replacement.ID == run.ID || replacement.Status != "completed" {
+		t.Fatalf("replacement: %+v %v", replacement, err)
 	}
-	latest, err := s.Latest(context.Background(), "a", "p")
+	latest, err := service.Latest(context.Background(), "a", "p")
 	if err != nil || latest.ID != replacement.ID {
-		t.Fatalf("old run replaced new: %+v %v", latest, err)
+		t.Fatalf("old completion replaced newer run: %+v %v", latest, err)
 	}
 }
 
@@ -258,13 +259,13 @@ func TestAnalysisChangingSourcesDuringGenerationIsStale(t *testing.T) {
 	db, retriever, _ := analysisDB(t)
 	ready(t, retriever)
 	gen := &fakeGenerator{profile: "gen-a", started: make(chan struct{}, 1), release: make(chan struct{})}
-	s := New(db, retriever, gen, "embed-a")
+	s := testService(t, db, retriever, gen, "embed-a")
 	type response struct {
 		run Run
 		err error
 	}
 	result := make(chan response, 1)
-	go func() { r, e := s.Start(context.Background(), "a", "p"); result <- response{r, e} }()
+	go func() { r, e := s.startAndWait(t, context.Background(), "a", "p"); result <- response{r, e} }()
 	select {
 	case <-gen.started:
 	case <-time.After(3 * time.Second):
@@ -283,12 +284,12 @@ func TestBoundedAnalysisIsExplicitlyInsufficient(t *testing.T) {
 	db, retriever, embed := analysisDB(t)
 	ready(t, retriever)
 	gen := &fakeGenerator{profile: "gen-a"}
-	s := New(db, retriever, gen, "embed-a")
+	s := testService(t, db, retriever, gen, "embed-a")
 	if _, err := db.Exec(`INSERT INTO requirements SELECT 'extra-'||n,'a','p','Bounded requirement',1,'now','now' FROM generate_series(1,101) n`); err != nil {
 		t.Fatal(err)
 	}
 	before := embed.calls.Load()
-	run, err := s.Start(context.Background(), "a", "p")
+	run, err := s.startAndWait(t, context.Background(), "a", "p")
 	if err != nil || run.Status != "completed" || run.Outcome != "insufficient" || len(run.Sources) != 100 || gen.calls.Load() != 0 || embed.calls.Load() != before || run.Stale {
 		t.Fatalf("bounded analysis: %+v %v", run, err)
 	}
@@ -322,8 +323,8 @@ func TestAnalysisDiagnosticsPersistMissingIndexAndSeparateModelOutcome(t *testin
 					return Finding{LeftID: pair.Left.ID, RightID: pair.Right.ID, LeftVersion: pair.Left.Version, RightVersion: pair.Right.Version, Verdict: "insufficient", Explanation: "Missing conditions"}, nil
 				})
 			}
-			service := New(db, retriever, provider, "embed-a")
-			run, err := service.Start(context.Background(), "a", "p")
+			service := testService(t, db, retriever, provider, "embed-a")
+			run, err := service.startAndWait(t, context.Background(), "a", "p")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -341,10 +342,41 @@ func TestAnalysisDiagnosticsPersistMissingIndexAndSeparateModelOutcome(t *testin
 					t.Fatal(run)
 				}
 			}
-			latest, err := New(db, retriever, provider, "embed-a").Latest(context.Background(), "a", "p")
+			latest, err := testService(t, db, retriever, provider, "embed-a").Latest(context.Background(), "a", "p")
 			if err != nil || latest == nil || latest.ReasonCode != run.ReasonCode || strings.Join(latest.MissingRequirementIDs, ",") != strings.Join(run.MissingRequirementIDs, ",") {
 				t.Fatalf("persisted: %+v %v", latest, err)
 			}
 		})
 	}
+}
+
+func testService(t *testing.T, db *sql.DB, retriever *rag.Service, generator Generator, profile string) *Service {
+	t.Helper()
+	service := New(db, retriever, generator, profile)
+	t.Cleanup(service.Close)
+	return service
+}
+func (s *Service) startAndWait(t *testing.T, ctx context.Context, workspace, project string) (Run, error) {
+	t.Helper()
+	run, err := s.Start(ctx, workspace, project)
+	if err != nil {
+		return run, err
+	}
+	return waitForRun(t, s, workspace, project, run.ID), nil
+}
+func waitForRun(t *testing.T, s *Service, workspace, project, id string) Run {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		run, err := s.Latest(context.Background(), workspace, project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run != nil && run.ID == id && run.Status != "running" {
+			return *run
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("analysis did not complete")
+	return Run{}
 }

@@ -80,6 +80,10 @@ type ProjectsArgs struct {
 	Limit  int32
 	Offset int32
 }
+type RetryProjectAnalysisArgs struct {
+	ProjectId  graphql.ID
+	AnalysisId graphql.ID
+}
 type StartProjectAnalysisArgs struct {
 	ProjectId graphql.ID
 }
@@ -131,7 +135,22 @@ type AnalysisFinding struct {
 	Verdict      string
 	Explanation  string
 }
+type AnalysisPair struct {
+	ID          graphql.ID
+	Position    int32
+	Status      string
+	Left        *AnalysisSource
+	Right       *AnalysisSource
+	Verdict     string
+	Explanation string
+	ErrorCode   string
+}
 type ProjectAnalysis struct {
+	Stage                 string
+	TotalPairs            *int32
+	ProcessedPairs        int32
+	ActivePairId          graphql.ID
+	Pairs                 []*AnalysisPair
 	ReasonCode            string
 	MissingRequirementIds []graphql.ID
 	ID                    graphql.ID

@@ -4,6 +4,8 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -136,6 +138,29 @@ class InstallTests(unittest.TestCase):
         self.app.pin_model('bge-m3:567m', 'EMBEDDING')
         self.assertTrue(any(call[-3:] == ['ollama', 'pull', 'bge-m3:567m'] for call in self.runner.calls))
 
+    def test_unprefixed_api_digest_matches_existing_pin_through_setup_up_and_doctor(self):
+        digest = 'sha256:'+'a'*64
+        self.app.config.update_env(dict(PROJECT_CREATOR_EMBEDDING_MODEL='bge-m3:567m',
+                                      PROJECT_CREATOR_EMBEDDING_DIGEST=digest,
+                                      PROJECT_CREATOR_GENERATOR_MODEL='qwen2.5:7b',
+                                      PROJECT_CREATOR_GENERATOR_DIGEST=digest))
+        self.app.ollama = lambda path, body=None: (
+            {'license': 'MIT'} if path == '/api/show' else
+            {'models': [{'name': name, 'digest': 'a'*64, 'size_vram': 0}
+                        for name in ('bge-m3:567m', 'qwen2.5:7b')]})
+        self.app.pin_model('bge-m3:567m', 'EMBEDDING')
+        self.assertEqual(self.app.config.values['PROJECT_CREATOR_EMBEDDING_DIGEST'], digest)
+        self.app.check_execution('EMBEDDING')
+        with patch.object(self.app, 'prerequisites'), patch.object(self.app, 'check_ui'):
+            self.app.doctor()
+
+    def test_short_or_invalid_api_digest_is_rejected(self):
+        for digest in ('a'*12, 'sha256:'+'g'*64, None, 123):
+            with self.subTest(digest=digest):
+                self.app.ollama = lambda *_: {'models': [{'name': 'bge-m3:567m', 'digest': digest}]}
+                with self.assertRaisesRegex(cli.Failure, 'MODEL_DIGEST'):
+                    self.app.pin_model('bge-m3:567m', 'EMBEDDING')
+
     def test_tag_drift_does_not_replace_the_pinned_model(self):
         self.app.config.state['models'] = {'bge-m3:567m': {'digest': 'sha256:'+'a'*64}}
         self.app.ollama = lambda *_: {'models': [{'name': 'bge-m3:567m', 'digest': 'sha256:'+'b'*64}]}
@@ -233,6 +258,9 @@ class LogTests(unittest.TestCase):
             arguments = list(map(str, arguments))
             self.runner.calls.append(arguments)
             if '--report' in arguments:
+                python = arguments[0]
+                self.assertIn([python, '-m', 'ensurepip', '--upgrade'], self.runner.calls[:-1],
+                              'Existing uv venvs can have Python without pip')
                 destination = Path(arguments[arguments.index('--report')+1])
                 self.assertEqual(destination.parent, self.root/'logs/npu')
                 self.assertTrue(destination.parent.is_dir())
@@ -243,6 +271,28 @@ class LogTests(unittest.TestCase):
         self.assertEqual(len([call for call in self.runner.calls if '--report' in call]), 2)
         self.assertEqual((self.app.npu/'export-env-freeze.txt').read_text(), 'example==1.0\n')
         self.assertEqual((self.app.npu/'runtime-env-freeze.txt').read_text(), 'example==1.0\n')
+
+    def test_existing_environment_without_pip_is_repaired_offline(self):
+        folder = self.app.npu/'runtime-env'
+        subprocess.run([sys.executable, '-m', 'venv', '--without-pip', folder], check=True,
+                       capture_output=True)
+        python = str(folder/'bin/python')
+        probe = [python, '-c', 'import pip']
+        self.assertNotEqual(subprocess.run(probe, capture_output=True).returncode, 0)
+        requirements = self.root/'runtime/npu'
+        requirements.mkdir(parents=True)
+        (requirements/'requirements.txt').write_text('example==1.0\n')
+        def run(arguments, **kwargs):
+            arguments = list(map(str, arguments))
+            if 'ensurepip' in arguments:
+                subprocess.run(arguments, check=True, capture_output=True, env=kwargs['env'])
+            if 'pip' in arguments:
+                subprocess.run(probe, check=True, capture_output=True)
+            return ''
+        self.runner.run = run
+        with patch.object(self.app, 'python_npu', return_value=sys.executable):
+            self.app.environments_npu(prepare_export=False)
+        subprocess.run(probe, check=True, capture_output=True)
 
 
 class VerifyTests(InstallTests):
@@ -343,6 +393,76 @@ class VerifyTests(InstallTests):
         raw = str(self.root/'runtime/npu/npu_runtime.py').encode()+b'\0serve\0'
         with patch.object(Path, 'read_bytes', return_value=raw):
             self.assertFalse(self.app.process_identity(1234, record))
+
+
+class AsyncAnalysisTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.app = cli.Installer(Path(self.temp.name), output=io.StringIO())
+        self.app.config.ensure('cpu')
+        self.expected = [{'id': 'a', 'version': 1, 'text': 'one'},
+                         {'id': 'b', 'version': 1, 'text': 'two'}]
+        self.completed = {'id': 'run-a', 'status': 'completed', 'outcome': 'possible_collision',
+                          'stale': False, 'errorCode': '', 'sources': self.expected,
+                          'findings': [{'leftId': 'a', 'rightId': 'b', 'leftVersion': 1,
+                                        'rightVersion': 1, 'verdict': 'collision', 'explanation': 'Explanation.'}]}
+        self.running = dict(self.completed, status='running', findings=[], outcome='')
+        self.calls = []
+        self.executions = []
+        self.app.fixture = lambda *_: ('p', self.expected)
+        self.app.check_execution = self.executions.append
+
+    def verify_sequence(self, results, *, clock=None):
+        results = iter(results)
+        def graphql(query, variables):
+            self.calls.append(query)
+            self.assertEqual(variables, {'p': 'p'})
+            field = 'startProjectAnalysis' if query.startswith('mutation') else 'projectAnalysis'
+            self.assertIn(field+'(', query)
+            return {field: next(results)}
+        self.app.graphql = graphql
+        with patch.object(cli, 'CASES', [('collision', ['one', 'two'])]), \
+             patch.object(cli.time, 'sleep') as sleep, \
+             patch.object(cli.time, 'monotonic', side_effect=clock or (lambda: 0)):
+            self.app.verify()
+        return sleep
+
+    def test_running_analysis_is_polled_to_completion_without_starting_another_run(self):
+        self.verify_sequence([self.running, self.running, self.completed])
+        self.assertEqual(len(self.calls), 3)
+        self.assertEqual(sum(query.startswith('mutation') for query in self.calls), 1)
+        self.assertTrue(self.app.config.state['verified'])
+        self.assertEqual(self.executions, ['GENERATOR'])
+
+    def test_async_failure_keeps_verification_failed_without_restarting(self):
+        with self.assertRaisesRegex(cli.Failure, 'MODEL_RESPONSE.*GENERATION_FAILED'):
+            self.verify_sequence([self.running, dict(self.running, status='failed', errorCode='GENERATION_FAILED')])
+        self.assertEqual(len(self.calls), 2)
+        self.assertFalse(self.app.config.state['verified'])
+        self.assertEqual(self.executions, [])
+
+    def test_different_run_cannot_satisfy_wait_for_the_started_analysis(self):
+        with self.assertRaisesRegex(cli.Failure, 'MODEL_RESPONSE'):
+            self.verify_sequence([self.running, dict(self.completed, id='different-run')])
+        self.assertEqual(len(self.calls), 2)
+        self.assertFalse(self.app.config.state['verified'])
+
+    def test_running_analysis_requires_an_id_before_polling(self):
+        with self.assertRaisesRegex(cli.Failure, 'MODEL_RESPONSE'):
+            self.verify_sequence([dict(self.running, id=None)])
+        self.assertEqual(len(self.calls), 1)
+
+    def test_changed_source_snapshot_is_rejected_even_while_still_running(self):
+        with self.assertRaisesRegex(cli.Failure, 'MODEL_SOURCES'):
+            self.verify_sequence([self.running, dict(self.running, sources=[dict(self.expected[0], version=2), self.expected[1]])])
+        self.assertEqual(len(self.calls), 2)
+
+    def test_async_wait_has_a_monotonic_deadline_and_never_restarts(self):
+        with self.assertRaisesRegex(cli.Failure, 'MODEL_RESPONSE.*[Tt]im'):
+            self.verify_sequence([self.running], clock=[0, 2701])
+        self.assertEqual(len(self.calls), 1)
+        self.assertFalse(self.app.config.state['verified'])
 
 
 class UtilityTests(unittest.TestCase):

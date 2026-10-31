@@ -10,7 +10,8 @@
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "codegen": "graphql-codegen --config codegen.ts",
     "e2e": "playwright test",
-    "prebuild": "npm test"
+    "prebuild": "npm test",
+    "test:ux": "playwright test --config ux.playwright.config.ts"
   },
   "dependencies": {
     "@graphql-typed-document-node/core": "3.2.0",

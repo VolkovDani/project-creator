@@ -60,6 +60,9 @@ jobs:
       - run: npx playwright install --with-deps chromium
         timeout-minutes: 10
         working-directory: frontend
+      - name: Deterministic desktop and narrow UX regressions
+        run: npm run test:ux
+        working-directory: frontend
       - name: Capture desktop screenshots
         run: npm run e2e -- --grep 'screenshots:'
         working-directory: frontend

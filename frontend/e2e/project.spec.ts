@@ -19,7 +19,7 @@ test('create a project and open it after reload',async({page})=>{
 test('create stays locked until its response completes',async({page})=>{
  let release!:()=>void;const pending=new Promise<void>(resolve=>{release=resolve});let calls=0;
  await page.route('**/api/events',route=>route.fulfill({status:200,contentType:'text/event-stream',body:': heartbeat\n\n'}));
- await page.route('**/api/graphql',async route=>{const payload=route.request().postDataJSON();if(payload.query.includes('mutation CreateProject')){calls++;await pending;await route.fulfill({json:{data:{createProject:{project:{id:'new',name:'new',goal:'goal',description:'',createdAt:'now',updatedAt:'now'},fieldErrors:[]}}}})} else {await route.fulfill({json:{data:{project:{id:'new',name:'new',goal:'goal',description:'',createdAt:'now',updatedAt:'now'}}}})}});
+ await page.route('**/api/graphql',async route=>{const payload=route.request().postDataJSON();if(payload.query.includes('mutation CreateProject')){calls++;await pending;await route.fulfill({json:{data:{createProject:{project:{id:'created-project',name:'new',goal:'goal',description:'',createdAt:'now',updatedAt:'now'},fieldErrors:[]}}}})} else {await route.fulfill({json:{data:{project:{id:'created-project',name:'new',goal:'goal',description:'',createdAt:'now',updatedAt:'now'}}}})}});
  await page.goto('/projects/new');await page.getByLabel('Название').fill('new');await page.getByLabel('Цель').fill('goal');await page.getByRole('button',{name:'Создать проект'}).click();await expect(page.getByRole('button',{name:'Создание…'})).toBeDisabled();expect(calls).toBe(1);release();await expect(page.getByRole('heading',{name:'new',exact:true})).toBeVisible();
 });
 

@@ -16,7 +16,7 @@ async function fixture(page:Page,initial:unknown=null,onStart?:()=>unknown){
  });return ()=>calls;
 }
 test('analysis runs only after explicit action and shows versioned sources',async({page})=>{
- const calls=await fixture(page);await page.goto('/projects/demo');await expect(page.getByRole('heading',{name:'Анализ возможных коллизий'})).toBeVisible();expect(calls()).toBe(0);
+ const calls=await fixture(page);await page.goto('/projects/demo/analysis');await expect(page.getByRole('heading',{name:'Анализ возможных коллизий'})).toBeVisible();expect(calls()).toBe(0);
  await page.getByRole('button',{name:'Проверить требования',exact:true}).click();await expect(page.getByText('Возможная коллизия найдена',{exact:true})).toBeVisible();expect(calls()).toBe(1);
  await expect(page.getByText('Для одной оплаты указаны взаимоисключающие способы.',{exact:true})).toBeVisible();await expect(page.getByText('Отсутствие найденных коллизий не доказывает согласованность требований.')).toBeVisible();
  const analysis=page.getByRole('region',{name:'Анализ возможных коллизий'});await expect(analysis.getByText('left · Версия 1',{exact:true})).toBeVisible();await expect(analysis.getByText('right · Версия 2',{exact:true})).toBeVisible();
@@ -24,7 +24,7 @@ test('analysis runs only after explicit action and shows versioned sources',asyn
 });
 test('failed analysis can be retried and stale no-collision result is qualified',async({page})=>{
  let attempt=0;const calls=await fixture(page,null,()=>++attempt===1?complete({status:'failed',outcome:'insufficient',errorCode:'GENERATOR_FAILED',findings:[]}):complete({outcome:'no_collisions_found',stale:true,findings:[]}));
- await page.goto('/projects/demo');await page.getByRole('button',{name:'Проверить требования',exact:true}).click();await expect(page.getByText('Анализ остановлен. Готовые результаты сохранены.',{exact:true})).toBeVisible();
+ await page.goto('/projects/demo/analysis');await page.getByRole('button',{name:'Проверить требования',exact:true}).click();await expect(page.getByText('Анализ остановлен. Готовые результаты сохранены.',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Начать новый анализ',exact:true}).click();expect(calls()).toBe(2);await expect(page.getByText('В проверенных парах коллизий не найдено',{exact:true})).toBeVisible();
  await expect(page.getByText('Результат устарел: требования или профиль модели изменились. Повторите анализ.',{exact:true})).toBeVisible();await expect(page.getByText('Сохранённые версии источников на момент анализа',{exact:true})).toBeVisible();
 });
@@ -40,12 +40,12 @@ test('a late metadata response cannot replace an explicitly started run',async({
   else data={project:{id:'demo',name:'Metadata race',goal:'G',description:'',createdAt:'now',updatedAt:'now'}};
   await route.fulfill({json:{data}});
  });
- await page.goto('/projects/demo');await page.getByRole('button',{name:'Проверить требования',exact:true}).click();await expect(page.getByRole('button',{name:'Выполняется анализ…',exact:true})).toBeDisabled();await expect(page.getByText('Анализ выполняется',{exact:true})).toBeVisible();
+ await page.goto('/projects/demo/analysis');await page.getByRole('button',{name:'Проверить требования',exact:true}).click();await expect(page.getByRole('button',{name:'Выполняется анализ…',exact:true})).toBeDisabled();await expect(page.getByText('Анализ выполняется',{exact:true})).toBeVisible();
  releaseStart();await expect(page.getByText('Возможная коллизия найдена',{exact:true})).toBeVisible();releaseMetadata();await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));await expect(page.getByText('Возможная коллизия найдена',{exact:true})).toBeVisible();
 });
 
 test('persisted running analysis refreshes status without starting another run',async({page,context})=>{
- const live=await liveFixture(context,complete({status:'running',outcome:'',findings:[]}));await page.goto('/projects/demo');await expect(page.getByText('Анализ выполняется',{exact:true})).toBeVisible();expect(live.stats().starts).toBe(0);
+ const live=await liveFixture(context,complete({status:'running',outcome:'',findings:[]}));await page.goto('/projects/demo/analysis');await expect(page.getByText('Анализ выполняется',{exact:true})).toBeVisible();expect(live.stats().starts).toBe(0);
  live.set(complete());await page.getByRole('button',{name:'Обновить статус',exact:true}).click();expect(live.stats().starts).toBe(0);await expect(page.getByText('Возможная коллизия найдена',{exact:true})).toBeVisible();
 });
 
@@ -60,12 +60,12 @@ test('invalidation refreshes a completed result to stale without rerunning the m
   else data={project:{id:'demo',name:'Source change',goal:'G',description:'',createdAt:'now',updatedAt:'now'}};
   await route.fulfill({json:{data}});
  });
- await page.goto('/projects/demo');await expect(page.getByText('Возможная коллизия найдена',{exact:true})).toBeVisible();current=complete({stale:true});release();await expect(page.getByText('Результат устарел: требования или профиль модели изменились. Повторите анализ.',{exact:true})).toBeVisible();expect(calls).toBe(0);
+ await page.goto('/projects/demo/analysis');await expect(page.getByText('Возможная коллизия найдена',{exact:true})).toBeVisible();current=complete({stale:true});release();await expect(page.getByText('Результат устарел: требования или профиль модели изменились. Повторите анализ.',{exact:true})).toBeVisible();expect(calls).toBe(0);
 });
 
 test('incomplete index has a specific explanation and source links',async({page})=>{
  await fixture(page,complete({outcome:'insufficient',reasonCode:'INDEX_INCOMPLETE',missingRequirementIds:['right'],findings:[]}));
- await page.goto('/projects/demo');
+ await page.goto('/projects/demo/analysis');
  const analysis=page.getByRole('region',{name:'Анализ возможных коллизий'});
  await expect(analysis.getByText('Не все требования проиндексированы. Проиндексируйте актуальные версии требований и повторите анализ.',{exact:true})).toBeVisible();
  const missing=analysis.getByRole('group',{name:'Требуют индексации: 1'});
@@ -74,7 +74,7 @@ test('incomplete index has a specific explanation and source links',async({page}
 
 test('model insufficient conditions is distinct from missing index',async({page})=>{
  await fixture(page,complete({outcome:'insufficient',reasonCode:'MODEL_INSUFFICIENT',missingRequirementIds:[],findings:[]}));
- await page.goto('/projects/demo');
+ await page.goto('/projects/demo/analysis');
  const analysis=page.getByRole('region',{name:'Анализ возможных коллизий'});
  await expect(analysis.getByText('В требованиях недостаточно условий для сравнения. Уточните их с учётом объяснения модели.',{exact:true})).toBeVisible();
  await expect(analysis.getByText('Не все требования проиндексированы.',{exact:false})).toHaveCount(0);
@@ -121,7 +121,7 @@ const analysisRegion=(page:Page)=>page.getByRole('region',{name:'Анализ в
 test('preparation stages do not invent a total and candidates expose numeric progress',async({page,context})=>{
  const live=await liveFixture(context,null,()=>complete({status:'running',stage:'checking_index',totalPairs:null,processedPairs:0,outcome:'',findings:[],pairs:[]}));
  const initialStatus=page.waitForResponse(response=>response.url().endsWith('/api/graphql')&&response.request().postDataJSON().query.includes('projectAnalysis('));
- await page.goto('/projects/demo');
+ await page.goto('/projects/demo/analysis');
  expect((await (await initialStatus).json()).data.projectAnalysis).toBeNull();
  await expect(page.getByRole('button',{name:'Проверить требования',exact:true})).toBeEnabled();
  await page.getByRole('button',{name:'Проверить требования',exact:true}).click();
@@ -145,13 +145,13 @@ test('preparation stages do not invent a total and candidates expose numeric pro
 
 test('all verdict groups have counts and collapse without changing source snapshots',async({page})=>{
  await fixture(page,complete({totalPairs:5,processedPairs:4,findings:[],pairs:[candidate('collision',0,'completed','collision'),candidate('compatible',1,'completed','compatible'),candidate('insufficient',2,'completed','insufficient'),candidate('pending',3,'pending'),{...candidate('failed',4,'failed'),errorCode:'GENERATION_FAILED'}]}));
- await page.goto('/projects/demo');
+ await page.goto('/projects/demo/analysis');
  const area=analysisRegion(page);
  for(const text of ['Возможные противоречия: 1','Противоречий не обнаружено: 1','Недостаточно данных / нужно уточнить условия: 1','На проверке: 1','Ошибки обработки: 1'])await expect(area.getByText(text,{exact:true})).toBeVisible();
- const compatible=area.getByRole('group',{name:'Противоречий не обнаружено',exact:true});
+ const compatible=area.getByRole('group',{name:/^Противоречий не обнаружено(?:: \d+)?$/});
  await expect(compatible.getByText('В этой паре противоречие не найдено',{exact:true})).toBeVisible();
  await expect(compatible.getByText('Не связаны требования',{exact:false})).toHaveCount(0);
- const collision=area.getByRole('group',{name:'Возможные противоречия',exact:true});
+ const collision=area.getByRole('group',{name:/^Возможные противоречия(?:: \d+)?$/});
  await expect(collision.getByText(sources[0].text,{exact:true})).toBeVisible();
  await collision.locator('summary').click();
  await expect(collision.getByRole('article')).not.toBeVisible();
@@ -165,7 +165,7 @@ test('pair completion moves cards in two clients and progress survives reload an
  const initial=complete({status:'running',stage:'comparing',outcome:'',findings:[],totalPairs:2,processedPairs:0,activePairId:'one',pairs:[candidate('one',0,'running'),candidate('two',1,'pending')]});
  const live=await liveFixture(context,initial);
  const first=await context.newPage(),second=await context.newPage();
- await Promise.all([first.goto('/projects/demo'),second.goto('/projects/demo')]);
+ await Promise.all([first.goto('/projects/demo/analysis'),second.goto('/projects/demo/analysis')]);
  for(const page of [first,second])await expect(analysisRegion(page).getByText('На проверке: 2',{exact:true})).toBeVisible();
  await expect.poll(()=>live.stats().waiting).toBeGreaterThanOrEqual(2);
  live.set(complete({status:'running',stage:'comparing',outcome:'',findings:[finding],totalPairs:2,processedPairs:1,activePairId:'two',pairs:[candidate('one',0,'completed','collision'),candidate('two',1,'running')]}));
@@ -175,7 +175,7 @@ test('pair completion moves cards in two clients and progress survives reload an
   await expect(area.getByText('Обработано 1 из 2',{exact:true})).toBeVisible();
   await expect(area.getByText('Возможные противоречия: 1',{exact:true})).toBeVisible();
   await expect(area.getByText('На проверке: 1',{exact:true})).toBeVisible();
-  await expect(area.getByRole('group',{name:'На проверке',exact:true}).getByRole('article',{name:'Пара 1',exact:true})).toHaveCount(0);
+  await expect(area.getByRole('group',{name:/^На проверке(?:: \d+)?$/}).getByRole('article',{name:'Пара 1',exact:true})).toHaveCount(0);
  }
  const priorConnections=live.connectionsFor(second);
  await second.reload();
@@ -199,7 +199,7 @@ test('failed pair retry preserves completed cards and targets the same analysis'
  const failed={...candidate('failed',1,'failed'),errorCode:'TIMEOUT'};
  const initial=complete({status:'failed',errorCode:'TIMEOUT',totalPairs:2,processedPairs:2,pairs:[done,failed]});
  const live=await liveFixture(context,initial);
- await page.goto('/projects/demo');
+ await page.goto('/projects/demo/analysis');
  const area=analysisRegion(page);
  await expect(area.getByText('Возможные противоречия: 1',{exact:true})).toBeVisible();
  await expect(area.getByText('Ошибки обработки: 1',{exact:true})).toBeVisible();
@@ -217,3 +217,4 @@ test('failed pair retry preserves completed cards and targets the same analysis'
  await expect(area.getByText('Результат устарел: требования или профиль модели изменились. Повторите анализ.',{exact:true})).toBeVisible();
  await expect(area.getByRole('button',{name:'Повторить неудавшиеся пары',exact:true})).toHaveCount(0);
 });
+

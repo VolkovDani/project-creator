@@ -11,11 +11,11 @@ test('index retry and search are explicit and retain versioned sources',async({p
   else data={project:{id:'demo',name:'Проект поиска',goal:'Проверить поиск',description:'',createdAt:'now',updatedAt:'now'}};
   await route.fulfill({json:{data}});
  });
- await page.goto('/projects/demo');await expect(page.getByText('Индекс: ожидает индексации')).toBeVisible();expect(indexCalls).toBe(0);expect(searchCalls).toBe(0);
+ await page.goto('/projects/demo/indexing');await expect(page.getByText('Индекс: ожидает индексации')).toBeVisible();expect(indexCalls).toBe(0);expect(searchCalls).toBe(0);
  await page.getByRole('button',{name:'Индексировать',exact:true}).click();await expect(page.getByText('Не удалось проиндексировать требование. Можно повторить попытку.')).toBeVisible();expect(indexCalls).toBe(1);
  await page.getByRole('button',{name:'Повторить индексацию',exact:true}).click();await expect.poll(()=>indexCalls).toBe(2);
- await page.getByLabel('Поисковый запрос').fill('черновик');await page.getByRole('button',{name:'Найти требования'}).click();await expect(page.getByText('сохранить черновик',{exact:true})).toBeVisible();expect(searchCalls).toBe(1);
- await page.getByText('Исходный текст этой версии',{exact:true}).click();await expect(page.getByText(text,{exact:true})).toHaveCount(2);await page.getByRole('link',{name:'Перейти к требованию'}).click();await expect(page).toHaveURL(/#requirement-source-1$/);
+ await page.goto('/projects/demo/search');await page.getByLabel('Поисковый запрос').fill('черновик');await page.getByRole('button',{name:'Найти требования'}).click();await expect(page.getByText('сохранить черновик',{exact:true})).toBeVisible();expect(searchCalls).toBe(1);
+ await page.getByText('Исходный текст этой версии',{exact:true}).click();await expect(page.getByText(text,{exact:true})).toHaveCount(1);await page.getByRole('link',{name:'Перейти к требованию'}).click();await expect(page).toHaveURL(/#requirement-source-1$/);
 });
 test('search source opens the requirement on another list page',async({page})=>{
  const requirements=Array.from({length:21},(_,index)=>({id:`source-${index}`,projectId:'demo',text:`Требование ${index}`,version:1,createdAt:'now',updatedAt:'now'}));
@@ -27,28 +27,24 @@ test('search source opens the requirement on another list page',async({page})=>{
   else data={project:{id:'demo',name:'Пагинация источников',goal:'G',description:'',createdAt:'now',updatedAt:'now'}};
   await route.fulfill({json:{data}});
  });
- await page.goto('/projects/demo');await expect(page.locator('#requirement-source-0')).toBeVisible();await expect(page.locator('#requirement-source-20')).toHaveCount(0);
+ await page.goto('/projects/demo/search');
  await page.getByLabel('Поисковый запрос').fill('20');await page.getByRole('button',{name:'Найти требования'}).click();await page.getByRole('link',{name:'Перейти к требованию'}).click();await expect(page.locator('#requirement-source-20')).toBeVisible();await expect(page).toHaveURL(/#requirement-source-20$/);
 });
 
-test('a late source scan cannot replace a newer source selection',async({page})=>{
+test('navigation away cancels a delayed source scan',async({page})=>{
  const requirements=Array.from({length:21},(_,index)=>({id:`source-${index}`,projectId:'demo',text:`Требование ${index}`,version:1,createdAt:'now',updatedAt:'now'}));
  let release!:()=>void;const pending=new Promise<void>(resolve=>{release=resolve});let started!:()=>void;const scanStarted=new Promise<void>(resolve=>{started=resolve});
  await page.route('**/api/events',route=>route.fulfill({status:200,contentType:'text/event-stream',body:': heartbeat\n\n'}));
  await page.route('**/api/graphql',async route=>{const {query,variables}=route.request().postDataJSON();let data:unknown;
   if(query.includes('requirementIndex('))data={requirementIndex:[]};
-  else if(query.includes('searchRequirements(')){const hit=variables.text==='old'?requirements[20]:requirements[0];data={searchRequirements:[{requirementId:hit.id,projectId:'demo',text:hit.text,sourceText:hit.text,version:1,start:0,end:13,score:1}]}}
   else if(query.includes('requirements(')){if(variables.limit===100){started();await pending}data={requirements:requirements.slice(variables.offset,variables.offset+variables.limit)}}
   else data={project:{id:'demo',name:'Выбор источника',goal:'G',description:'',createdAt:'now',updatedAt:'now'}};
-  await route.fulfill({json:{data}});
+  await route.fulfill({json:{data}}).catch(()=>{});
  });
- await page.goto('/projects/demo');await expect(page.locator('#requirement-source-0')).toBeVisible();
- await page.getByLabel('Поисковый запрос').fill('old');await page.getByRole('button',{name:'Найти требования'}).click();await page.getByRole('link',{name:'Перейти к требованию'}).click();await scanStarted;
- await page.getByLabel('Поисковый запрос').fill('new');await page.getByRole('button',{name:'Найти требования'}).click();await page.getByRole('link',{name:'Перейти к требованию'}).click();await expect(page).toHaveURL(/#requirement-source-0$/);
- const finished=page.waitForResponse(response=>response.url().endsWith('/api/graphql')&&response.request().postDataJSON().variables?.limit===100);release();await (await finished).finished();
- // Allow the released response's state update and scroll effect to render.
- await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
- await expect(page).toHaveURL(/#requirement-source-0$/);await expect(page.locator('#requirement-source-0')).toBeVisible();await expect(page.locator('#requirement-source-20')).toHaveCount(0);
+ await page.goto('/projects/demo/requirements?requirement=source-20#requirement-source-20');await scanStarted;
+ await page.getByRole('link',{name:'Поиск',exact:true}).click();await expect(page).toHaveURL(/\/search$/);
+ release();await expect(page.getByRole('heading',{name:'Поиск по смыслу'})).toBeVisible();
+ await expect(page).toHaveURL(/\/search$/);await expect(page.locator('#requirement-source-20')).toHaveCount(0);
 });
 
 test('requirement draft is locked until its save response completes',async({page})=>{
@@ -62,6 +58,6 @@ test('requirement draft is locked until its save response completes',async({page
   else data={project:{id:'p',name:'Pending save',goal:'G',description:'',createdAt:'now',updatedAt:'now'}};
   await route.fulfill({json:{data}});
  });
- await page.goto('/projects/p');await page.getByLabel('Текст требования').fill('Draft');await page.getByRole('button',{name:'Добавить требование',exact:true}).click();await sent;
+ await page.goto('/projects/p/requirements');await page.getByLabel('Текст требования').fill('Draft');await page.getByRole('button',{name:'Добавить требование',exact:true}).click();await sent;
  try{await expect(page.getByLabel('Текст требования')).toBeDisabled()}finally{release()}
 });

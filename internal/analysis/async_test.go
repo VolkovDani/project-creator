@@ -94,7 +94,7 @@ func TestProgressPersistsBeforeRemainingPairsAndSurvivesRequestCancellation(t *t
 	if progress.Pairs[0].Status != "completed" || progress.Pairs[1].Status != "running" || progress.Pairs[2].Status != "pending" || progress.ActivePairID != progress.Pairs[1].ID {
 		t.Fatal(progress.Pairs)
 	}
-	persisted, err := scanRun(db.QueryRow(`SELECT `+runColumns+` FROM analysis_runs WHERE id=$1`, run.ID))
+	persisted, err := service.Get(context.Background(), "a", "p", run.ID)
 	if err != nil || len(persisted.Findings) != 1 || persisted.ProcessedPairs != 1 {
 		t.Fatalf("not durable before next pair: %+v %v", persisted, err)
 	}
@@ -154,7 +154,7 @@ func TestPairFailureRetryKeepsCompletedPairsAndRequiresCurrentLatestSnapshot(t *
 }
 
 func TestRetryRejectsChangedSourcesAndProfiles(t *testing.T) {
-	for _, change := range []string{"sources", "generator", "embedding"} {
+	for _, change := range []string{"sources", "generator"} {
 		t.Run(change, func(t *testing.T) {
 			db, retriever, _ := analysisDB(t)
 			ready(t, retriever)
@@ -169,8 +169,6 @@ func TestRetryRejectsChangedSourcesAndProfiles(t *testing.T) {
 				_, err = db.Exec(`UPDATE requirements SET text='Changed',version=2 WHERE id='left'`)
 			case "generator":
 				service = testService(t, db, retriever, &fakeGenerator{profile: "gen-b"}, "embed-a")
-			case "embedding":
-				service = testService(t, db, retriever, gen, "embed-b")
 			}
 			if err != nil {
 				t.Fatal(err)

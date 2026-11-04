@@ -127,15 +127,26 @@ def validate_request(value, profile):
         raise ValueError('invalid source pair')
 
 
+class OutputRejected(ValueError):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
+
+
 def parse_finding(text, pair):
-    result = strict_json(text)
+    try:
+        result = strict_json(text)
+    except (ValueError, TypeError):
+        raise OutputRejected('OUTPUT_JSON') from None
     if not isinstance(result, dict) or set(result) != {'leftId', 'rightId', 'leftVersion', 'rightVersion', 'verdict', 'explanation'}:
-        raise ValueError('output does not match comparison schema')
+        raise OutputRejected('OUTPUT_SCHEMA')
     for side in ('left', 'right'):
         if result[side+'Id'] != pair[side]['id'] or type(result[side+'Version']) is not int or result[side+'Version'] != pair[side]['version']:
-            raise ValueError('output references unknown source or version')
-    if result['verdict'] not in ('collision', 'insufficient', 'compatible') or not isinstance(result['explanation'], str) or not result['explanation'].strip() or len(result['explanation']) > 2000:
-        raise ValueError('invalid comparison verdict or explanation')
+            raise OutputRejected('OUTPUT_SOURCE')
+    if result['verdict'] not in ('collision', 'insufficient', 'compatible', 'duplicate'):
+        raise OutputRejected('OUTPUT_VERDICT')
+    if not isinstance(result['explanation'], str) or not result['explanation'].strip() or len(result['explanation']) > 2000:
+        raise OutputRejected('OUTPUT_EXPLANATION')
     return result
 
 
@@ -194,7 +205,9 @@ def worker(connection, model, manifest, cache):
                 finding = parse_finding(tokenizer.decode(output.tokens[0]), request['pair'])
                 connection.send({'finding': finding, 'prompt_tokens': tokens,
                                  'seconds': time.monotonic()-started})
-            except Exception:
+            except Exception as error:
+                if isinstance(error, OutputRejected):
+                    stage = error.code
                 print(json.dumps({'error': stage, 'device': 'NPU'}), file=sys.stderr, flush=True)
                 connection.send({'error': stage})
     except BaseException:

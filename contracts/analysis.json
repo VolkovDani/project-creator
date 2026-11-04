@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "modes": ["related", "all"],
+  "defaultMode": "related",
+  "defaultThreshold": 0.65,
+  "minThreshold": 0,
+  "maxThreshold": 1,
+  "pageMin": 1,
+  "pageMax": 100,
+  "offsetMin": 0
+}

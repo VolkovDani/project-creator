@@ -1,0 +1,101 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.4/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    // Keep the previous formatter's scope: TypeScript and JSON configuration.
+    "includes": [
+      "**/*.{ts,tsx,json,jsonc}",
+      "!!**/*.openapi.ts",
+      "!!**/node_modules",
+      "!!**/.next",
+      "!!**/dist",
+      "!!**/dist-ssr",
+      "!!**/dev-dist",
+      "!!**/.worktrees",
+      "!!**/.yarn",
+      "!!**/coverage",
+      "!!**/test-results",
+      "!!**/playwright-report",
+      "!!**/blob-report",
+      "!!**/lib/generated.ts",
+      "!!**/next-env.d.ts"
+    ]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "jsxQuoteStyle": "double",
+      "trailingCommas": "all",
+      "semicolons": "always",
+      "arrowParentheses": "always"
+    }
+  },
+  "json": {
+    "formatter": {
+      "trailingCommas": "none"
+    }
+  },
+  "linter": {
+    // ESLint remains responsible for the application's other lint rules.
+    "rules": {
+      "preset": "recommended",
+      "correctness": {
+        "noUnusedImports": "error"
+      }
+    }
+  },
+  "assist": {
+    "actions": {
+      "preset": "none",
+      "source": {
+        "organizeImports": {
+          "level": "on",
+          "options": {
+            "identifierOrder": "natural",
+            // Preserve bare imports (styles, polyfills) in their original place.
+            "sortBareImports": false,
+            "groups": [
+              [
+                "**",
+                "!:PATH:",
+                "!@projectConfigs/**",
+                "!@projectTypes/**",
+                "!@network/**",
+                "!@styles/**",
+                "!@reduxStore/**",
+                "!@pages/**",
+                "!@largeComponents/**",
+                "!@smallComponents/**",
+                "!@utils/**",
+                "!@assets/**",
+                "!@locals/**"
+              ],
+              "@projectConfigs/**",
+              "@projectTypes/**",
+              "@network/**",
+              "@styles/**",
+              "@reduxStore/**",
+              "@pages/**",
+              "@largeComponents/**",
+              "@smallComponents/**",
+              "@utils/**",
+              "@assets/**",
+              "@locals/**",
+              ":PATH:"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

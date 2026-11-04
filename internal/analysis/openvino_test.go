@@ -99,6 +99,23 @@ func TestOpenVINOComparisonUsesPinnedNPUAndUntrustedPair(t *testing.T) {
 	}
 }
 
+func TestOpenVINODuplicatePreservesSourceReferences(t *testing.T) {
+	generator := npuServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			json.NewEncoder(w).Encode(map[string]string{"profile": pinnedDigest, "device": "NPU"})
+			return
+		}
+		var finding Finding
+		json.Unmarshal([]byte(strings.Replace(npuFindingJSON(), `"collision"`, `"duplicate"`, 1)), &finding)
+		json.NewEncoder(w).Encode(map[string]any{"profile": pinnedDigest, "device": "NPU", "finding": finding})
+	})
+	pair := Pair{Left: Source{ID: "original-left", Version: 7, Text: "Z"}, Right: Source{ID: "original-right", Version: 11, Text: "A"}}
+	finding, err := generator.Compare(context.Background(), pair)
+	if err != nil || finding.Verdict != "duplicate" || finding.LeftID != pair.Left.ID || finding.LeftVersion != 7 || finding.RightID != pair.Right.ID || finding.RightVersion != 11 {
+		t.Fatalf("duplicate references lost through normalization: %+v %v", finding, err)
+	}
+}
+
 func TestOpenVINOAliasReferencesRoundTripAndRejectUnknownSources(t *testing.T) {
 	pair := Pair{
 		Left: Source{ID: "348a9ac1d8a3cce4f2384ad79a3f070c", Version: 7,

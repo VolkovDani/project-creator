@@ -1,0 +1,156 @@
+[
+  {
+    "name": "defaults",
+    "input": {},
+    "normalized": {
+      "mode": "related",
+      "threshold": 0.65
+    },
+    "errors": []
+  },
+  {
+    "name": "explicit null defaults",
+    "input": {
+      "mode": null,
+      "threshold": null
+    },
+    "normalized": {
+      "mode": "related",
+      "threshold": 0.65
+    },
+    "errors": []
+  },
+  {
+    "name": "all default threshold",
+    "input": {
+      "mode": "all"
+    },
+    "normalized": {
+      "mode": "all",
+      "threshold": 0.65
+    },
+    "errors": []
+  },
+  {
+    "name": "zero threshold",
+    "input": {
+      "mode": "related",
+      "threshold": 0
+    },
+    "normalized": {
+      "mode": "related",
+      "threshold": 0
+    },
+    "errors": []
+  },
+  {
+    "name": "one threshold",
+    "input": {
+      "mode": "related",
+      "threshold": 1
+    },
+    "normalized": {
+      "mode": "related",
+      "threshold": 1
+    },
+    "errors": []
+  },
+  {
+    "name": "adjusted threshold",
+    "input": {
+      "mode": "related",
+      "threshold": 0.78
+    },
+    "normalized": {
+      "mode": "related",
+      "threshold": 0.78
+    },
+    "errors": []
+  },
+  {
+    "name": "unknown mode",
+    "input": {
+      "mode": "unknown"
+    },
+    "normalized": {
+      "mode": "unknown",
+      "threshold": 0.65
+    },
+    "errors": [
+      {
+        "path": [
+          "mode"
+        ],
+        "code": "INVALID_CHOICE",
+        "messageKey": "analysis.validation.mode",
+        "params": {}
+      }
+    ]
+  },
+  {
+    "name": "empty mode",
+    "input": {
+      "mode": ""
+    },
+    "normalized": {
+      "mode": "",
+      "threshold": 0.65
+    },
+    "errors": [
+      {
+        "path": [
+          "mode"
+        ],
+        "code": "INVALID_CHOICE",
+        "messageKey": "analysis.validation.mode",
+        "params": {}
+      }
+    ]
+  },
+  {
+    "name": "negative threshold",
+    "input": {
+      "threshold": -0.01
+    },
+    "normalized": {
+      "mode": "related",
+      "threshold": -0.01
+    },
+    "errors": [
+      {
+        "path": [
+          "threshold"
+        ],
+        "code": "RANGE",
+        "messageKey": "analysis.validation.threshold",
+        "params": {
+          "min": 0,
+          "max": 1
+        }
+      }
+    ]
+  },
+  {
+    "name": "too high threshold",
+    "input": {
+      "threshold": 1.01
+    },
+    "normalized": {
+      "mode": "related",
+      "threshold": 1.01
+    },
+    "errors": [
+      {
+        "path": [
+          "threshold"
+        ],
+        "code": "RANGE",
+        "messageKey": "analysis.validation.threshold",
+        "params": {
+          "min": 0,
+          "max": 1
+        }
+      }
+    ]
+  }
+]

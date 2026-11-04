@@ -15,7 +15,7 @@ import (
 
 type collisionGenerator struct{ calls atomic.Int32 }
 
-const analysisFields = `id projectId status outcome reasonCode missingRequirementIds errorCode stale stage totalPairs processedPairs activePairId pairs{id position status left{id version text} right{id version text} verdict explanation errorCode} findings{leftId rightId leftVersion rightVersion verdict explanation} sources{id version text}`
+const analysisFields = `mode similarityThreshold selectionProfile possiblePairs notSelectedPairs duplicatePairs reusedPairs newPairs completedPairs pendingPairs runningPairs failedPairs collisionPairs compatiblePairs insufficientPairs generatorProfile generatorProvenance id projectId status outcome reasonCode missingRequirementIds errorCode stale stage totalPairs processedPairs activePairId pairs{selectionReasons similarityScore resultOrigin reusedFrom checkedAt generatorProfile id position status left{id version text} right{id version text} verdict explanation errorCode} findings{leftId rightId leftVersion rightVersion verdict explanation} sources{id version text}`
 
 func waitAnalysis(t *testing.T, request func(string) map[string]any, project string) map[string]any {
 	t.Helper()
@@ -73,7 +73,7 @@ func TestGraphQLAnalysisPreservesSourcesAndScope(t *testing.T) {
 		t.Fatal(unindexed)
 	}
 	diagnostic := waitAnalysis(t, authorized, "p")
-	if diagnostic["reasonCode"] != "INDEX_INCOMPLETE" || len(diagnostic["missingRequirementIds"].([]any)) != 2 {
+	if diagnostic["status"] != "failed" || diagnostic["mode"] != "related" || diagnostic["totalPairs"] != nil || diagnostic["reasonCode"] != "INDEX_INCOMPLETE" || len(diagnostic["missingRequirementIds"].([]any)) != 2 {
 		t.Fatal(diagnostic)
 	}
 	deniedDiagnostic := run("token-b", `{projectAnalysis(projectId:"p"){reasonCode missingRequirementIds}}`)

@@ -159,8 +159,8 @@ func TestAnalysisAuthorizationAndPendingIndex(t *testing.T) {
 		t.Fatal("provider invoked before access check")
 	}
 	run, err := s.startAndWait(t, context.Background(), "a", "p")
-	if err != nil || run.Status != "completed" || run.Outcome != "insufficient" || gen.calls.Load() != 0 || embed.calls.Load() != 0 {
-		t.Fatalf("unindexed: %+v %v", run, err)
+	if err != nil || run.Status != "completed" || run.Outcome != "possible_collision" || gen.calls.Load() != 1 || embed.calls.Load() != 0 {
+		t.Fatalf("all-mode unindexed: %+v %v", run, err)
 	}
 	run, err = testService(t, db, retriever, nil, "").startAndWait(t, context.Background(), "a", "p")
 	if err != nil || run.Status != "failed" || run.ErrorCode != "NOT_CONFIGURED" {
@@ -185,7 +185,7 @@ func TestAnalysisStaleVersionsCreationDeletionAndProfiles(t *testing.T) {
 			t.Fatalf("stale snapshot: %+v %v", latest, err)
 		}
 	}
-	for _, changed := range []*Service{testService(t, db, retriever, &fakeGenerator{profile: "gen-b"}, "embed-a"), testService(t, db, retriever, gen, "embed-b")} {
+	for _, changed := range []*Service{testService(t, db, retriever, &fakeGenerator{profile: "gen-b"}, "embed-a")} {
 		latest, err := changed.Latest(context.Background(), "a", "p")
 		if err != nil || !latest.Stale {
 			t.Fatalf("profile stale: %+v %v", latest, err)
@@ -213,6 +213,9 @@ func TestAnalysisInvalidOutputRetryAndTimeout(t *testing.T) {
 		t.Fatalf("retry: %+v %v", run, err)
 	}
 	gen.release = make(chan struct{})
+	if _, err = db.Exec(`UPDATE requirements SET text='New version for timeout',version=2 WHERE id='right'`); err != nil {
+		t.Fatal(err)
+	}
 	s.timeout = 20 * time.Millisecond
 	run, err = s.startAndWait(t, context.Background(), "a", "p")
 	if err != nil || run.Status != "failed" || run.ErrorCode != "TIMEOUT" {
@@ -280,18 +283,21 @@ func TestAnalysisChangingSourcesDuringGenerationIsStale(t *testing.T) {
 		t.Fatalf("stale result must retain old version: %+v %v", out.run, out.err)
 	}
 }
-func TestBoundedAnalysisIsExplicitlyInsufficient(t *testing.T) {
+func TestFullAnalysisBeyondFormerRequirementLimit(t *testing.T) {
 	db, retriever, embed := analysisDB(t)
-	ready(t, retriever)
-	gen := &fakeGenerator{profile: "gen-a"}
+	gen := &fakeGenerator{profile: "gen-a", started: make(chan struct{}, 1), release: make(chan struct{})}
 	s := testService(t, db, retriever, gen, "embed-a")
-	if _, err := db.Exec(`INSERT INTO requirements SELECT 'extra-'||n,'a','p','Bounded requirement',1,'now','now' FROM generate_series(1,101) n`); err != nil {
+	defer close(gen.release)
+	if _, err := db.Exec(`INSERT INTO requirements SELECT 'extra-'||n,'a','p','Requirement number '||n,1,'now','now' FROM generate_series(1,101) n`); err != nil {
 		t.Fatal(err)
 	}
-	before := embed.calls.Load()
-	run, err := s.startAndWait(t, context.Background(), "a", "p")
-	if err != nil || run.Status != "completed" || run.Outcome != "insufficient" || len(run.Sources) != 100 || gen.calls.Load() != 0 || embed.calls.Load() != before || run.Stale {
-		t.Fatalf("bounded analysis: %+v %v", run, err)
+	if _, err := s.Start(context.Background(), "a", "p"); err != nil {
+		t.Fatal(err)
+	}
+	waitFullQueueSignal(t, gen.started)
+	run, err := s.Latest(context.Background(), "a", "p")
+	if err != nil || run.TotalPairs == nil || *run.TotalPairs != 5253 || run.ReasonCode == "REQUIREMENT_LIMIT" || embed.calls.Load() != 0 {
+		t.Fatalf("former 100-requirement limit remains: %+v %v", run, err)
 	}
 }
 
@@ -324,10 +330,11 @@ func TestAnalysisDiagnosticsPersistMissingIndexAndSeparateModelOutcome(t *testin
 				})
 			}
 			service := testService(t, db, retriever, provider, "embed-a")
-			run, err := service.startAndWait(t, context.Background(), "a", "p")
+			initial, err := service.StartWithOptions(context.Background(), "a", "p", Options{Mode: "related", Threshold: 0.65})
 			if err != nil {
 				t.Fatal(err)
 			}
+			run := waitForRun(t, service, "a", "p", initial.ID)
 			switch mode {
 			case "ready":
 				if run.ReasonCode != "" || run.Outcome != "possible_collision" {
@@ -338,13 +345,25 @@ func TestAnalysisDiagnosticsPersistMissingIndexAndSeparateModelOutcome(t *testin
 					t.Fatal(run)
 				}
 			default:
-				if run.Status != "completed" || run.Outcome != "insufficient" || run.ReasonCode != "INDEX_INCOMPLETE" || len(run.MissingRequirementIDs) != 1 || run.MissingRequirementIDs[0] != "right" || gen.calls.Load() != 0 {
+				if run.Status != "failed" || run.ErrorCode != "INDEX_INCOMPLETE" || run.ReasonCode != "INDEX_INCOMPLETE" || run.TotalPairs != nil || run.NotSelectedPairs != nil || len(run.MissingRequirementIDs) != 1 || run.MissingRequirementIDs[0] != "right" || gen.calls.Load() != 0 {
 					t.Fatal(run)
 				}
 			}
 			latest, err := testService(t, db, retriever, provider, "embed-a").Latest(context.Background(), "a", "p")
 			if err != nil || latest == nil || latest.ReasonCode != run.ReasonCode || strings.Join(latest.MissingRequirementIDs, ",") != strings.Join(run.MissingRequirementIDs, ",") {
 				t.Fatalf("persisted: %+v %v", latest, err)
+			}
+
+			if mode != "ready" && mode != "model-insufficient" {
+				ready(t, retriever)
+				resumed, err := service.Retry(context.Background(), "a", "p", run.ID)
+				if err != nil || resumed.ID != run.ID {
+					t.Fatalf("retry after fixing index: %+v %v", resumed, err)
+				}
+				completed := waitForRun(t, service, "a", "p", run.ID)
+				if completed.Status != "completed" || completed.ReasonCode != "" || completed.TotalPairs == nil || *completed.TotalPairs != 1 || completed.CompletedPairs != 1 || gen.calls.Load() != 1 {
+					t.Fatalf("fixed index did not resume preparation: %+v calls=%d", completed, gen.calls.Load())
+				}
 			}
 		})
 	}

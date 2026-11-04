@@ -34,6 +34,9 @@
 
 ## Контракты фронтенда и бэкенда
 
+- Для изменений TypeScript/TSX соблюдай `frontend/biome.jsonc`. Не форматируй файлы вне текущей задачи, не редактируй сгенерированные GraphQL-типы вручную и не используй `any` для обхода ошибок TypeScript.
+- Не подавляй правила Biome без обоснования и не применяй небезопасные автоматические исправления без проверки последствий. После изменений фронтенда запускай `npm run format:check`, `npm run typecheck` и соответствующие тесты из `frontend/`.
+
 - Следуй `ARCHITECTURE.md`: GraphQL для запросов/мутаций, SSE для инвалидации,
   Next.js + TypeScript для фронтенда.
 - SDL — источник генерации типов, общий контракт ограничений — источник валидации.
@@ -73,3 +76,57 @@
 - Главный агент отвечает за интеграцию результатов, итоговую проверку и
   соответствие результата задаче.
 - Каждый GitHub Issue реализуется отдельным Pull Request.
+
+## Subagent Delegation
+
+### General Rules
+
+- The main agent MUST consider task delegation before starting
+  any non-trivial work.
+- For complex or multi-step tasks, the main agent MUST delegate
+  at least one suitable, independent subtask when possible.
+- All delegated subagents MUST use the `gpt-6-luna` model.
+- The main agent remains responsible for architecture,
+  integration, code quality, and final verification.
+- Do not delegate trivial tasks when delegation would add
+  unnecessary overhead.
+
+### Subagent Configuration
+
+When spawning subagents, use:
+
+- `model: "gpt-6-luna"`
+- `fork_turns: "none"`
+
+Since subagents do not inherit conversation history,
+provide all necessary context explicitly.
+
+### Recommended Subagent Tasks
+
+Prefer delegating the following tasks to Luna:
+
+- Codebase exploration and dependency analysis.
+- Searching for relevant files and existing implementations.
+- Writing unit and integration tests.
+- Documentation updates.
+- Independent, well-defined implementation tasks.
+- Code review and identifying potential bugs.
+- Static analysis and investigating test failures.
+
+### Parallel Execution
+
+- Execute independent subtasks concurrently whenever practical.
+- Assign clear responsibilities and expected deliverables.
+- Avoid assigning overlapping file modifications to multiple agents.
+- The main agent MUST review and validate subagent results.
+- Run relevant tests after integrating changes.
+
+### Quality Requirements
+
+- Subagent output MUST NOT be accepted without verification.
+- Critical architectural and security decisions remain
+  the responsibility of the main agent.
+- If a subagent fails, the main agent MUST investigate the
+  failure and decide whether to retry, reassign, or handle
+  the task directly.
+- Do not sacrifice correctness for parallel execution.

@@ -210,7 +210,7 @@ class WorkerTests(unittest.TestCase):
     def test_worker_still_rejects_duplicate_keys_without_repair_or_retry(self):
         duplicate = json.dumps(finding())[:-1]+',"explanation":"duplicate"}'
         connection, pipeline, _, _, _ = self.run_worker('stop', text=duplicate)
-        self.assertEqual(connection.sent[1], {'error': 'INVALID_JSON_OR_SOURCES'})
+        self.assertEqual(connection.sent[1], {'error': 'OUTPUT_JSON'})
         pipeline.generate.assert_called_once()
 
 

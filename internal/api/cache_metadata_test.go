@@ -18,6 +18,15 @@ func TestCacheTagsUseOnlyAuthorizedResults(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+func TestRequirementIndexResultsCarryProjectCacheTags(t *testing.T) {
+	data := map[string]any{"requirementIndexByIds": []any{
+		map[string]any{"requirementId": "r", "projectId": "p", "version": float64(1), "status": "ready"},
+	}}
+	want := []string{"project:p", "project:p:requirements", "projects"}
+	if got := cacheTags(data); !reflect.DeepEqual(got, want) {
+		t.Fatalf("tags %v", got)
+	}
+}
 func TestTaggedResponseIsNotServerCached(t *testing.T) {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

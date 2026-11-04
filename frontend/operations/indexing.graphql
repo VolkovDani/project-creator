@@ -1,0 +1,10 @@
+query RequirementIndexByIds($projectId: ID!, $requirementIds: [ID!]!) {
+  requirementIndexByIds(projectId: $projectId, requirementIds: $requirementIds) {
+    projectId
+    requirementId
+    version
+    status
+    profile
+    errorCode
+  }
+}

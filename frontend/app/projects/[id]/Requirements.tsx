@@ -7,13 +7,18 @@ import {
   AddRequirementDocument,
   EditRequirementDocument,
   RemoveRequirementDocument,
+  RequirementConnectionDocument,
   RequirementsDocument,
 } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
 import { findRequirementPage } from '../../../lib/requirementsView';
 import { validateRequirement } from '../../../lib/requirementValidation';
+import { useInfinite } from '../../../lib/useInfinite';
+import { useListMode } from '../../../lib/useListMode';
 import Group from '../../components/Group';
+import { ListModeSelect, LoadMore } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
+import { VirtualList } from '../../components/VirtualList';
 import { useRequirementsPage } from './useRequirementsPage';
 
 export default function Requirements({ projectId, locale }: { projectId: string; locale: Locale }) {
@@ -38,8 +43,36 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     setSourceTarget(undefined);
     setSourceError(null);
   }, []);
-  const list = useRequirementsPage(projectId, clear);
-  const { rows, page, loading, loaded, failure, setFailure, setPage, load } = list;
+  const location = useListMode();
+  const { mode, setMode, setPage, replacePage } = location;
+  const paged = useRequirementsPage(projectId, clear, {
+    enabled: mode === 'pages',
+    page: location.page,
+    setPage,
+  });
+  const connectionLoader = useCallback(
+    async (after: string | null) =>
+      (await query(RequirementConnectionDocument, { projectId, first: 40, after }))
+        .requirementsConnection,
+    [projectId],
+  );
+  const infinite = useInfinite({
+    identity: `requirements:${projectId}`,
+    tags: [`project:${projectId}`, `project:${projectId}:requirements`],
+    load: connectionLoader,
+    enabled: mode === 'infinite',
+  });
+  const [mutationFailure, setFailure] = useState(false);
+  const rows = mode === 'pages' ? paged.rows : infinite.rows;
+  const page = mode === 'pages' ? paged.page : 0;
+  const loading = mode === 'pages' ? paged.loading : infinite.loading;
+  const loaded = mode === 'pages' ? paged.loaded : infinite.loaded;
+  const failure = mutationFailure || (mode === 'pages' ? paged.failure : infinite.error);
+  const load = mode === 'pages' ? paged.load : infinite.refresh;
+  const more = useCallback(() => {
+    if (!infinite.loading && !infinite.error && infinite.hasNextPage)
+      void infinite.loadMore().catch(() => {});
+  }, [infinite.loading, infinite.error, infinite.hasNextPage, infinite.loadMore]);
   const params = useSearchParams();
   const source = params.get('requirement');
   useEffect(() => {
@@ -69,7 +102,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
           return;
         }
         setSourceTarget(source);
-        setPage(target);
+        replacePage(target);
       })
       .catch(() => {
         if (current && epoch === operation.current) setSourceError('failed');
@@ -77,7 +110,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     return () => {
       current = false;
     };
-  }, [projectId, source, sourceAttempt, setPage]);
+  }, [projectId, source, sourceAttempt, replacePage]);
   useEffect(() => {
     if (!sourceTarget || loading || !rows.some((row) => row.id === sourceTarget)) return;
     const card = document.getElementById(`requirement-${sourceTarget}`);
@@ -209,7 +242,9 @@ export default function Requirements({ projectId, locale }: { projectId: string;
         error={failure || sourceError === 'failed'}
         hasData={loaded}
         retry={() => {
-          void load();
+          setFailure(false);
+          if (mode === 'pages') void paged.load();
+          else void infinite.retry().catch(() => {});
           setSourceAttempt((value) => value + 1);
         }}
       />
@@ -218,55 +253,73 @@ export default function Requirements({ projectId, locale }: { projectId: string;
           {t(locale, 'ui.sourceNotFound')}
         </p>
       )}
+      <ListModeSelect locale={locale} mode={mode} onChange={setMode} />
       <Group
         id={`${projectId}:requirements`}
         title={t(locale, 'ui.requirementsGroup')}
-        summary={`${t(locale, 'ui.currentPage')} · ${rows.length}`}
+        summary={
+          mode === 'pages'
+            ? `${t(locale, 'ui.currentPage')} · ${rows.length}`
+            : t(locale, 'list.total', { total: infinite.totalCount })
+        }
         defaultOpen
       >
         {loaded && rows.length === 0 && <p>{t(locale, 'requirements.empty')}</p>}
-        {rows.map((row) => (
-          <article className="card" id={`requirement-${row.id}`} key={row.id} tabIndex={-1}>
-            <p>{row.text}</p>
-            <p className="muted">{t(locale, 'requirements.version', { version: row.version })}</p>
-            <button
-              type="button"
-              disabled={busy || list.requestedPage !== page}
-              onClick={() => {
-                setEditing({ id: row.id, version: row.version });
-                setText(row.text);
-                setValidation(null);
-              }}
-            >
-              {t(locale, 'requirements.edit')}
-            </button>
-            <button
-              type="button"
-              disabled={busy || list.requestedPage !== page}
-              onClick={() => void remove(row.id, row.version)}
-            >
-              {t(locale, 'requirements.delete')}
-            </button>
-          </article>
-        ))}
+        <VirtualList
+          identity={`requirements:${projectId}:${mode}:${page}`}
+          restoreScroll={mode === 'infinite'}
+          overscan={mode === 'pages' ? 20 : 4}
+          items={rows}
+          keyOf={(row) => row.id}
+          focusedId={editing?.id}
+          scrollToId={sourceTarget}
+          onEndReached={mode === 'infinite' ? more : undefined}
+          renderItem={(row) => (
+            <article className="card" id={`requirement-${row.id}`} key={row.id} tabIndex={-1}>
+              <p>{row.text}</p>
+              <p className="muted">{t(locale, 'requirements.version', { version: row.version })}</p>
+              <button
+                type="button"
+                disabled={busy || (mode === 'pages' && paged.requestedPage !== page)}
+                onClick={() => {
+                  setEditing({ id: row.id, version: row.version });
+                  setText(row.text);
+                  setValidation(null);
+                }}
+              >
+                {t(locale, 'requirements.edit')}
+              </button>
+              <button
+                type="button"
+                disabled={busy || (mode === 'pages' && paged.requestedPage !== page)}
+                onClick={() => void remove(row.id, row.version)}
+              >
+                {t(locale, 'requirements.delete')}
+              </button>
+            </article>
+          )}
+        />
+        {mode === 'infinite' && <LoadMore locale={locale} {...infinite} loadMore={more} />}
       </Group>
-      <div className="pagination">
-        <button
-          type="button"
-          disabled={page === 0 || loading || busy}
-          onClick={() => setPage(page - 1)}
-        >
-          {t(locale, 'app.previous')}
-        </button>
-        <span>{t(locale, 'app.page', { page: page + 1 })}</span>
-        <button
-          type="button"
-          disabled={rows.length < 20 || loading || busy}
-          onClick={() => setPage(page + 1)}
-        >
-          {t(locale, 'app.next')}
-        </button>
-      </div>
+      {mode === 'pages' && (
+        <div className="pagination">
+          <button
+            type="button"
+            disabled={page === 0 || loading || busy}
+            onClick={() => setPage(page - 1)}
+          >
+            {t(locale, 'app.previous')}
+          </button>
+          <span>{t(locale, 'app.page', { page: page + 1 })}</span>
+          <button
+            type="button"
+            disabled={rows.length < 20 || loading || busy}
+            onClick={() => setPage(page + 1)}
+          >
+            {t(locale, 'app.next')}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

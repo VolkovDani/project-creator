@@ -6,12 +6,14 @@ export default function Group({
   summary,
   children,
   defaultOpen = true,
+  lazy = false,
 }: {
   id: string;
   title: string;
   summary?: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
+  lazy?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [restored, setRestored] = useState(false);
@@ -40,7 +42,7 @@ export default function Group({
         <h3>{title}</h3>
         {summary && <span className="muted">{summary}</span>}
       </summary>
-      {children}
+      {(!lazy || (restored && open)) && children}
     </details>
   );
 }

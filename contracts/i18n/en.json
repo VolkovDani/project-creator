@@ -156,5 +156,11 @@
   "analysis.notSelectedPairs": "Not selected and not checked in this run: {count}",
   "analysis.selectionProfile": "Selection rules: {profile}; embedding profile: {embedding}.",
   "analysis.validation.mode": "Select a supported analysis mode.",
-  "analysis.validation.threshold": "Enter a finite number from {min} to {max}."
+  "analysis.validation.threshold": "Enter a finite number from {min} to {max}.",
+  "list.mode": "List mode",
+  "list.infinite": "Infinite scroll",
+  "list.pages": "Pages",
+  "list.more": "Load more",
+  "list.total": "Total: {total}",
+  "list.loaded": "Loaded: {count} of {total}"
 }

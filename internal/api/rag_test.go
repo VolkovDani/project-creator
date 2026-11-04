@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"reflect"
 	"sync/atomic"
 	"testing"
 )
@@ -56,6 +57,25 @@ func TestGraphQLRAGSourcesAndAccess(t *testing.T) {
 	state := indexed["data"].(map[string]any)["indexRequirement"].(map[string]any)
 	if state["status"] != "ready" || state["version"] != float64(1) {
 		t.Fatal(state)
+	}
+	statuses := run("token-a", `{requirementIndexByIds(projectId:"p",requirementIds:["r","hidden"]){requirementId projectId version status}}`)
+	if statuses["errors"] != nil {
+		t.Fatal(statuses)
+	}
+	statusRows := statuses["data"].(map[string]any)["requirementIndexByIds"].([]any)
+	if len(statusRows) != 1 {
+		t.Fatalf("out-of-scope status IDs leaked: %v", statuses)
+	}
+	statusRow := statusRows[0].(map[string]any)
+	if statusRow["requirementId"] != "r" || statusRow["projectId"] != "p" || statusRow["status"] != "ready" {
+		t.Fatalf("status row missing authorized project or current state: %v", statusRow)
+	}
+	if !reflect.DeepEqual(cacheTags(statuses["data"]), []string{"project:p", "project:p:requirements", "projects"}) {
+		t.Fatalf("status response missing project cache tags: %v", statuses)
+	}
+	denied = run("token-b", `{requirementIndexByIds(projectId:"p",requirementIds:["r"]){requirementId projectId status}}`)
+	if denied["errors"] == nil {
+		t.Fatalf("unauthorized status batch: %v", denied)
 	}
 	found := run("token-a", `{searchRequirements(projectId:"p",text:"Оплата картой",limit:5){requirementId projectId version text sourceText start end score}}`)
 	if found["errors"] != nil {

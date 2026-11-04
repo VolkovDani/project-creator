@@ -55,6 +55,37 @@ type RequirementPayload struct {
 type DeleteRequirementPayload struct {
 	Deleted bool
 }
+type PageInfo struct {
+	EndCursor   *string
+	HasNextPage bool
+}
+type ProjectEdge struct {
+	Cursor string
+	Node   *Project
+}
+type RequirementEdge struct {
+	Cursor string
+	Node   *Requirement
+}
+type AnalysisPairEdge struct {
+	Cursor string
+	Node   *AnalysisPair
+}
+type ProjectConnection struct {
+	Edges      []*ProjectEdge
+	PageInfo   *PageInfo
+	TotalCount int32
+}
+type RequirementConnection struct {
+	Edges      []*RequirementEdge
+	PageInfo   *PageInfo
+	TotalCount int32
+}
+type AnalysisPairConnection struct {
+	Edges      []*AnalysisPairEdge
+	PageInfo   *PageInfo
+	TotalCount int32
+}
 type ProjectAnalysisArgs struct {
 	ProjectId  graphql.ID
 	AnalysisId *graphql.ID
@@ -67,6 +98,14 @@ type AnalysisPairsArgs struct {
 	Status     string
 	Verdict    string
 }
+type AnalysisPairsConnectionArgs struct {
+	ProjectId  graphql.ID
+	AnalysisId graphql.ID
+	First      *int32
+	After      *string
+	Status     *string
+	Verdict    *string
+}
 type AnalysisHistoryArgs struct {
 	ProjectId graphql.ID
 	Limit     int32
@@ -76,6 +115,10 @@ type RequirementIndexArgs struct {
 	ProjectId graphql.ID
 	Limit     int32
 	Offset    int32
+}
+type RequirementIndexByIdsArgs struct {
+	ProjectId      graphql.ID
+	RequirementIds []graphql.ID
 }
 type SearchRequirementsArgs struct {
 	ProjectId graphql.ID
@@ -87,12 +130,21 @@ type RequirementsArgs struct {
 	Limit     int32
 	Offset    int32
 }
+type RequirementsConnectionArgs struct {
+	ProjectId graphql.ID
+	First     *int32
+	After     *string
+}
 type ProjectArgs struct {
 	ID graphql.ID
 }
 type ProjectsArgs struct {
 	Limit  int32
 	Offset int32
+}
+type ProjectsConnectionArgs struct {
+	First *int32
+	After *string
 }
 type RetryProjectAnalysisArgs struct {
 	ProjectId  graphql.ID
@@ -123,6 +175,7 @@ type CreateProjectArgs struct {
 }
 type RequirementIndex struct {
 	RequirementId graphql.ID
+	ProjectId     graphql.ID
 	Version       int32
 	Status        string
 	Profile       string

@@ -42,7 +42,28 @@ test('screenshots: desktop projects and requirements', async ({ page }, testInfo
             errorCode: '',
           })),
         };
-      else if (query.includes('requirements(')) data = { requirements };
+      else if (query.includes('requirementsConnection(')) {
+        const offset = variables.after ? Number(String(variables.after).replace('cursor-', '')) : 0;
+        const batch = requirements.slice(offset, offset + Number(variables.first));
+        data = {
+          requirementsConnection: {
+            edges: batch.map((node, index) => ({ cursor: `cursor-${offset + index + 1}`, node })),
+            pageInfo: {
+              endCursor: batch.length ? `cursor-${offset + batch.length}` : null,
+              hasNextPage: offset + batch.length < requirements.length,
+            },
+            totalCount: requirements.length,
+          },
+        };
+      } else if (query.includes('requirements(')) data = { requirements };
+      else if (query.includes('projectsConnection('))
+        data = {
+          projectsConnection: {
+            edges: project ? [{ cursor: 'project-1', node: project }] : [],
+            pageInfo: { endCursor: project ? 'project-1' : null, hasNextPage: false },
+            totalCount: project ? 1 : 0,
+          },
+        };
       else if (query.includes('projects(')) data = { projects: project ? [project] : [] };
       else data = { project };
       await route.fulfill({ json: { data } });

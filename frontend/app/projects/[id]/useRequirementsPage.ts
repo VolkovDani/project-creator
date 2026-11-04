@@ -5,8 +5,19 @@ import { RequirementsDocument, type RequirementsQuery } from '../../../lib/gener
 import { Latest } from '../../../lib/latest';
 import { useInvalidation } from '../../../lib/live';
 
-export function useRequirementsPage(projectId: string, clearDraft: () => void = () => {}) {
-  const [page, setPage] = useState(0);
+export function useRequirementsPage(
+  projectId: string,
+  clearDraft: () => void = () => {},
+  options?: {
+    enabled: boolean;
+    page: number;
+    setPage: (page: number) => void;
+  },
+) {
+  const [localPage, setLocalPage] = useState(0);
+  const page = options?.page ?? localPage;
+  const setPage = options?.setPage ?? setLocalPage;
+  const enabled = options?.enabled ?? true;
   const [snapshot, setSnapshot] = useState<{
     projectId: string;
     page: number;
@@ -18,6 +29,7 @@ export function useRequirementsPage(projectId: string, clearDraft: () => void = 
   const clearRef = useRef(clearDraft);
   clearRef.current = clearDraft;
   const load = useCallback(async () => {
+    if (!enabled) return;
     const generation = latest.current.begin();
     setLoading(true);
     try {
@@ -31,7 +43,7 @@ export function useRequirementsPage(projectId: string, clearDraft: () => void = 
     } finally {
       if (latest.current.isCurrent(generation)) setLoading(false);
     }
-  }, [projectId, page]);
+  }, [projectId, page, enabled]);
   useEffect(() => {
     void load();
     const state = latest.current;
@@ -45,7 +57,7 @@ export function useRequirementsPage(projectId: string, clearDraft: () => void = 
       setSnapshot(undefined);
       setFailure(false);
       setLoading(true);
-      setPage(0);
+      if (enabled) setPage(0);
       clearRef.current();
     },
   );

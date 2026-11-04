@@ -81,6 +81,59 @@ func (s *Service) Status(ctx context.Context, workspace, project string, limit, 
 	return out, nil
 }
 
+// StatusByIDs returns current-version indexing state for a bounded set of
+// requirements in the authorized project. Missing or out-of-scope IDs are omitted.
+func (s *Service) StatusByIDs(ctx context.Context, workspace, project string, requirementIDs []string) ([]State, error) {
+	if err := s.authorize(ctx, workspace, project); err != nil {
+		return nil, err
+	}
+	if len(requirementIDs) < 1 || len(requirementIDs) > 100 {
+		return nil, ErrInvalid
+	}
+	ids := make([]string, 0, len(requirementIDs))
+	seen := make(map[string]struct{}, len(requirementIDs))
+	for _, id := range requirementIDs {
+		if strings.TrimSpace(id) == "" {
+			return nil, ErrInvalid
+		}
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	profile := s.profile()
+	query := `SELECT r.id,r.version,coalesce(i.status,'pending'),coalesce(i.error_code,'') FROM requirements r LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.version=r.version AND i.profile=$3 WHERE r.workspace=$1 AND r.project_id=$2 AND r.id IN (`
+	args := []any{workspace, project, profile}
+	for i, id := range ids {
+		if i > 0 {
+			query += ","
+		}
+		args = append(args, id)
+		query += "$" + strconv.Itoa(len(args))
+	}
+	query += `) ORDER BY r.created_at,r.id`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, errStorage
+	}
+	defer rows.Close()
+	out := make([]State, 0, len(ids))
+	for rows.Next() {
+		state := State{Profile: profile}
+		if err = rows.Scan(&state.RequirementID, &state.Version, &state.Status, &state.ErrorCode); err != nil {
+			return nil, errStorage
+		}
+		if profile == "" {
+			state.ErrorCode = "NOT_CONFIGURED"
+		}
+		out = append(out, state)
+	}
+	if rows.Err() != nil {
+		return nil, errStorage
+	}
+	return out, nil
+}
+
 // Index claims a short durable lease, calls only the configured local provider
 // outside the transaction, and publishes results only for the claimed version.
 func (s *Service) Index(ctx context.Context, workspace, project, requirement string) (State, error) {

@@ -403,7 +403,7 @@ export default function Analysis({
           ? 'analysis.status.completed'
           : undefined;
   const groups = run ? groupPairs(run) : [];
-  const retryable = !!run && canRetryPairs(run);
+  const retryable = !selected && !!run && canRetryPairs(run);
   const candidatesKnown = !!run && run.totalPairs != null;
   return (
     <section aria-labelledby={heading}>

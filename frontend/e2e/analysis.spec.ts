@@ -168,7 +168,7 @@ test('failed analysis can be retried and stale no-collision result is qualified'
     page.getByText('Анализ остановлен. Готовые результаты сохранены.', { exact: true }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Начать новый анализ', exact: true }).click();
-  expect(calls()).toBe(2);
+  await expect.poll(calls).toBe(2);
   await expect(
     page.getByText('В проверенных парах коллизий не найдено', { exact: true }),
   ).toBeVisible();
@@ -944,4 +944,34 @@ test('an empty final history page keeps navigation back to earlier runs', async 
   await expect(
     area.getByRole('combobox', { name: 'История запусков' }).getByRole('option'),
   ).toHaveCount(21);
+});
+
+test('historical failures cannot retry work after a newer run exists', async ({ page }) => {
+  const current = complete({
+    id: 'latest',
+    status: 'failed',
+    errorCode: 'TIMEOUT',
+    pairs: [{ ...candidate('failed', 0, 'failed'), errorCode: 'TIMEOUT' }],
+  });
+  const old = { ...current, id: 'old' };
+  await fixture(page, current);
+  await page.route('**/api/graphql', async (route) => {
+    const { query, variables } = route.request().postDataJSON();
+    if (query.includes('analysisHistory(')) {
+      await route.fulfill({ json: { data: { analysisHistory: [current, old] } } });
+    } else if (query.includes('projectAnalysis(') && !query.includes('analysisPairs(')) {
+      await route.fulfill({
+        json: { data: { projectAnalysis: variables.analysisId === 'old' ? old : current } },
+      });
+    } else await route.fallback();
+  });
+  await page.goto('/projects/demo/analysis');
+  const area = analysisRegion(page);
+  const retry = area.getByRole('button', { name: 'Повторить неудавшиеся пары', exact: true });
+  await expect(retry).toBeVisible();
+  await area.getByRole('combobox', { name: 'История запусков' }).selectOption('old');
+  await expect(area.getByText('Ошибки обработки: 1', { exact: true })).toBeVisible();
+  await expect(retry).toHaveCount(0);
+  await area.getByRole('combobox', { name: 'История запусков' }).selectOption('');
+  await expect(retry).toBeVisible();
 });

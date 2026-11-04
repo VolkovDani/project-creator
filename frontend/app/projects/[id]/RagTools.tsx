@@ -197,7 +197,7 @@ export default function ProjectSearch({
           {t(locale, 'rag.query')}
           <textarea value={text} onChange={(event) => setText(event.target.value)} />
         </label>
-        <button type="button" disabled={busy || !text.trim()}>
+        <button type="submit" disabled={busy || !text.trim()}>
           {t(locale, busy ? 'rag.searching' : 'rag.search')}
         </button>
       </form>

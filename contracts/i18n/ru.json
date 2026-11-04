@@ -161,5 +161,6 @@
   "list.infinite": "Бесконечная прокрутка",
   "list.pages": "По страницам",
   "list.more": "Загрузить ещё",
-  "list.total": "Всего: {total}"
+  "list.total": "Всего: {total}",
+  "list.loaded": "Загружено: {count} из {total}"
 }

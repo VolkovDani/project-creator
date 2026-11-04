@@ -1,14 +1,16 @@
 'use client';
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { RequirementIndexListQuery, RequirementsQuery } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
 import { useInvalidation } from '../../../lib/live';
-import { indexStatus, requirementURL } from '../../../lib/rag';
 import { summarizeIndex } from '../../../lib/requirementsView';
+import { useListMode } from '../../../lib/useListMode';
 import Group from '../../components/Group';
+import { ListModeSelect } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
-import { RequirementIndexAction, useProjectIndex } from './RagTools';
+import IndexGroups from './IndexGroups';
+import InfiniteIndexing from './InfiniteIndexing';
+import { useProjectIndex } from './RagTools';
 import { useRequirementsPage } from './useRequirementsPage';
 
 type Display = {
@@ -16,10 +18,36 @@ type Display = {
   rows: RequirementsQuery['requirements'];
   entries: RequirementIndexListQuery['requirementIndex'];
 };
-const statuses = ['failed', 'pending', 'ready'] as const;
 
 export default function Indexing({ projectId, locale }: { projectId: string; locale: Locale }) {
-  const list = useRequirementsPage(projectId);
+  const location = useListMode();
+  return (
+    <section aria-labelledby="indexing-heading">
+      <h2 id="indexing-heading">{t(locale, 'ui.indexing')}</h2>
+      <ListModeSelect locale={locale} mode={location.mode} onChange={location.setMode} />
+      {location.mode === 'infinite' ? (
+        <InfiniteIndexing key={projectId} projectId={projectId} locale={locale} />
+      ) : (
+        <PagedIndexing projectId={projectId} locale={locale} location={location} />
+      )}
+    </section>
+  );
+}
+
+function PagedIndexing({
+  projectId,
+  locale,
+  location,
+}: {
+  projectId: string;
+  locale: Locale;
+  location: ReturnType<typeof useListMode>;
+}) {
+  const list = useRequirementsPage(projectId, undefined, {
+    enabled: true,
+    page: location.page,
+    setPage: location.setPage,
+  });
   const indexing = useProjectIndex(projectId, list.page);
   const [display, setDisplay] = useState<Display>();
   // Keep the last coherent pair of pages while either resource is being refreshed.
@@ -58,8 +86,7 @@ export default function Indexing({ projectId, locale }: { projectId: string; loc
     void indexing.reload();
   };
   return (
-    <section aria-labelledby="indexing-heading">
-      <h2 id="indexing-heading">{t(locale, 'ui.indexing')}</h2>
+    <>
       <ResourceState
         locale={locale}
         loading={loading}
@@ -78,44 +105,16 @@ export default function Indexing({ projectId, locale }: { projectId: string; loc
         defaultOpen
       >
         {display && display.rows.length === 0 && <p>{t(locale, 'requirements.empty')}</p>}
-        {display &&
-          statuses.map((status) => {
-            const rows = display.rows.filter(
-              (row) =>
-                indexStatus(
-                  display.entries.find((entry) => entry.requirementId === row.id),
-                  row.version,
-                ) === status,
-            );
-            return (
-              <Group
-                id={`${projectId}:indexing:${status}`}
-                key={status}
-                title={t(locale, `rag.status.${status}`)}
-                summary={String(rows.length)}
-                defaultOpen={status !== 'ready'}
-              >
-                {rows.length === 0 && <p className="muted">{t(locale, 'ui.groupEmpty')}</p>}
-                {rows.map((row) => (
-                  <article className="card" key={row.id}>
-                    <p>{row.text}</p>
-                    <p className="muted">
-                      {t(locale, 'requirements.version', { version: row.version })}
-                    </p>
-                    <Link href={requirementURL(projectId, row.id)}>{t(locale, 'rag.source')}</Link>
-                    <RequirementIndexAction
-                      entry={display.entries.find((entry) => entry.requirementId === row.id)}
-                      requirementId={row.id}
-                      version={row.version}
-                      locale={locale}
-                      busy={loading ? 'refresh' : indexing.busy}
-                      index={indexing.index}
-                    />
-                  </article>
-                ))}
-              </Group>
-            );
-          })}
+        {display && (
+          <IndexGroups
+            projectId={projectId}
+            locale={locale}
+            rows={display.rows}
+            entries={display.entries}
+            busy={loading ? 'refresh' : indexing.busy}
+            index={indexing.index}
+          />
+        )}
       </Group>
       <div className="pagination">
         <button
@@ -134,6 +133,6 @@ export default function Indexing({ projectId, locale }: { projectId: string; loc
           {t(locale, 'app.next')}
         </button>
       </div>
-    </section>
+    </>
   );
 }

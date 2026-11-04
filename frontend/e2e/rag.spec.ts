@@ -38,9 +38,9 @@ test('index retry and search are explicit and retain versioned sources', async (
       };
     } else if (query.includes('analysisHistory(')) data = { analysisHistory: [] };
     else if (query.includes('projectAnalysis(')) data = { projectAnalysis: null };
-    else if (query.includes('requirementIndex('))
+    else if (query.includes('requirementIndex(') || query.includes('requirementIndexByIds('))
       data = {
-        requirementIndex: [
+        [query.includes('requirementIndexByIds(') ? 'requirementIndexByIds' : 'requirementIndex']: [
           {
             requirementId: 'source-1',
             version: 2,

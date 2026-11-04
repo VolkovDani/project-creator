@@ -116,6 +116,10 @@ type RequirementIndexArgs struct {
 	Limit     int32
 	Offset    int32
 }
+type RequirementIndexByIdsArgs struct {
+	ProjectId      graphql.ID
+	RequirementIds []graphql.ID
+}
 type SearchRequirementsArgs struct {
 	ProjectId graphql.ID
 	Text      string
@@ -171,6 +175,7 @@ type CreateProjectArgs struct {
 }
 type RequirementIndex struct {
 	RequirementId graphql.ID
+	ProjectId     graphql.ID
 	Version       int32
 	Status        string
 	Profile       string

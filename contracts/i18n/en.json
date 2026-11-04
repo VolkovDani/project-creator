@@ -161,5 +161,6 @@
   "list.infinite": "Infinite scroll",
   "list.pages": "Pages",
   "list.more": "Load more",
-  "list.total": "Total: {total}"
+  "list.total": "Total: {total}",
+  "list.loaded": "Loaded: {count} of {total}"
 }

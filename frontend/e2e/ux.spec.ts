@@ -22,9 +22,11 @@ async function fixture(page: Page, count = 21) {
   const waiting = new Set<(body: string) => void>();
   let delay: Promise<void> | undefined;
   let failure = 0;
+  let indexFailure = 0;
   let connections = 0;
   let reads = 0;
   const connectionReads: Array<{ first: number; after: string | null }> = [];
+  const indexReads: string[][] = [];
   let indexes = rows.map((r, i) => ({
     requirementId: r.id,
     version: 1,
@@ -67,6 +69,20 @@ async function fixture(page: Page, count = 21) {
         return;
       }
       data = { requirements: rows.slice(variables.offset, variables.offset + variables.limit) };
+    } else if (query.includes('requirementIndexByIds(')) {
+      indexReads.push(variables.requirementIds);
+      if (failure || indexFailure) {
+        await route.fulfill({
+          status: failure || indexFailure,
+          json: { error: 'fixture failure' },
+        });
+        return;
+      }
+      data = {
+        requirementIndexByIds: indexes
+          .filter((entry) => variables.requirementIds.includes(entry.requirementId))
+          .reverse(),
+      };
     } else if (query.includes('requirementIndex('))
       data = {
         requirementIndex: indexes.slice(variables.offset, variables.offset + variables.limit),
@@ -103,9 +119,13 @@ async function fixture(page: Page, count = 21) {
   return {
     reads: () => reads,
     connectionReads: () => connectionReads,
+    indexReads: () => indexReads,
     connections: () => connections,
     fail: (status: number) => {
       failure = status;
+    },
+    failIndex: (status: number) => {
+      indexFailure = status;
     },
     delay: () => {
       let release!: () => void;
@@ -351,6 +371,81 @@ test('requirement source links select the correct card and survive direct openin
   await expect(page.locator('#requirement-r20')).toBeVisible();
   await page.goBack();
   await expect(page).toHaveURL(/\/search(?:\?.*)?$/);
+});
+
+test('indexing appends on scroll with matching statuses and stops at the end', async ({ page }) => {
+  const api = await fixture(page, 85);
+  await page.goto('/projects/demo/indexing');
+  await expect(page.getByLabel('Режим списка')).toHaveValue('infinite');
+  await expect(page.getByText('Требование 2', { exact: true })).toBeVisible();
+  await expect.poll(() => api.indexReads().length).toBe(1);
+  expect(api.indexReads()[0]).toHaveLength(40);
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect.poll(() => api.indexReads().length).toBeGreaterThan(1);
+  await page.getByRole('button', { name: 'Загрузить ещё', exact: true }).click();
+  await expect.poll(() => api.indexReads().length).toBe(3);
+  await expect(page.getByRole('button', { name: 'Загрузить ещё', exact: true })).toHaveCount(0);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const failed = page.getByRole('group', { name: 'ошибка', exact: true });
+  await expect(failed.getByText('Требование 1', { exact: true })).toBeVisible();
+});
+
+test('indexing load-more retry preserves loaded cards', async ({ page }) => {
+  const api = await fixture(page, 85);
+  await page.goto('/projects/demo/indexing');
+  await expect(page.getByText('Требование 2', { exact: true })).toBeVisible();
+  api.failIndex(503);
+  await page.getByRole('button', { name: 'Загрузить ещё', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Повторить', exact: true })).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.getByText('Требование 2', { exact: true })).toBeVisible();
+  api.failIndex(0);
+  await page.getByRole('button', { name: 'Повторить', exact: true }).click();
+  await expect.poll(() => api.indexReads().length).toBe(3);
+});
+
+test('infinite indexing refreshes statuses after SSE and clears cards on access revocation', async ({
+  page,
+}) => {
+  const api = await fixture(page, 85);
+  await page.goto('/projects/demo/indexing');
+  const failed = page.getByRole('group', { name: 'ошибка', exact: true });
+  await expect(failed.getByText('Требование 1', { exact: true })).toBeVisible();
+  api.setReady();
+  await api.event();
+  await expect(failed.getByText('Требование 1', { exact: true })).toHaveCount(0);
+  const ready = page.getByRole('group', { name: 'готов', exact: true });
+  await ready.locator('summary').click();
+  await expect(ready.getByText('Требование 1', { exact: true })).toBeVisible();
+  api.fail(403);
+  await api.event();
+  await expect(page.locator('[id^="indexing-r"]')).toHaveCount(0);
+});
+
+test('indexing pagination survives reload and browser history', async ({ page }) => {
+  await fixture(page, 41);
+  await page.goto('/projects/demo/indexing?listMode=pages&page=1');
+  const previous = page.getByRole('button', { name: 'Назад', exact: true });
+  const next = page.getByRole('button', { name: 'Далее', exact: true });
+  await expect(previous).toBeDisabled();
+  await next.click();
+  await expect(page).toHaveURL(/\/indexing\?listMode=pages&page=2$/);
+  await expect(page.getByText('Требование 20', { exact: true })).toBeVisible();
+  await expect(page.getByText('Требование 2', { exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
+  await expect(page.getByText('Требование 20', { exact: true })).toBeVisible();
+  await next.click();
+  await expect(page.getByText('Страница 3', { exact: true })).toBeVisible();
+  await expect(page.getByText('Требование 40', { exact: true })).toBeVisible();
+  await expect(next).toBeDisabled();
+  await page.goBack();
+  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
+  await expect(page.getByText('Требование 20', { exact: true })).toBeVisible();
+  await page.goForward();
+  await expect(page.getByText('Страница 3', { exact: true })).toBeVisible();
+  await previous.click();
+  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
 });
 
 test('index group summaries are scoped to current page and update while collapsed', async ({

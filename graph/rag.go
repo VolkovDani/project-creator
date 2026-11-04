@@ -11,6 +11,17 @@ import (
 func indexState(value rag.State, projectID string) *RequirementIndex {
 	return &RequirementIndex{RequirementId: graphql.ID(value.RequirementID), ProjectId: graphql.ID(projectID), Version: int32(value.Version), Status: value.Status, Profile: value.Profile, ErrorCode: value.ErrorCode}
 }
+
+func (r *Resolver) RequirementIndexProgress(ctx context.Context, args RequirementIndexProgressArgs) (*RequirementIndexProgress, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
+	p, err := r.RAG.Summary(ctx, workspace(ctx), string(args.ProjectId))
+	if err != nil {
+		return nil, errors.New("index progress unavailable")
+	}
+	return &RequirementIndexProgress{ProjectId: args.ProjectId, Total: int32(p.Total), Queued: int32(p.Queued), Running: int32(p.Running), Ready: int32(p.Ready), Failed: int32(p.Failed), Profile: p.Profile, Configured: p.Configured}, nil
+}
 func (r *Resolver) RequirementIndex(ctx context.Context, args RequirementIndexArgs) ([]*RequirementIndex, error) {
 	if err := consume(ctx); err != nil {
 		return nil, err

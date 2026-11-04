@@ -25,6 +25,16 @@ async function fixture(page: Page, count = 21) {
   let indexFailure = 0;
   let connections = 0;
   let reads = 0;
+  let progress = {
+    projectId: 'demo',
+    total: count,
+    queued: Math.max(0, count - 2),
+    running: 0,
+    ready: Math.min(1, count),
+    failed: count > 1 ? 1 : 0,
+    profile: 'fixture',
+    configured: true,
+  };
   const connectionReads: Array<{ first: number; after: string | null }> = [];
   const indexReads: string[][] = [];
   let indexes = rows.map((r, i) => ({
@@ -42,7 +52,13 @@ async function fixture(page: Page, count = 21) {
   await page.route('**/api/graphql', async (route) => {
     const { query, variables } = route.request().postDataJSON();
     let data: unknown;
-    if (query.includes('requirementsConnection(')) {
+    if (query.includes('requirementIndexProgress(')) {
+      if (failure) {
+        await route.fulfill({ status: failure, json: { error: 'fixture failure' } });
+        return;
+      }
+      data = { requirementIndexProgress: progress };
+    } else if (query.includes('requirementsConnection(')) {
       reads++;
       connectionReads.push({ first: Number(variables.first), after: variables.after ?? null });
       if (failure) {
@@ -117,6 +133,9 @@ async function fixture(page: Page, count = 21) {
     await route.fulfill({ json: { data } }).catch(() => {});
   });
   return {
+    setProgress: (value: Partial<typeof progress>) => {
+      progress = { ...progress, ...value };
+    },
     reads: () => reads,
     connectionReads: () => connectionReads,
     indexReads: () => indexReads,
@@ -141,6 +160,9 @@ async function fixture(page: Page, count = 21) {
     setReady: () => {
       indexes = indexes.map((x) => ({ ...x, status: 'ready' }));
     },
+    setRunning: () => {
+      indexes[0] = { ...indexes[0], status: 'running' };
+    },
     async event(reset = false) {
       await expect.poll(() => waiting.size).toBeGreaterThan(0);
       const body = `id: ${Date.now()}\nevent: ${reset ? 'cache.reset' : 'cache.invalidate'}\ndata: ${JSON.stringify({ schemaVersion: 1, keys: ['projects', 'project:demo', 'project:demo:requirements'] })}\n\n`;
@@ -149,6 +171,31 @@ async function fixture(page: Page, count = 21) {
     },
   };
 }
+
+test('index queue shows project-wide progress and running state after SSE and reset', async ({
+  page,
+}) => {
+  const api = await fixture(page, 45);
+  api.setProgress({ total: 200, ready: 120, queued: 78, running: 1, failed: 1 });
+  api.setRunning();
+  await page.goto('/projects/demo/indexing?listMode=pages&page=1');
+  const summary = page.getByRole('region', { name: 'Прогресс индексации проекта', exact: true });
+  await expect(summary).toContainText('Готово: 120 из 200');
+  await expect(summary).toContainText('В работе: 1');
+  await expect(
+    page
+      .getByRole('group', { name: 'индексируется', exact: true })
+      .getByText('Требование 0', { exact: true }),
+  ).toBeVisible();
+  api.setProgress({ ready: 200, queued: 0, running: 0, failed: 0 });
+  api.setReady();
+  await api.event();
+  await expect(summary).toContainText('Готово: 200 из 200');
+  await api.event(true);
+  await expect(summary).toContainText('Готово: 200 из 200');
+  await page.getByLabel('Режим списка').selectOption('infinite');
+  await expect(summary).toContainText('Готово: 200 из 200');
+});
 
 test('infinite requirements append on scroll and stop at the terminal page', async ({ page }) => {
   const api = await fixture(page, 85);

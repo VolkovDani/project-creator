@@ -113,7 +113,7 @@ export function RequirementIndexAction({
   busy?: string;
   index: (id: string) => Promise<void>;
 }) {
-  const status = busy === requirementId ? 'pending' : indexStatus(entry, version);
+  const status = busy === requirementId ? 'running' : indexStatus(entry, version);
   return (
     <div className="muted">
       <p>{t(locale, 'rag.indexStatus', { status: t(locale, `rag.status.${status}`) })}</p>
@@ -125,7 +125,11 @@ export function RequirementIndexAction({
           )}
         </p>
       )}
-      <button type="button" disabled={!!busy} onClick={() => void index(requirementId)}>
+      <button
+        type="button"
+        disabled={!!busy || status === 'running'}
+        onClick={() => void index(requirementId)}
+      >
         {t(
           locale,
           busy === requirementId ? 'rag.indexing' : status === 'failed' ? 'rag.retry' : 'rag.index',

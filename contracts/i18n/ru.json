@@ -115,7 +115,7 @@
   "ui.currentPage": "На этой странице",
   "ui.requirementsGroup": "Список требований",
   "ui.indexing": "Индексация требований",
-  "ui.indexSummary": "Всего: {total} · Готово: {ready} · Ожидают индексации: {pending} · Ошибки: {failed}",
+  "ui.indexSummary": "Всего: {total} · Готово: {ready} · Ожидают индексации: {pending} · В работе: {running} · Ошибки: {failed}",
   "ui.sourceNotFound": "Исходное требование больше недоступно.",
   "ui.searchResults": "Результаты поиска: {count}",
   "ui.requirementCount": "На этой странице: {count}",
@@ -162,5 +162,11 @@
   "list.pages": "По страницам",
   "list.more": "Загрузить ещё",
   "list.total": "Всего: {total}",
-  "list.loaded": "Загружено: {count} из {total}"
+  "list.loaded": "Загружено: {count} из {total}",
+  "rag.status.running": "индексируется",
+  "rag.progressTitle": "Прогресс индексации проекта",
+  "rag.autoIndexHelp": "Новые и изменённые требования индексируются автоматически в фоне. Ошибки можно повторить вручную. Анализ требований запускается отдельно.",
+  "rag.progressCounts": "Готово: {ready} из {total} · В очереди: {queued} · В работе: {running} · Ошибки: {failed}",
+  "rag.progressFailed": "Не удалось обновить общий прогресс индексации. Последние значения могут быть устаревшими.",
+  "rag.progressRetry": "Обновить прогресс"
 }

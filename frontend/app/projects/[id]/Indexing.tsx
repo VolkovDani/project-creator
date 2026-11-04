@@ -9,6 +9,7 @@ import Group from '../../components/Group';
 import { ListModeSelect } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
 import IndexGroups from './IndexGroups';
+import IndexProgress from './IndexProgress';
 import InfiniteIndexing from './InfiniteIndexing';
 import { useProjectIndex } from './RagTools';
 import { useRequirementsPage } from './useRequirementsPage';
@@ -24,6 +25,7 @@ export default function Indexing({ projectId, locale }: { projectId: string; loc
   return (
     <section aria-labelledby="indexing-heading">
       <h2 id="indexing-heading">{t(locale, 'ui.indexing')}</h2>
+      <IndexProgress key={projectId} projectId={projectId} locale={locale} />
       <ListModeSelect locale={locale} mode={location.mode} onChange={location.setMode} />
       {location.mode === 'infinite' ? (
         <InfiniteIndexing key={projectId} projectId={projectId} locale={locale} />

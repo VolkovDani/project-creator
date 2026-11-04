@@ -85,6 +85,44 @@ function pairPage(run: ReturnType<typeof complete> | null, variables: Record<str
     )
     .slice(Number(variables.offset), Number(variables.offset) + Number(variables.limit));
 }
+function pairConnection(
+  run: ReturnType<typeof complete> | null,
+  variables: Record<string, unknown>,
+) {
+  const rows = run?.pairs || [];
+  const filtered = rows.filter(
+    (pair) =>
+      (variables.status === 'pending'
+        ? pair.status === 'pending' || pair.status === 'running'
+        : !variables.status || pair.status === variables.status) &&
+      (!variables.verdict || pair.verdict === variables.verdict),
+  );
+  const offset = variables.after ? Number(String(variables.after).replace('cursor-', '')) : 0;
+  const batch = filtered.slice(offset, offset + Number(variables.first ?? 40));
+  return {
+    edges: batch.map((node, index) => ({ cursor: `cursor-${offset + index + 1}`, node })),
+    pageInfo: {
+      endCursor: batch.length ? `cursor-${offset + batch.length}` : null,
+      hasNextPage: offset + batch.length < filtered.length,
+    },
+    totalCount: filtered.length,
+  };
+}
+function requirementConnection<T extends { id: string }>(
+  rows: T[],
+  variables: Record<string, unknown>,
+) {
+  const offset = variables.after ? Number(String(variables.after).replace('cursor-', '')) : 0;
+  const batch = rows.slice(offset, offset + Number(variables.first ?? 40));
+  return {
+    edges: batch.map((node, index) => ({ cursor: `cursor-${offset + index + 1}`, node })),
+    pageInfo: {
+      endCursor: batch.length ? `cursor-${offset + batch.length}` : null,
+      hasNextPage: offset + batch.length < rows.length,
+    },
+    totalCount: rows.length,
+  };
+}
 async function fixture(page: Page, initial: unknown = null, onStart?: () => unknown) {
   let latest = initial as ReturnType<typeof complete> | null,
     calls = 0;
@@ -100,10 +138,24 @@ async function fixture(page: Page, initial: unknown = null, onStart?: () => unkn
       data = { startProjectAnalysis: latest };
     } else if (query.includes('analysisHistory('))
       data = { analysisHistory: latest ? [latest] : [] };
+    else if (query.includes('analysisPairsConnection('))
+      data = { analysisPairsConnection: pairConnection(latest, variables) };
     else if (query.includes('analysisPairs('))
       data = { analysisPairs: pairPage(latest, variables) };
     else if (query.includes('projectAnalysis(')) data = { projectAnalysis: latest };
     else if (query.includes('requirementIndex(')) data = { requirementIndex: [] };
+    else if (query.includes('requirementsConnection('))
+      data = {
+        requirementsConnection: requirementConnection(
+          sources.map((source) => ({
+            ...source,
+            projectId: 'demo',
+            createdAt: 'now',
+            updatedAt: 'now',
+          })),
+          variables,
+        ),
+      };
     else if (query.includes('requirements('))
       data = {
         requirements: sources.map((source) => ({
@@ -198,6 +250,8 @@ test('a late metadata response cannot replace an explicitly started run', async 
       await start;
       data = { startProjectAnalysis: complete() };
     } else if (query.includes('analysisHistory(')) data = { analysisHistory: [] };
+    else if (query.includes('analysisPairsConnection('))
+      data = { analysisPairsConnection: pairConnection(complete(), variables) };
     else if (query.includes('analysisPairs('))
       data = { analysisPairs: pairPage(complete(), variables) };
     else if (query.includes('projectAnalysis(')) {
@@ -279,10 +333,14 @@ test('invalidation refreshes a completed result to stale without rerunning the m
       data = { startProjectAnalysis: current };
     } else if (query.includes('analysisHistory('))
       data = { analysisHistory: current ? [current] : [] };
+    else if (query.includes('analysisPairsConnection('))
+      data = { analysisPairsConnection: pairConnection(current, variables) };
     else if (query.includes('analysisPairs('))
       data = { analysisPairs: pairPage(current, variables) };
     else if (query.includes('projectAnalysis(')) data = { projectAnalysis: current };
     else if (query.includes('requirementIndex(')) data = { requirementIndex: [] };
+    else if (query.includes('requirementsConnection('))
+      data = { requirementsConnection: requirementConnection([], variables) };
     else if (query.includes('requirements(')) data = { requirements: [] };
     else
       data = {
@@ -395,10 +453,24 @@ async function liveFixture(
       data = { startProjectAnalysis: current };
     } else if (query.includes('analysisHistory('))
       data = { analysisHistory: current ? [current] : [] };
+    else if (query.includes('analysisPairsConnection('))
+      data = { analysisPairsConnection: pairConnection(current, variables) };
     else if (query.includes('analysisPairs('))
       data = { analysisPairs: pairPage(current, variables) };
     else if (query.includes('projectAnalysis(')) data = { projectAnalysis: current };
     else if (query.includes('requirementIndex(')) data = { requirementIndex: [] };
+    else if (query.includes('requirementsConnection('))
+      data = {
+        requirementsConnection: requirementConnection(
+          sources.map((source) => ({
+            ...source,
+            projectId: 'demo',
+            createdAt: 'now',
+            updatedAt: 'now',
+          })),
+          variables,
+        ),
+      };
     else if (query.includes('requirements('))
       data = {
         requirements: sources.map((source) => ({
@@ -731,19 +803,62 @@ test('large groups use global coverage and fetch bounded pair pages', async ({ p
     ),
   ).toBeVisible();
   const group = area.getByRole('group', { name: 'Противоречий не обнаружено: 45', exact: true });
-  await expect(group.getByRole('article')).toHaveCount(20);
+  await group.getByLabel('Режим списка').selectOption('pages');
   await expect(group.getByText('1–20 из 45', { exact: true })).toBeVisible();
   await group.getByRole('button', { name: 'Далее', exact: true }).click();
-  await expect(group.getByRole('article')).toHaveCount(20);
-  await expect(group.getByRole('article', { name: 'Пара 21', exact: true })).toBeVisible();
   await expect(group.getByText('21–40 из 45', { exact: true })).toBeVisible();
   await group.getByRole('button', { name: 'Далее', exact: true }).click();
-  await expect(group.getByRole('article')).toHaveCount(5);
   await expect(group.getByRole('button', { name: 'Далее', exact: true })).toBeDisabled();
   expect(requests.every((variables) => variables.limit === 20)).toBe(true);
   expect(
     requests.some((variables) => variables.offset === 40 && variables.verdict === 'compatible'),
   ).toBe(true);
+});
+
+test('closed analysis groups load independently only when expanded', async ({ page }) => {
+  const compatible = candidate('compatible-one', 0, 'completed', 'compatible');
+  const duplicate = candidate('duplicate-one', 1, 'completed', 'duplicate');
+  await fixture(
+    page,
+    complete({
+      totalPairs: 2,
+      completedPairs: 2,
+      compatiblePairs: 1,
+      duplicatePairs: 1,
+      pairs: [compatible, duplicate],
+    }),
+  );
+  await page.addInitScript(() => {
+    for (const key of ['collision', 'duplicate', 'compatible', 'insufficient', 'pending', 'failed'])
+      sessionStorage.setItem(`group:analysis:demo:${key}`, 'false');
+  });
+  const requests: Record<string, unknown>[] = [];
+  const summaries: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/graphql')) {
+      const payload = request.postDataJSON();
+      if (payload.query.includes('ProjectAnalysis')) summaries.push(payload.query);
+      if (payload.query.includes('analysisPairsConnection(')) requests.push(payload.variables);
+    }
+  });
+  await page.goto('/projects/demo/analysis');
+  const area = analysisRegion(page);
+  const duplicateGroup = area.getByRole('group', { name: 'Дубли требований: 1', exact: true });
+  const compatibleGroup = area.getByRole('group', {
+    name: 'Противоречий не обнаружено: 1',
+    exact: true,
+  });
+  await expect(duplicateGroup).toBeVisible();
+  await expect(compatibleGroup).toBeVisible();
+  await expect.poll(() => requests.length).toBe(0);
+  expect(summaries.some((query) => /\bpairs\s*\{/.test(query))).toBe(false);
+  expect(summaries.some((query) => /\bfindings\s*\{/.test(query))).toBe(false);
+  await duplicateGroup.locator('summary').click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]?.verdict).toBe('duplicate');
+  await compatibleGroup.locator('summary').click();
+  await expect.poll(() => requests.length).toBe(2);
+  expect(requests[1]?.verdict).toBe('compatible');
 });
 
 test('history preserves the original generator profile and reused comparison provenance', async ({
@@ -780,6 +895,11 @@ test('history preserves the original generator profile and reused comparison pro
     let data: unknown;
     const selected = variables.analysisId === 'old' ? old : current;
     if (query.includes('analysisHistory(')) data = { analysisHistory: [current, old] };
+    else if (query.includes('analysisPairsConnection('))
+      data = {
+        scope: { projectId: 'demo' },
+        analysisPairsConnection: pairConnection(selected, variables),
+      };
     else if (query.includes('analysisPairs('))
       data = { scope: { projectId: 'demo' }, analysisPairs: pairPage(selected, variables) };
     else if (query.includes('projectAnalysis(')) data = { projectAnalysis: selected };

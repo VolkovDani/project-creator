@@ -8,7 +8,14 @@ input CreateRequirementInput { projectId: ID! text: String! }
 input UpdateRequirementInput { id: ID! projectId: ID! version: Int! text: String! }
 type RequirementPayload { requirement: Requirement fieldErrors: [FieldError!]! }
 type DeleteRequirementPayload { deleted: Boolean! }
-type Query { projectAnalysis(projectId: ID! analysisId: ID): ProjectAnalysis analysisPairs(projectId: ID! analysisId: ID! limit: Int! offset: Int! status: String! verdict: String!): [AnalysisPair!]! analysisHistory(projectId: ID! limit: Int! offset: Int!): [ProjectAnalysis!]!  requirementIndex(projectId: ID! limit: Int! offset: Int!): [RequirementIndex!]! searchRequirements(projectId: ID! text: String! limit: Int!): [RequirementSearchHit!]!  requirements(projectId: ID! limit: Int! offset: Int!): [Requirement!]!  project(id: ID!): Project projects(limit: Int! offset: Int!): [Project!]! }
+type PageInfo { endCursor: String hasNextPage: Boolean! }
+type ProjectEdge { cursor: String! node: Project! }
+type RequirementEdge { cursor: String! node: Requirement! }
+type AnalysisPairEdge { cursor: String! node: AnalysisPair! }
+type ProjectConnection { edges: [ProjectEdge!]! pageInfo: PageInfo! totalCount: Int! }
+type RequirementConnection { edges: [RequirementEdge!]! pageInfo: PageInfo! totalCount: Int! }
+type AnalysisPairConnection { edges: [AnalysisPairEdge!]! pageInfo: PageInfo! totalCount: Int! }
+type Query { projectAnalysis(projectId: ID! analysisId: ID): ProjectAnalysis analysisPairs(projectId: ID! analysisId: ID! limit: Int! offset: Int! status: String! verdict: String!): [AnalysisPair!]! analysisPairsConnection(projectId: ID! analysisId: ID! first: Int after: String status: String verdict: String): AnalysisPairConnection! analysisHistory(projectId: ID! limit: Int! offset: Int!): [ProjectAnalysis!]!  requirementIndex(projectId: ID! limit: Int! offset: Int!): [RequirementIndex!]! searchRequirements(projectId: ID! text: String! limit: Int!): [RequirementSearchHit!]!  requirements(projectId: ID! limit: Int! offset: Int!): [Requirement!]! requirementsConnection(projectId: ID! first: Int after: String): RequirementConnection! project(id: ID!): Project projects(limit: Int! offset: Int!): [Project!]! projectsConnection(first: Int after: String): ProjectConnection! }
 type Mutation { retryProjectAnalysis(projectId: ID! analysisId: ID!): ProjectAnalysis! startProjectAnalysis(projectId: ID! mode: String threshold: Float): ProjectAnalysis!  indexRequirement(projectId: ID! requirementId: ID!): RequirementIndex!  createRequirement(input: CreateRequirementInput!): RequirementPayload! updateRequirement(input: UpdateRequirementInput!): RequirementPayload! deleteRequirement(id: ID! projectId: ID! version: Int!): DeleteRequirementPayload!  createProject(input: ProjectInput!): CreateProjectPayload! }
 
 

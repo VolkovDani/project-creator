@@ -156,5 +156,10 @@
   "analysis.notSelectedPairs": "Не отобрано и не проверено в этом запуске: {count}",
   "analysis.selectionProfile": "Правила отбора: {profile}; профиль embeddings: {embedding}.",
   "analysis.validation.mode": "Выберите допустимый режим анализа.",
-  "analysis.validation.threshold": "Укажите конечное число от {min} до {max}."
+  "analysis.validation.threshold": "Укажите конечное число от {min} до {max}.",
+  "list.mode": "Режим списка",
+  "list.infinite": "Бесконечная прокрутка",
+  "list.pages": "По страницам",
+  "list.more": "Загрузить ещё",
+  "list.total": "Всего: {total}"
 }

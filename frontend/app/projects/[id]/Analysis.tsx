@@ -13,8 +13,9 @@ import { clientCache, query } from '../../../lib/client';
 import {
   AnalysisHistoryDocument,
   type AnalysisHistoryQuery,
+  AnalysisPairConnectionDocument,
   AnalysisPairPageDocument,
-  ProjectAnalysisStatusDocument,
+  ProjectAnalysisSummaryDocument,
   RetryProjectAnalysisDocument,
   StartProjectAnalysisDocument,
 } from '../../../lib/generated';
@@ -22,8 +23,12 @@ import { type Locale, t } from '../../../lib/i18n';
 import { Latest } from '../../../lib/latest';
 import { useInvalidation } from '../../../lib/live';
 import { requirementURL } from '../../../lib/rag';
+import { useInfinite } from '../../../lib/useInfinite';
+import { useListMode } from '../../../lib/useListMode';
 import Group from '../../components/Group';
+import { ListModeSelect, LoadMore } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
+import { VirtualList } from '../../components/VirtualList';
 
 const outcomes: Record<string, string> = {
   possible_collision: 'analysis.outcome.collision',
@@ -95,15 +100,65 @@ function PairGroup({
   locale: Locale;
   onSource?: SourceHandler;
 }) {
+  return (
+    <Group
+      id={`analysis:${projectId}:${group.key}`}
+      title={t(locale, 'analysis.group.count', {
+        name: t(locale, `analysis.group.${group.key}`),
+        count: group.count,
+      })}
+      lazy
+    >
+      <PairList group={group} run={run} projectId={projectId} locale={locale} onSource={onSource} />
+    </Group>
+  );
+}
+function PairList({
+  group,
+  run,
+  projectId,
+  locale,
+  onSource,
+}: {
+  group: AnalysisGroup;
+  run: AnalysisRun;
+  projectId: string;
+  locale: Locale;
+  onSource?: SourceHandler;
+}) {
+  const { mode, setMode } = useListMode();
+  const loader = useCallback(
+    async (after: string | null) =>
+      (
+        await query(AnalysisPairConnectionDocument, {
+          projectId,
+          analysisId: run.id,
+          first: 40,
+          after,
+          ...groupFilter(group.key),
+        })
+      ).analysisPairsConnection,
+    [projectId, run.id, group.key],
+  );
+  const infinite = useInfinite({
+    identity: `pairs:${projectId}:${run.id}:${group.key}`,
+    tags: [`project:${projectId}`, `project:${projectId}:requirements`],
+    load: loader,
+    enabled: mode === 'infinite',
+  });
+  const more = useCallback(() => {
+    if (!infinite.loading && !infinite.error && infinite.hasNextPage)
+      void infinite.loadMore().catch(() => {});
+  }, [infinite.loading, infinite.error, infinite.hasNextPage, infinite.loadMore]);
   const [offset, setOffset] = useState(0);
-  const [pairs, setPairs] = useState<AnalysisPairView[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [pagedPairs, setPairs] = useState<AnalysisPairView[]>([]);
+  const [pageLoading, setLoading] = useState(true);
+  const [pageError, setError] = useState(false);
   const latest = useRef(new Latest());
   const load = useCallback(async () => {
+    if (mode !== 'pages') return;
     const generation = latest.current.begin();
     setLoading(true);
-    setPairs([]);
     try {
       const data = await query(AnalysisPairPageDocument, {
         projectId,
@@ -118,13 +173,12 @@ function PairGroup({
       }
     } catch {
       if (latest.current.isCurrent(generation)) {
-        setPairs([]);
         setError(true);
       }
     } finally {
       if (latest.current.isCurrent(generation)) setLoading(false);
     }
-  }, [projectId, run, offset, group.key]);
+  }, [projectId, run, offset, group.key, mode]);
   useEffect(() => {
     void load();
     return () => latest.current.invalidate();
@@ -133,118 +187,129 @@ function PairGroup({
     if (offset >= group.count && offset > 0)
       setOffset(Math.max(0, Math.floor((group.count - 1) / 20) * 20));
   }, [group.count, offset]);
+  const pairs = mode === 'pages' ? pagedPairs : infinite.rows;
+  const loading = mode === 'pages' ? pageLoading : infinite.loading;
+  const error = mode === 'pages' ? pageError : infinite.error;
   return (
-    <Group
-      id={`analysis:${projectId}:${group.key}`}
-      title={t(locale, 'analysis.group.count', {
-        name: t(locale, `analysis.group.${group.key}`),
-        count: group.count,
-      })}
-    >
+    <>
+      <ListModeSelect locale={locale} mode={mode} onChange={setMode} />
       <ResourceState
         locale={locale}
         loading={loading}
         error={error}
-        hasData={!loading && !error}
-        retry={() => void load()}
+        hasData={mode === 'pages' ? pagedPairs.length > 0 || !pageLoading : infinite.loaded}
+        retry={() => {
+          if (mode === 'pages') void load();
+          else void infinite.retry().catch(() => {});
+        }}
       />
       {!loading && !error && group.count === 0 && (
         <p className="muted">{t(locale, 'analysis.group.empty')}</p>
       )}
-      {pairs.map((pair) => (
-        <article
-          className={`card analysis-pair${pair.status === 'running' ? ' analysis-pair-current' : ''}`}
-          key={pair.id}
-          data-pair-id={pair.id}
-          aria-label={t(locale, 'analysis.pair.position', { number: pair.position + 1 })}
-        >
-          <h4>{t(locale, 'analysis.pair.position', { number: pair.position + 1 })}</h4>
-          {pair.status === 'completed' && (
-            <p>{t(locale, verdicts[pair.verdict] || 'analysis.verdict.insufficient')}</p>
-          )}
-          {(pair.status === 'pending' || pair.status === 'running') && (
-            <p role="status">{t(locale, `analysis.pair.${pair.status}`)}</p>
-          )}
-          {pair.status === 'failed' && (
-            <p className="error">
-              {t(
-                locale,
-                pair.errorCode === 'NOT_PROCESSED'
-                  ? 'analysis.pair.notProcessed'
-                  : 'analysis.pair.failed',
-              )}
-            </p>
-          )}
-          <SavedSource
-            projectId={projectId}
-            source={pair.left}
-            locale={locale}
-            onSource={onSource}
-          />
-          <SavedSource
-            projectId={projectId}
-            source={pair.right}
-            locale={locale}
-            onSource={onSource}
-          />
-          {pair.verdict === 'duplicate' && (
-            <p>
-              {t(
-                locale,
-                pair.resultOrigin === 'exact_text_v1'
-                  ? 'analysis.duplicate.exact'
-                  : 'analysis.duplicate.possible',
-              )}
-            </p>
-          )}
-          {pair.explanation && (
-            <p>
-              {pair.resultOrigin === 'exact_text_v1'
-                ? t(locale, 'analysis.exactDuplicateExplanation')
-                : pair.explanation}
-            </p>
-          )}
-          {pair.selectionReasons.length > 0 && (
-            <p>
-              {t(locale, 'analysis.selectionReasons')}{' '}
-              {pair.selectionReasons
-                .map((reason) =>
-                  t(
-                    locale,
-                    ['exact_text', 'semantic_similarity', 'shared_terms', 'all_pairs'].includes(
-                      reason,
-                    )
-                      ? `analysis.selection.${reason}`
-                      : 'analysis.selection.unknown',
-                  ),
-                )
-                .join('; ')}
-            </p>
-          )}
-          {pair.similarityScore != null && (
-            <p>
-              {t(locale, 'analysis.similarityScore', { score: pair.similarityScore.toFixed(4) })}
-            </p>
-          )}
-          {pair.resultOrigin && (
-            <p className="muted">
-              {t(
-                locale,
-                pair.resultOrigin === 'exact_text_v1'
-                  ? 'analysis.origin.exact'
-                  : 'analysis.origin.model',
-              )}
-            </p>
-          )}
-          {pair.checkedAt && (
-            <p className="muted">{t(locale, 'analysis.checkedAt', { time: pair.checkedAt })}</p>
-          )}
-          {pair.reusedFrom && (
-            <p className="muted">{t(locale, 'analysis.reusedFrom', { id: pair.reusedFrom })}</p>
-          )}
-        </article>
-      ))}
-      {group.count > 20 && (
+      <VirtualList
+        identity={`pairs:${projectId}:${run.id}:${group.key}:${mode}:${offset}`}
+        overscan={mode === 'pages' ? 20 : 4}
+        items={pairs}
+        keyOf={(pair) => pair.id}
+        onEndReached={mode === 'infinite' ? more : undefined}
+        restoreScroll={false}
+        estimatedRowHeight={650}
+        renderItem={(pair) => (
+          <article
+            className={`card analysis-pair${pair.status === 'running' ? ' analysis-pair-current' : ''}`}
+            key={pair.id}
+            data-pair-id={pair.id}
+            aria-label={t(locale, 'analysis.pair.position', { number: pair.position + 1 })}
+          >
+            <h4>{t(locale, 'analysis.pair.position', { number: pair.position + 1 })}</h4>
+            {pair.status === 'completed' && (
+              <p>{t(locale, verdicts[pair.verdict] || 'analysis.verdict.insufficient')}</p>
+            )}
+            {(pair.status === 'pending' || pair.status === 'running') && (
+              <p role="status">{t(locale, `analysis.pair.${pair.status}`)}</p>
+            )}
+            {pair.status === 'failed' && (
+              <p className="error">
+                {t(
+                  locale,
+                  pair.errorCode === 'NOT_PROCESSED'
+                    ? 'analysis.pair.notProcessed'
+                    : 'analysis.pair.failed',
+                )}
+              </p>
+            )}
+            <SavedSource
+              projectId={projectId}
+              source={pair.left}
+              locale={locale}
+              onSource={onSource}
+            />
+            <SavedSource
+              projectId={projectId}
+              source={pair.right}
+              locale={locale}
+              onSource={onSource}
+            />
+            {pair.verdict === 'duplicate' && (
+              <p>
+                {t(
+                  locale,
+                  pair.resultOrigin === 'exact_text_v1'
+                    ? 'analysis.duplicate.exact'
+                    : 'analysis.duplicate.possible',
+                )}
+              </p>
+            )}
+            {pair.explanation && (
+              <p>
+                {pair.resultOrigin === 'exact_text_v1'
+                  ? t(locale, 'analysis.exactDuplicateExplanation')
+                  : pair.explanation}
+              </p>
+            )}
+            {pair.selectionReasons.length > 0 && (
+              <p>
+                {t(locale, 'analysis.selectionReasons')}{' '}
+                {pair.selectionReasons
+                  .map((reason) =>
+                    t(
+                      locale,
+                      ['exact_text', 'semantic_similarity', 'shared_terms', 'all_pairs'].includes(
+                        reason,
+                      )
+                        ? `analysis.selection.${reason}`
+                        : 'analysis.selection.unknown',
+                    ),
+                  )
+                  .join('; ')}
+              </p>
+            )}
+            {pair.similarityScore != null && (
+              <p>
+                {t(locale, 'analysis.similarityScore', { score: pair.similarityScore.toFixed(4) })}
+              </p>
+            )}
+            {pair.resultOrigin && (
+              <p className="muted">
+                {t(
+                  locale,
+                  pair.resultOrigin === 'exact_text_v1'
+                    ? 'analysis.origin.exact'
+                    : 'analysis.origin.model',
+                )}
+              </p>
+            )}
+            {pair.checkedAt && (
+              <p className="muted">{t(locale, 'analysis.checkedAt', { time: pair.checkedAt })}</p>
+            )}
+            {pair.reusedFrom && (
+              <p className="muted">{t(locale, 'analysis.reusedFrom', { id: pair.reusedFrom })}</p>
+            )}
+          </article>
+        )}
+      />
+      {mode === 'infinite' && <LoadMore locale={locale} {...infinite} loadMore={more} />}
+      {mode === 'pages' && group.count > 20 && (
         <nav
           aria-label={t(locale, 'analysis.pages', {
             name: t(locale, `analysis.group.${group.key}`),
@@ -273,7 +338,7 @@ function PairGroup({
           </button>
         </nav>
       )}
-    </Group>
+    </>
   );
 }
 
@@ -313,7 +378,7 @@ export default function Analysis({
     const epoch = operation.current;
     try {
       const [data, past] = await Promise.all([
-        query(ProjectAnalysisStatusDocument, { projectId, analysisId: selected || null }),
+        query(ProjectAnalysisSummaryDocument, { projectId, analysisId: selected || null }),
         query(AnalysisHistoryDocument, { projectId, limit: 20, offset: historyOffset }),
       ]);
       if (
@@ -322,15 +387,13 @@ export default function Analysis({
         operation.current === epoch &&
         latest.current.isCurrent(generation)
       ) {
-        setRun(data.projectAnalysis);
+        setRun(data.projectAnalysis ? { ...data.projectAnalysis, pairs: [], findings: [] } : null);
         setHistory(past.analysisHistory);
         setError(false);
       }
     } catch {
       if (active.current && operation.current === epoch && latest.current.isCurrent(generation)) {
         setError(true);
-        setRun(undefined);
-        setHistory([]);
       }
     } finally {
       if (active.current && latest.current.isCurrent(generation)) setLoading(false);
@@ -380,7 +443,7 @@ export default function Analysis({
             ).startProjectAnalysis;
       if (active.current && context.current === projectId && operation.current === epoch) {
         latest.current.invalidate();
-        setRun(next);
+        setRun({ ...next, pairs: [], findings: [] });
         setSelected('');
         void load();
       }

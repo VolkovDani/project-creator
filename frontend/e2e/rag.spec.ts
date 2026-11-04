@@ -1,5 +1,18 @@
 import { expect, test } from '@playwright/test';
 
+function connection<T extends { id: string }>(rows: T[], variables: Record<string, unknown>) {
+  const offset = variables.after ? Number(String(variables.after).replace('cursor-', '')) : 0;
+  const batch = rows.slice(offset, offset + Number(variables.first ?? 40));
+  return {
+    edges: batch.map((node, index) => ({ cursor: `cursor-${offset + index + 1}`, node })),
+    pageInfo: {
+      endCursor: batch.length ? `cursor-${offset + batch.length}` : null,
+      hasNextPage: offset + batch.length < rows.length,
+    },
+    totalCount: rows.length,
+  };
+}
+
 test('index retry and search are explicit and retain versioned sources', async ({ page }) => {
   let indexCalls = 0,
     searchCalls = 0;
@@ -9,7 +22,7 @@ test('index retry and search are explicit and retain versioned sources', async (
     route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': heartbeat\n\n' }),
   );
   await page.route('**/api/graphql', async (route) => {
-    const { query } = route.request().postDataJSON();
+    const { query, variables } = route.request().postDataJSON();
     let data: unknown;
     if (query.includes('indexRequirement(')) {
       indexCalls++;
@@ -53,7 +66,23 @@ test('index retry and search are explicit and retain versioned sources', async (
           },
         ],
       };
-    } else if (query.includes('requirements('))
+    } else if (query.includes('requirementsConnection('))
+      data = {
+        requirementsConnection: connection(
+          [
+            {
+              id: 'source-1',
+              projectId: 'demo',
+              text,
+              version: 2,
+              createdAt: 'now',
+              updatedAt: 'now',
+            },
+          ],
+          variables,
+        ),
+      };
+    else if (query.includes('requirements('))
       data = {
         requirements: [
           {
@@ -131,6 +160,8 @@ test('search source opens the requirement on another list page', async ({ page }
           },
         ],
       };
+    else if (query.includes('requirementsConnection('))
+      data = { requirementsConnection: connection(requirements, variables) };
     else if (query.includes('requirements('))
       data = {
         requirements: requirements.slice(variables.offset, variables.offset + variables.limit),
@@ -180,7 +211,13 @@ test('navigation away cancels a delayed source scan', async ({ page }) => {
     const { query, variables } = route.request().postDataJSON();
     let data: unknown;
     if (query.includes('requirementIndex(')) data = { requirementIndex: [] };
-    else if (query.includes('requirements(')) {
+    else if (query.includes('requirementsConnection(')) {
+      if (variables.first === 100) {
+        started();
+        await pending;
+      }
+      data = { requirementsConnection: connection(requirements, variables) };
+    } else if (query.includes('requirements(')) {
       if (variables.limit === 100) {
         started();
         await pending;
@@ -220,7 +257,7 @@ test('requirement draft is locked until its save response completes', async ({ p
     route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': heartbeat\n\n' }),
   );
   await page.route('**/api/graphql', async (route) => {
-    const { query } = route.request().postDataJSON();
+    const { query, variables } = route.request().postDataJSON();
     let data: unknown;
     if (query.includes('createRequirement(')) {
       started();
@@ -231,6 +268,8 @@ test('requirement draft is locked until its save response completes', async ({ p
     } else if (query.includes('analysisHistory(')) data = { analysisHistory: [] };
     else if (query.includes('projectAnalysis(')) data = { projectAnalysis: null };
     else if (query.includes('requirementIndex(')) data = { requirementIndex: [] };
+    else if (query.includes('requirementsConnection('))
+      data = { requirementsConnection: connection([], variables) };
     else if (query.includes('requirements(')) data = { requirements: [] };
     else
       data = {

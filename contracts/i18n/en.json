@@ -1,4 +1,8 @@
 {
+  "analysis.cancel": "Cancel analysis of all pairs",
+  "analysis.status.cancelled": "Analysis cancelled",
+  "analysis.pair.cancelled": "Pair check cancelled",
+  "analysis.cancelledHelp": "All unfinished checks have been cancelled. Completed results are saved.",
   "validation.required": "This field is required",
   "validation.maxLength": "Maximum length: {max} characters",
   "validation.invalidEncoding": "This field contains invalid text",

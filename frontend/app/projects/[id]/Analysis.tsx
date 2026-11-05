@@ -15,6 +15,7 @@ import {
   type AnalysisHistoryQuery,
   AnalysisPairConnectionDocument,
   AnalysisPairPageDocument,
+  CancelProjectAnalysisDocument,
   ProjectAnalysisSummaryDocument,
   RetryProjectAnalysisDocument,
   StartProjectAnalysisDocument,
@@ -232,9 +233,11 @@ function PairList({
               <p className="error">
                 {t(
                   locale,
-                  pair.errorCode === 'NOT_PROCESSED'
-                    ? 'analysis.pair.notProcessed'
-                    : 'analysis.pair.failed',
+                  pair.errorCode === 'CANCELLED'
+                    ? 'analysis.pair.cancelled'
+                    : pair.errorCode === 'NOT_PROCESSED'
+                      ? 'analysis.pair.notProcessed'
+                      : 'analysis.pair.failed',
                 )}
               </p>
             )}
@@ -424,23 +427,26 @@ export default function Analysis({
       setError(false);
     },
   );
-  async function start(retry = false) {
+  async function changeAnalysis(action: 'start' | 'retry' | 'cancel' = 'start') {
     const epoch = ++operation.current;
     latest.current.invalidate();
     setBusy(true);
     setError(false);
     try {
       const next =
-        retry && run
-          ? (await query(RetryProjectAnalysisDocument, { projectId, analysisId: run.id }))
-              .retryProjectAnalysis
-          : (
-              await query(StartProjectAnalysisDocument, {
-                projectId,
-                mode,
-                threshold: thresholdValue,
-              })
-            ).startProjectAnalysis;
+        action === 'cancel' && run
+          ? (await query(CancelProjectAnalysisDocument, { projectId, analysisId: run.id }))
+              .cancelProjectAnalysis
+          : action === 'retry' && run
+            ? (await query(RetryProjectAnalysisDocument, { projectId, analysisId: run.id }))
+                .retryProjectAnalysis
+            : (
+                await query(StartProjectAnalysisDocument, {
+                  projectId,
+                  mode,
+                  threshold: thresholdValue,
+                })
+              ).startProjectAnalysis;
       if (active.current && context.current === projectId && operation.current === epoch) {
         latest.current.invalidate();
         setRun({ ...next, pairs: [], findings: [] });
@@ -461,7 +467,9 @@ export default function Analysis({
     status === 'running'
       ? 'analysis.status.running'
       : status === 'failed'
-        ? 'analysis.status.failed'
+        ? run?.errorCode === 'CANCELLED'
+          ? 'analysis.status.cancelled'
+          : 'analysis.status.failed'
         : status === 'completed'
           ? 'analysis.status.completed'
           : undefined;
@@ -508,7 +516,7 @@ export default function Analysis({
       <button
         type="button"
         disabled={!validSelection || busy || run?.status === 'running'}
-        onClick={() => void start()}
+        onClick={() => void changeAnalysis()}
       >
         {t(locale, busy ? 'analysis.starting' : run ? 'analysis.newRun' : 'analysis.start')}
       </button>
@@ -547,6 +555,11 @@ export default function Analysis({
         </div>
       )}
       {run?.status === 'running' && (
+        <button type="button" disabled={busy} onClick={() => void changeAnalysis('cancel')}>
+          {t(locale, 'analysis.cancel')}
+        </button>
+      )}
+      {run?.status === 'running' && (
         <button
           type="button"
           disabled={busy}
@@ -556,7 +569,7 @@ export default function Analysis({
         </button>
       )}
       {retryable && (
-        <button type="button" disabled={busy} onClick={() => void start(true)}>
+        <button type="button" disabled={busy} onClick={() => void changeAnalysis('retry')}>
           {t(locale, 'analysis.retryFailed')}
         </button>
       )}
@@ -657,7 +670,10 @@ export default function Analysis({
             </ul>
           </fieldset>
         )}
-      {run?.status === 'failed' && <p>{t(locale, 'analysis.failureHelp')}</p>}
+      {run?.errorCode === 'CANCELLED' && <p>{t(locale, 'analysis.cancelledHelp')}</p>}
+      {run?.status === 'failed' && run.errorCode !== 'CANCELLED' && (
+        <p>{t(locale, 'analysis.failureHelp')}</p>
+      )}
       {retryable && <p>{t(locale, 'analysis.retryFailedHelp')}</p>}
       {run && (
         <>

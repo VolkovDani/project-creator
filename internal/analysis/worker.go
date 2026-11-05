@@ -131,6 +131,14 @@ func (s *Service) claim(conn *sql.Conn) (string, *Run, error) {
 func (s *Service) process(lockConnection *sql.Conn, workspace string, r *Run) {
 	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
+	s.workersMu.Lock()
+	s.workers[r.ID] = cancel
+	s.workersMu.Unlock()
+	defer func() {
+		s.workersMu.Lock()
+		delete(s.workers, r.ID)
+		s.workersMu.Unlock()
+	}()
 	heartbeatDone := make(chan struct{})
 	go func() {
 		defer close(heartbeatDone)

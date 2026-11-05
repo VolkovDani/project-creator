@@ -83,12 +83,14 @@ type Service struct {
 	done               chan struct{}
 	wake               chan struct{}
 	closeOnce          sync.Once
+	workersMu          sync.Mutex
+	workers            map[string]context.CancelFunc
 }
 
 func New(db *sql.DB, retriever *rag.Service, generator Generator, embeddingProfile string) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{db: db, retriever: retriever, generator: generator, embeddingProfile: embeddingProfile,
-		timeout: 120 * time.Second, preparationTimeout: 180 * time.Second, heartbeatInterval: 5 * time.Second, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1)}
+		timeout: 120 * time.Second, preparationTimeout: 180 * time.Second, heartbeatInterval: 5 * time.Second, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), workers: make(map[string]context.CancelFunc)}
 	go s.work()
 	return s
 }
@@ -154,7 +156,7 @@ const runColumns = `id,project_id,status,outcome,error_code,generator_profile,em
  created_at,completed_at,reason_code,missing_requirement_ids,stage,total_pairs,processed_pairs,active_pair_id,
  coalesce((SELECT jsonb_agg(` + pairJSON + ` ORDER BY p.position) FROM (SELECT * FROM analysis_pairs WHERE run_id=analysis_runs.id ORDER BY position LIMIT 100) p),'[]'::jsonb),
  incomplete,worker_id,generator_provenance,mode,similarity_threshold,selection_profile,possible_pairs,pair_cursor_left,pair_cursor_right,full_queue,
- (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),count(*) FILTER(WHERE status='completed' OR (status='failed' AND error_code<>'NOT_PROCESSED'))) FROM analysis_pairs WHERE run_id=analysis_runs.id)`
+ (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs) FROM analysis_pairs WHERE run_id=analysis_runs.id)`
 
 func scanRun(row *sql.Row) (*Run, error) {
 	r := &Run{Sources: []Source{}, Findings: []Finding{}, Pairs: []PairResult{}, MissingRequirementIDs: []string{}}

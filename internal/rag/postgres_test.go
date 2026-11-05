@@ -129,6 +129,44 @@ func TestIndexLifecycleProfileAndIsolation(t *testing.T) {
 	}
 }
 
+func TestQueueIndexesExistingAndNewRequirements(t *testing.T) {
+	ctx := context.Background()
+	db := ragDB(t)
+	embedder := &fakeEmbedder{profile: "model:queue"}
+	s := New(db, embedder)
+	if err := s.StartQueue([]string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	waitReady := func(total int) Progress {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			progress, err := s.Summary(ctx, "a", "p")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if progress.Total == total && progress.Ready == total {
+				return progress
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		progress, _ := s.Summary(ctx, "a", "p")
+		t.Fatalf("queue did not index existing requirement: %+v", progress)
+		return Progress{}
+	}
+	if progress := waitReady(1); progress.Profile != "model:queue" || !progress.Configured {
+		t.Fatalf("summary: %+v", progress)
+	}
+	if _, err := db.Exec(`INSERT INTO requirements VALUES('new','a','p','New queued requirement',1,'later','later')`); err != nil {
+		t.Fatal(err)
+	}
+	progress := waitReady(2)
+	if progress.Total != 2 || progress.Ready != 2 {
+		t.Fatalf("new requirement not queued: %+v", progress)
+	}
+}
+
 func TestStatusByIDsScopesAndValidatesBatch(t *testing.T) {
 	ctx := context.Background()
 	db := ragDB(t)
@@ -205,7 +243,7 @@ func TestIndexConcurrentAndStaleVersionDiscard(t *testing.T) {
 	go func() { state, err := s.Index(ctx, "a", "p", "r"); done <- result{state, err} }()
 	<-embedder.started
 	second, err := s.Index(ctx, "a", "p", "r")
-	if err != nil || second.Status != "pending" || embedder.calls != 1 {
+	if err != nil || second.Status != "running" || embedder.calls != 1 {
 		close(embedder.release)
 		t.Fatalf("duplicate job: %+v %v", second, err)
 	}

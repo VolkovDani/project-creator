@@ -8,13 +8,29 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
-type selectionAPIEmbedding struct{ calls atomic.Int32 }
+type selectionAPIEmbedding struct {
+	calls   atomic.Int32
+	entered chan struct{}
+	release chan struct{}
+}
 
 func (e *selectionAPIEmbedding) Profile() string { return "api-selection-v1" }
-func (e *selectionAPIEmbedding) Embed(_ context.Context, texts []string) ([][]float32, error) {
+func (e *selectionAPIEmbedding) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	e.calls.Add(1)
+	if e.entered != nil {
+		select {
+		case e.entered <- struct{}{}:
+		default:
+		}
+		select {
+		case <-e.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	out := make([][]float32, len(texts))
 	for i, text := range texts {
 		out[i] = make([]float32, 1024)
@@ -28,7 +44,7 @@ func (e *selectionAPIEmbedding) Embed(_ context.Context, texts []string) ([][]fl
 }
 
 func TestGraphQLQueueSelectionDuplicatesPagesAndHistory(t *testing.T) {
-	embedder := &selectionAPIEmbedding{}
+	embedder := &selectionAPIEmbedding{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	generator := &collisionGenerator{}
 	s, err := NewWithProviders(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"}, embedder, generator)
 	if err != nil {
@@ -37,6 +53,11 @@ func TestGraphQLQueueSelectionDuplicatesPagesAndHistory(t *testing.T) {
 	defer s.Close()
 	if _, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now');INSERT INTO requirements VALUES('a','a','p','Payments must use cards.',1,'now','now'),('b','a','p',E'Payments  must\nuse cards.',2,'now','now'),('c','a','p','Satellite telemetry expires daily.',1,'now','now')`); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-embedder.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("automatic indexing did not start")
 	}
 	request := func(token, query string) map[string]any {
 		t.Helper()
@@ -65,11 +86,16 @@ func TestGraphQLQueueSelectionDuplicatesPagesAndHistory(t *testing.T) {
 	if missing["mode"] != "related" || missing["similarityThreshold"] != .65 || missing["status"] != "failed" || missing["reasonCode"] != "INDEX_INCOMPLETE" || missing["totalPairs"] != nil || generator.calls.Load() != 0 {
 		t.Fatalf("default related preparation: %v", missing)
 	}
+	close(embedder.release)
+	if got := waitForIndexQueueReady(t, s, "token-a", "p", 3); got["ready"] != float64(3) {
+		t.Fatalf("automatic indexing did not finish: %v", got)
+	}
+	embedCallsBeforeFull := embedder.calls.Load()
 	data(`mutation{startProjectAnalysis(projectId:"p",mode:"all"){id mode}}`, "startProjectAnalysis")
 	full := waitAnalysis(t, authorized, "p")
 	fullID := full["id"].(string)
-	if full["status"] != "completed" || full["mode"] != "all" || full["possiblePairs"] != float64(3) || full["totalPairs"] != float64(3) || full["notSelectedPairs"] != float64(0) || full["duplicatePairs"] != float64(1) || full["collisionPairs"] != float64(2) || full["completedPairs"] != float64(3) || full["newPairs"] != float64(3) || generator.calls.Load() != 2 || embedder.calls.Load() != 0 {
-		t.Fatalf("full mode must compare only non-exact pairs without indexing: %v calls=%d embeddings=%d", full, generator.calls.Load(), embedder.calls.Load())
+	if full["status"] != "completed" || full["mode"] != "all" || full["possiblePairs"] != float64(3) || full["totalPairs"] != float64(3) || full["notSelectedPairs"] != float64(0) || full["duplicatePairs"] != float64(1) || full["collisionPairs"] != float64(2) || full["completedPairs"] != float64(3) || full["newPairs"] != float64(3) || generator.calls.Load() != 2 || embedder.calls.Load() != embedCallsBeforeFull {
+		t.Fatalf("full mode must compare only non-exact pairs without adding embedding calls: %v calls=%d embeddings=%d before=%d", full, generator.calls.Load(), embedder.calls.Load(), embedCallsBeforeFull)
 	}
 	pairQuery := func(id, verdict string, offset int) string {
 		t.Helper()

@@ -8,3 +8,9 @@ query RequirementIndexByIds($projectId: ID!, $requirementIds: [ID!]!) {
     errorCode
   }
 }
+
+query RequirementIndexProgress($projectId: ID!) {
+  requirementIndexProgress(projectId: $projectId) {
+    projectId total queued running ready failed profile configured
+  }
+}

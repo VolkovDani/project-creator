@@ -86,6 +86,9 @@ type AnalysisPairConnection struct {
 	PageInfo   *PageInfo
 	TotalCount int32
 }
+type RequirementIndexProgressArgs struct {
+	ProjectId graphql.ID
+}
 type ProjectAnalysisArgs struct {
 	ProjectId  graphql.ID
 	AnalysisId *graphql.ID
@@ -256,4 +259,14 @@ type ProjectAnalysis struct {
 	EmbeddingProfile      string
 	Sources               []*AnalysisSource
 	Findings              []*AnalysisFinding
+}
+type RequirementIndexProgress struct {
+	ProjectId  graphql.ID
+	Total      int32
+	Queued     int32
+	Running    int32
+	Ready      int32
+	Failed     int32
+	Profile    string
+	Configured bool
 }

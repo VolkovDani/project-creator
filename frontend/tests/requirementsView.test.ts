@@ -53,6 +53,6 @@ test('index summary is page scoped and outdated index versions stay pending', ()
       { requirementId: 'b', version: 1, status: 'ready' },
       { requirementId: 'c', version: 1, status: 'failed' },
     ]),
-    { total: 4, ready: 1, pending: 2, failed: 1 },
+    { total: 4, ready: 1, pending: 2, running: 0, failed: 1 },
   );
 });

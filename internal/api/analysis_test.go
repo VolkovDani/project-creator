@@ -43,7 +43,7 @@ func (g *collisionGenerator) Compare(ctx context.Context, pair analysis.Pair) (a
 }
 
 func TestGraphQLAnalysisPreservesSourcesAndScope(t *testing.T) {
-	embedder := &deterministicEmbedding{}
+	embedder := &deterministicEmbedding{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	generator := &collisionGenerator{}
 	s, err := NewWithProviders(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"}, embedder, generator)
 	if err != nil {
@@ -52,6 +52,11 @@ func TestGraphQLAnalysisPreservesSourcesAndScope(t *testing.T) {
 	defer s.Close()
 	if _, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now');INSERT INTO requirements VALUES('r1','a','p','Оплата разрешена только картой.',1,'now','now'),('r2','a','p','Оплата разрешена только наличными.',1,'now','now')`); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-embedder.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("automatic indexing did not start")
 	}
 	run := func(token, q string) map[string]any {
 		t.Helper()
@@ -80,6 +85,8 @@ func TestGraphQLAnalysisPreservesSourcesAndScope(t *testing.T) {
 	if deniedDiagnostic["errors"] == nil {
 		t.Fatal("cross-workspace diagnostics exposed")
 	}
+	close(embedder.release)
+	waitForIndexQueueReady(t, s, "token-a", "p", 2)
 	for _, id := range []string{"r1", "r2"} {
 		out := run("token-a", `mutation{indexRequirement(projectId:"p",requirementId:"`+id+`"){status}}`)
 		if out["errors"] != nil {

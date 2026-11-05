@@ -115,7 +115,7 @@
   "ui.currentPage": "On this page",
   "ui.requirementsGroup": "Requirements list",
   "ui.indexing": "Requirement indexing",
-  "ui.indexSummary": "Total: {total} · Ready: {ready} · Pending: {pending} · Failed: {failed}",
+  "ui.indexSummary": "Total: {total} · Ready: {ready} · Pending: {pending} · Running: {running} · Failed: {failed}",
   "ui.sourceNotFound": "The source requirement is no longer available.",
   "ui.searchResults": "Search results: {count}",
   "ui.requirementCount": "On this page: {count}",
@@ -162,5 +162,11 @@
   "list.pages": "Pages",
   "list.more": "Load more",
   "list.total": "Total: {total}",
-  "list.loaded": "Loaded: {count} of {total}"
+  "list.loaded": "Loaded: {count} of {total}",
+  "rag.status.running": "indexing",
+  "rag.progressTitle": "Project indexing progress",
+  "rag.autoIndexHelp": "New and edited requirements are indexed automatically in the background. Failed attempts can be retried manually. Requirement analysis starts separately.",
+  "rag.progressCounts": "Ready: {ready} of {total} · Queued: {queued} · Running: {running} · Failed: {failed}",
+  "rag.progressFailed": "Could not refresh overall indexing progress. Last values may be stale.",
+  "rag.progressRetry": "Refresh progress"
 }

@@ -7,7 +7,7 @@ import Group from '../../components/Group';
 import { VirtualList } from '../../components/VirtualList';
 import { RequirementIndexAction } from './RagTools';
 
-const statuses = ['failed', 'pending', 'ready'] as const;
+const statuses = ['failed', 'running', 'pending', 'ready'] as const;
 
 export default function IndexGroups({
   projectId,

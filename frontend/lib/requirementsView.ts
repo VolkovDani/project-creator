@@ -21,7 +21,7 @@ export function summarizeIndex(
   rows: ReadonlyArray<{ id: string; version: number }>,
   entries: ReadonlyArray<{ requirementId: string; version: number; status: string }>,
 ) {
-  const counts = { total: rows.length, ready: 0, pending: 0, failed: 0 };
+  const counts = { total: rows.length, ready: 0, pending: 0, running: 0, failed: 0 };
   for (const row of rows)
     counts[
       indexStatus(

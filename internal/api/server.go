@@ -14,6 +14,7 @@ import (
 	"github.com/graph-gophers/graphql-go/relay"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -21,6 +22,7 @@ type Server struct {
 	db       *sql.DB
 	h        http.Handler
 	analysis *analysis.Service
+	indexing *rag.Service
 }
 
 func New(path string, tokens map[string]string) (*Server, error) {
@@ -55,13 +57,28 @@ func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedd
 		db.Close()
 		return nil, err
 	}
+	workspaces := make([]string, 0, len(tokens))
+	seen := map[string]bool{}
+	for _, ws := range tokens {
+		if !seen[ws] {
+			workspaces = append(workspaces, ws)
+			seen[ws] = true
+		}
+	}
+	sort.Strings(workspaces)
+	if err = retriever.StartQueue(workspaces); err != nil {
+		analyzer.Close()
+		db.Close()
+		return nil, errors.New("index queue startup unavailable")
+	}
 	if err = announceStartup(db, tokens); err != nil {
+		retriever.Close()
 		analyzer.Close()
 		db.Close()
 		return nil, errors.New("startup cache invalidation unavailable")
 	}
 	h := &relay.Handler{Schema: schema}
-	return &Server{db: db, analysis: analyzer, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return &Server{db: db, analysis: analyzer, indexing: retriever, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/graphql" && r.URL.Path != "/events" {
 			http.NotFound(w, r)
 			return
@@ -115,4 +132,8 @@ func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedd
 	})}, nil
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.h.ServeHTTP(w, r) }
-func (s *Server) Close() error                                     { s.analysis.Close(); return s.db.Close() }
+func (s *Server) Close() error {
+	s.analysis.Close()
+	s.indexing.Close()
+	return s.db.Close()
+}

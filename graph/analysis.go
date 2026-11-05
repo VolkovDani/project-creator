@@ -10,7 +10,7 @@ import (
 )
 
 func projectAnalysis(value analysis.Run) *ProjectAnalysis {
-	out := &ProjectAnalysis{Mode: value.Mode, SimilarityThreshold: value.SimilarityThreshold, SelectionProfile: value.SelectionProfile, DuplicatePairs: int32(value.DuplicatePairs), ReusedPairs: int32(value.ReusedPairs), NewPairs: int32(value.NewPairs), CompletedPairs: int32(value.CompletedPairs), PendingPairs: int32(value.PendingPairs), RunningPairs: int32(value.RunningPairs), FailedPairs: int32(value.FailedPairs), CollisionPairs: int32(value.CollisionPairs), CompatiblePairs: int32(value.CompatiblePairs), InsufficientPairs: int32(value.InsufficientPairs), GeneratorProvenance: value.GeneratorProvenance, Stage: value.Stage, ProcessedPairs: int32(value.ProcessedPairs), ActivePairId: graphql.ID(value.ActivePairID), Pairs: []*AnalysisPair{}, ReasonCode: value.ReasonCode, MissingRequirementIds: []graphql.ID{}, ID: graphql.ID(value.ID), ProjectId: graphql.ID(value.ProjectID), Status: value.Status, Outcome: value.Outcome, ErrorCode: value.ErrorCode, CreatedAt: value.CreatedAt, CompletedAt: value.CompletedAt, Stale: value.Stale, GeneratorProfile: value.GeneratorProfile, EmbeddingProfile: value.EmbeddingProfile, Sources: []*AnalysisSource{}, Findings: []*AnalysisFinding{}}
+	out := &ProjectAnalysis{Revision: value.Revision, Mode: value.Mode, SimilarityThreshold: value.SimilarityThreshold, SelectionProfile: value.SelectionProfile, DuplicatePairs: int32(value.DuplicatePairs), ReusedPairs: int32(value.ReusedPairs), NewPairs: int32(value.NewPairs), CompletedPairs: int32(value.CompletedPairs), PendingPairs: int32(value.PendingPairs), RunningPairs: int32(value.RunningPairs), FailedPairs: int32(value.FailedPairs), CollisionPairs: int32(value.CollisionPairs), CompatiblePairs: int32(value.CompatiblePairs), InsufficientPairs: int32(value.InsufficientPairs), GeneratorProvenance: value.GeneratorProvenance, Stage: value.Stage, ProcessedPairs: int32(value.ProcessedPairs), ActivePairId: graphql.ID(value.ActivePairID), Pairs: []*AnalysisPair{}, ReasonCode: value.ReasonCode, MissingRequirementIds: []graphql.ID{}, ID: graphql.ID(value.ID), ProjectId: graphql.ID(value.ProjectID), Status: value.Status, Outcome: value.Outcome, ErrorCode: value.ErrorCode, CreatedAt: value.CreatedAt, CompletedAt: value.CompletedAt, Stale: value.Stale, GeneratorProfile: value.GeneratorProfile, EmbeddingProfile: value.EmbeddingProfile, Sources: []*AnalysisSource{}, Findings: []*AnalysisFinding{}}
 	if value.PossiblePairs != nil {
 		n := int32(*value.PossiblePairs)
 		out.PossiblePairs = &n
@@ -55,6 +55,44 @@ func (r *Resolver) ProjectAnalysis(ctx context.Context, args ProjectAnalysisArgs
 		return nil, nil
 	}
 	return projectAnalysis(*run), nil
+}
+
+func (r *Resolver) ProjectAnalysisSummary(ctx context.Context, args ProjectAnalysisSummaryArgs) (*ProjectAnalysisSummary, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
+	id := ""
+	if args.AnalysisId != nil {
+		id = string(*args.AnalysisId)
+	}
+	run, err := r.Analysis.Summary(ctx, workspace(ctx), string(args.ProjectId), id)
+	if err != nil {
+		return nil, errors.New("analysis unavailable")
+	}
+	if run == nil {
+		return nil, nil
+	}
+	full := projectAnalysis(*run)
+	return &ProjectAnalysisSummary{
+		Revision: full.Revision, Mode: full.Mode, SimilarityThreshold: full.SimilarityThreshold, PossiblePairs: full.PossiblePairs,
+		NotSelectedPairs: full.NotSelectedPairs, DuplicatePairs: full.DuplicatePairs, ReusedPairs: full.ReusedPairs, NewPairs: full.NewPairs,
+		CompletedPairs: full.CompletedPairs, PendingPairs: full.PendingPairs, RunningPairs: full.RunningPairs, FailedPairs: full.FailedPairs,
+		CollisionPairs: full.CollisionPairs, CompatiblePairs: full.CompatiblePairs, InsufficientPairs: full.InsufficientPairs,
+		Stage: full.Stage, TotalPairs: full.TotalPairs, ProcessedPairs: full.ProcessedPairs, ActivePairId: full.ActivePairId,
+		ReasonCode: full.ReasonCode, MissingRequirementIds: full.MissingRequirementIds, ID: full.ID, ProjectId: full.ProjectId,
+		Status: full.Status, Outcome: full.Outcome, ErrorCode: full.ErrorCode, CreatedAt: full.CreatedAt, CompletedAt: full.CompletedAt, Stale: full.Stale,
+	}, nil
+}
+
+func (r *Resolver) AnalysisRunMetadata(ctx context.Context, args AnalysisRunMetadataArgs) (*AnalysisRunMetadata, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
+	run, err := r.Analysis.Metadata(ctx, workspace(ctx), string(args.ProjectId), string(args.AnalysisId))
+	if err != nil {
+		return nil, errors.New("analysis metadata unavailable")
+	}
+	return &AnalysisRunMetadata{ID: graphql.ID(run.ID), ProjectId: graphql.ID(run.ProjectID), GeneratorProfile: run.GeneratorProfile, GeneratorProvenance: run.GeneratorProvenance, EmbeddingProfile: run.EmbeddingProfile, SelectionProfile: run.SelectionProfile}, nil
 }
 func (r *Resolver) StartProjectAnalysis(ctx context.Context, args StartProjectAnalysisArgs) (*ProjectAnalysis, error) {
 	if err := consume(ctx); err != nil {
@@ -106,6 +144,17 @@ func (r *Resolver) AnalysisPairs(ctx context.Context, args AnalysisPairsArgs) ([
 		out = append(out, analysisPair(pair))
 	}
 	return out, nil
+}
+
+func (r *Resolver) AnalysisPair(ctx context.Context, args AnalysisPairArgs) (*AnalysisPair, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
+	pair, err := r.Analysis.Pair(ctx, workspace(ctx), string(args.ProjectId), string(args.AnalysisId), string(args.PairId))
+	if err != nil {
+		return nil, errors.New("analysis unavailable")
+	}
+	return analysisPair(pair), nil
 }
 func (r *Resolver) AnalysisHistory(ctx context.Context, args AnalysisHistoryArgs) ([]*ProjectAnalysis, error) {
 	if err := consume(ctx); err != nil {

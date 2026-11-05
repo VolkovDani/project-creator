@@ -51,6 +51,10 @@ func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedd
 		embeddingProfile = embedder.Profile()
 	}
 	analyzer := analysis.New(db, retriever, generator, embeddingProfile)
+	generatorProfile := ""
+	if generator != nil {
+		generatorProfile = generator.Profile()
+	}
 	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, RAG: retriever, Analysis: analyzer}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
 	if err != nil {
 		analyzer.Close()
@@ -105,7 +109,7 @@ func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedd
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			serveEvents(db, ws, w, r)
+			serveEvents(db, ws, w, r, generatorProfile, embeddingProfile)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)

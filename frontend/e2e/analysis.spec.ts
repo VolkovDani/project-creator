@@ -1,4 +1,6 @@
-import { type BrowserContext, expect, type Page, test } from '@playwright/test';
+import { type BrowserContext, expect, type Locator, type Page, test } from '@playwright/test';
+
+let fixtureRevision = 0;
 
 const sources = [
   { id: 'left', version: 1, text: 'Оплата разрешена только картой.' },
@@ -29,6 +31,7 @@ const candidate = (id: string, position: number, status: string, verdict = '') =
   generatorProfile: 'g',
 });
 const complete = (overrides: Record<string, unknown> = {}) => {
+  fixtureRevision++;
   const pairs = (overrides.pairs ||
     ((overrides.findings as unknown[] | undefined)?.length === 0
       ? []
@@ -44,12 +47,13 @@ const complete = (overrides: Record<string, unknown> = {}) => {
     duplicatePairs: count('completed', 'duplicate'),
     id: 'run-1',
     projectId: 'demo',
+    revision: String(fixtureRevision),
     status: 'completed',
     outcome: 'possible_collision',
     errorCode: '',
     reasonCode: '',
     missingRequirementIds: [],
-    createdAt: 'now',
+    createdAt: new Date(Date.UTC(2026, 0, 1) + fixtureRevision).toISOString(),
     completedAt: 'now',
     stale: false,
     generatorProfile: 'g',
@@ -84,6 +88,9 @@ function pairPage(run: ReturnType<typeof complete> | null, variables: Record<str
         (!variables.verdict || pair.verdict === variables.verdict),
     )
     .slice(Number(variables.offset), Number(variables.offset) + Number(variables.limit));
+}
+function pairDetail(run: ReturnType<typeof complete> | null, pairId: unknown) {
+  return run?.pairs.find((pair) => pair.id === pairId) || null;
 }
 function pairConnection(
   run: ReturnType<typeof complete> | null,
@@ -149,9 +156,16 @@ async function fixture(
       data = { analysisHistory: latest ? [latest] : [] };
     else if (query.includes('analysisPairsConnection('))
       data = { analysisPairsConnection: pairConnection(latest, variables) };
+    else if (query.includes('analysisPair('))
+      data = { analysisPair: latest?.pairs.find((pair) => pair.id === variables.pairId) || null };
     else if (query.includes('analysisPairs('))
       data = { analysisPairs: pairPage(latest, variables) };
-    else if (query.includes('projectAnalysis(')) data = { projectAnalysis: latest };
+    else if (
+      query.includes('projectAnalysisSummary(') ||
+      query.includes('analysisRunMetadata(') ||
+      query.includes('projectAnalysis(')
+    )
+      data = { projectAnalysis: latest };
     else if (query.includes('requirementIndex(')) data = { requirementIndex: [] };
     else if (query.includes('requirementsConnection('))
       data = {
@@ -189,6 +203,15 @@ async function fixture(
   });
   return () => calls;
 }
+async function expandGroup(group: Locator) {
+  if ((await group.getAttribute('open')) === null) await group.locator('summary').click();
+}
+async function expandPair(group: Locator, index = 0) {
+  const article = group.getByRole('article').nth(index);
+  const details = article.locator('details').first();
+  if ((await details.getAttribute('open')) === null) await details.locator('summary').click();
+  return article;
+}
 test('analysis runs only after explicit action and shows versioned sources', async ({ page }) => {
   const calls = await fixture(page);
   await page.goto('/projects/demo/analysis');
@@ -197,13 +220,16 @@ test('analysis runs only after explicit action and shows versioned sources', asy
   await page.getByRole('button', { name: 'Проверить требования', exact: true }).click();
   await expect(page.getByText('Возможная коллизия найдена', { exact: true })).toBeVisible();
   expect(calls()).toBe(1);
+  const analysis = page.getByRole('region', { name: 'Анализ возможных коллизий' });
+  const collision = analysis.getByRole('group', { name: /^Возможные противоречия/ });
+  await expandGroup(collision);
+  await expandPair(collision);
   await expect(
     page.getByText('Для одной оплаты указаны взаимоисключающие способы.', { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText('Отсутствие найденных коллизий не доказывает согласованность требований.'),
   ).toBeVisible();
-  const analysis = page.getByRole('region', { name: 'Анализ возможных коллизий' });
   await expect(analysis.getByText('left · Версия 1', { exact: true })).toBeVisible();
   await expect(analysis.getByText('right · Версия 2', { exact: true })).toBeVisible();
   await analysis.getByRole('link', { name: 'Перейти к требованию' }).first().click();
@@ -221,7 +247,12 @@ test('failed analysis can be retried and stale no-collision result is qualified'
           errorCode: 'GENERATOR_FAILED',
           findings: [],
         })
-      : complete({ outcome: 'no_collisions_found', stale: true, findings: [] }),
+      : complete({
+          outcome: 'no_collisions_found',
+          stale: true,
+          findings: [],
+          pairs: [candidate('safe-0', 0, 'completed', 'compatible')],
+        }),
   );
   await page.goto('/projects/demo/analysis');
   await page.getByRole('button', { name: 'Проверить требования', exact: true }).click();
@@ -239,9 +270,13 @@ test('failed analysis can be retried and stale no-collision result is qualified'
       { exact: true },
     ),
   ).toBeVisible();
-  await expect(
-    page.getByText('Сохранённые версии источников на момент анализа', { exact: true }),
-  ).toBeVisible();
+  const compatible = analysisRegion(page).getByRole('group', {
+    name: /^Противоречий не обнаружено/,
+  });
+  await expandGroup(compatible);
+  const pair = await expandPair(compatible);
+  await expect(pair.getByText('left · Версия 1', { exact: true })).toBeVisible();
+  await expect(pair.getByText('right · Версия 2', { exact: true })).toBeVisible();
 });
 
 test('a late metadata response cannot replace an explicitly started run', async ({ page }) => {
@@ -261,9 +296,15 @@ test('a late metadata response cannot replace an explicitly started run', async 
     } else if (query.includes('analysisHistory(')) data = { analysisHistory: [] };
     else if (query.includes('analysisPairsConnection('))
       data = { analysisPairsConnection: pairConnection(complete(), variables) };
+    else if (query.includes('analysisPair('))
+      data = { analysisPair: pairDetail(complete(), variables.pairId) };
     else if (query.includes('analysisPairs('))
       data = { analysisPairs: pairPage(complete(), variables) };
-    else if (query.includes('projectAnalysis(')) {
+    else if (
+      query.includes('projectAnalysisSummary(') ||
+      query.includes('analysisRunMetadata(') ||
+      query.includes('projectAnalysis(')
+    ) {
       if (first) {
         first = false;
         await metadata;
@@ -331,7 +372,7 @@ test('invalidation refreshes a completed result to stale without rerunning the m
     await route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
-      body: 'id: changed\nevent: cache.invalidate\ndata: {"schemaVersion":1,"keys":["project:demo"]}\n\n',
+      body: 'id: changed\nevent: cache.invalidate\ndata: {"schemaVersion":1,"keys":["project:demo:requirements"]}\n\n',
     });
   });
   await page.route('**/api/graphql', async (route) => {
@@ -344,9 +385,16 @@ test('invalidation refreshes a completed result to stale without rerunning the m
       data = { analysisHistory: current ? [current] : [] };
     else if (query.includes('analysisPairsConnection('))
       data = { analysisPairsConnection: pairConnection(current, variables) };
+    else if (query.includes('analysisPair('))
+      data = { analysisPair: pairDetail(current, variables.pairId) };
     else if (query.includes('analysisPairs('))
       data = { analysisPairs: pairPage(current, variables) };
-    else if (query.includes('projectAnalysis(')) data = { projectAnalysis: current };
+    else if (
+      query.includes('projectAnalysisSummary(') ||
+      query.includes('analysisRunMetadata(') ||
+      query.includes('projectAnalysis(')
+    )
+      data = { projectAnalysis: current };
     else if (query.includes('requirementIndex(')) data = { requirementIndex: [] };
     else if (query.includes('requirementsConnection('))
       data = { requirementsConnection: requirementConnection([], variables) };
@@ -464,9 +512,16 @@ async function liveFixture(
       data = { analysisHistory: current ? [current] : [] };
     else if (query.includes('analysisPairsConnection('))
       data = { analysisPairsConnection: pairConnection(current, variables) };
+    else if (query.includes('analysisPair('))
+      data = { analysisPair: pairDetail(current, variables.pairId) };
     else if (query.includes('analysisPairs('))
       data = { analysisPairs: pairPage(current, variables) };
-    else if (query.includes('projectAnalysis(')) data = { projectAnalysis: current };
+    else if (
+      query.includes('projectAnalysisSummary(') ||
+      query.includes('analysisRunMetadata(') ||
+      query.includes('projectAnalysis(')
+    )
+      data = { projectAnalysis: current };
     else if (query.includes('requirementIndex(')) data = { requirementIndex: [] };
     else if (query.includes('requirementsConnection('))
       data = {
@@ -515,8 +570,8 @@ async function liveFixture(
     connectionsFor(page: Page) {
       return connections.get(page) || 0;
     },
-    send(id: string, reset = false) {
-      const body = `id: ${id}\nevent: ${reset ? 'cache.reset' : 'cache.invalidate'}\ndata: ${JSON.stringify({ schemaVersion: 1, keys: ['project:demo'] })}\n\n`;
+    send(id: string, reset = false, keys = ['project:demo:analysis']) {
+      const body = `id: ${id}\nevent: ${reset ? 'cache.reset' : 'cache.invalidate'}\ndata: ${JSON.stringify({ schemaVersion: 1, keys })}\n\n`;
       for (const resolve of waiting.values()) resolve(body);
       waiting.clear();
     },
@@ -544,7 +599,9 @@ test('preparation stages do not invent a total and candidates expose numeric pro
   const initialStatus = page.waitForResponse(
     (response) =>
       response.url().endsWith('/api/graphql') &&
-      response.request().postDataJSON().query.includes('projectAnalysis('),
+      /projectAnalysisSummary\s*\(|analysisRunMetadata\s*\(|projectAnalysis\s*\(/.test(
+        response.request().postDataJSON().query,
+      ),
   );
   await page.goto('/projects/demo/analysis');
   expect((await (await initialStatus).json()).data.projectAnalysis).toBeNull();
@@ -586,8 +643,12 @@ test('preparation stages do not invent a total and candidates expose numeric pro
   live.send('candidates');
   await expect(area.getByText('Обработано 0 из 2', { exact: true })).toBeVisible();
   await expect(area.getByText('На проверке: 2', { exact: true })).toBeVisible();
+  const pendingGroup = area.getByRole('group', { name: /^На проверке/ });
+  await expandGroup(pendingGroup);
   await expect(
-    area.getByRole('article', { name: 'Пара 1' }).getByText('Проверяется сейчас', { exact: true }),
+    pendingGroup
+      .getByRole('article', { name: 'Пара 1' })
+      .getByText('Проверяется сейчас', { exact: true }),
   ).toBeVisible();
   await expect(
     area.getByRole('button', { name: 'Начать новый анализ', exact: true }),
@@ -624,15 +685,20 @@ test('all verdict groups have counts and collapse without changing source snapsh
   ])
     await expect(area.getByText(text, { exact: true })).toBeVisible();
   const compatible = area.getByRole('group', { name: /^Противоречий не обнаружено(?:: \d+)?$/ });
+  await expandGroup(compatible);
+  await expandPair(compatible);
   await expect(
     compatible.getByText('В этой паре противоречие не найдено', { exact: true }),
   ).toBeVisible();
   await expect(compatible.getByText('Не связаны требования', { exact: false })).toHaveCount(0);
   const collision = area.getByRole('group', { name: /^Возможные противоречия(?:: \d+)?$/ });
+  await expandGroup(collision);
+  await expandPair(collision);
   await expect(collision.getByText(sources[0].text, { exact: true })).toBeVisible();
-  await collision.locator('summary').click();
+  await collision.locator(':scope > summary').click();
   await expect(collision.getByRole('article')).not.toBeVisible();
-  await collision.locator('summary').click();
+  await collision.locator(':scope > summary').click();
+  await expandPair(collision);
   await expect(collision.getByText('right · Версия 2', { exact: true })).toBeVisible();
   await collision.getByRole('link', { name: 'Перейти к требованию' }).last().click();
   await expect(page).toHaveURL(/#requirement-right$/);
@@ -679,6 +745,8 @@ test('pair completion moves cards in two clients and progress survives reload an
     await expect(area.getByText('Обработано 1 из 2', { exact: true })).toBeVisible();
     await expect(area.getByText('Возможные противоречия: 1', { exact: true })).toBeVisible();
     await expect(area.getByText('На проверке: 1', { exact: true })).toBeVisible();
+    const pending = area.getByRole('group', { name: /^На проверке/ });
+    await expandGroup(pending);
     await expect(
       area
         .getByRole('group', { name: /^На проверке(?:: \d+)?$/ })
@@ -709,6 +777,10 @@ test('pair completion moves cards in two clients and progress survives reload an
     await expect(area.getByText('Обработано 2 из 2', { exact: true })).toBeVisible();
     await expect(area.getByText('Противоречий не обнаружено: 1', { exact: true })).toBeVisible();
     await expect(area.getByText('На проверке: 0', { exact: true })).toBeVisible();
+    for (const name of [/^Возможные противоречия/, /^Противоречий не обнаружено/]) {
+      const group = area.getByRole('group', { name });
+      await expandGroup(group);
+    }
     await expect(area.getByRole('article')).toHaveCount(2);
   }
   expect(live.stats().starts).toBe(0);
@@ -730,6 +802,8 @@ test('failed pair retry preserves completed cards and targets the same analysis'
   const live = await liveFixture(context, initial);
   await page.goto('/projects/demo/analysis');
   const area = analysisRegion(page);
+  await expandGroup(area.getByRole('group', { name: /^Возможные противоречия/ }));
+  await expandGroup(area.getByRole('group', { name: /^Ошибки обработки/ }));
   await expect(area.getByText('Возможные противоречия: 1', { exact: true })).toBeVisible();
   await expect(area.getByText('Ошибки обработки: 1', { exact: true })).toBeVisible();
   live.set(
@@ -764,7 +838,7 @@ test('failed pair retry preserves completed cards and targets the same analysis'
       pairs: [done, failed],
     }),
   );
-  live.send('changed');
+  live.send('changed', false, ['project:demo:requirements']);
   await expect(
     area.getByText(
       'Результат устарел: требования или профиль модели изменились. Повторите анализ.',
@@ -812,6 +886,7 @@ test('large groups use global coverage and fetch bounded pair pages', async ({ p
     ),
   ).toBeVisible();
   const group = area.getByRole('group', { name: 'Противоречий не обнаружено: 45', exact: true });
+  await expandGroup(group);
   await group.getByLabel('Режим списка').selectOption('pages');
   await expect(group.getByText('1–20 из 45', { exact: true })).toBeVisible();
   await group.getByRole('button', { name: 'Далее', exact: true }).click();
@@ -909,9 +984,16 @@ test('history preserves the original generator profile and reused comparison pro
         scope: { projectId: 'demo' },
         analysisPairsConnection: pairConnection(selected, variables),
       };
+    else if (query.includes('analysisPair('))
+      data = { analysisPair: pairDetail(selected, variables.pairId) };
     else if (query.includes('analysisPairs('))
       data = { scope: { projectId: 'demo' }, analysisPairs: pairPage(selected, variables) };
-    else if (query.includes('projectAnalysis(')) data = { projectAnalysis: selected };
+    else if (
+      query.includes('projectAnalysisSummary(') ||
+      query.includes('analysisRunMetadata(') ||
+      query.includes('projectAnalysis(')
+    )
+      data = { projectAnalysis: selected };
     else
       data = {
         project: {
@@ -937,8 +1019,11 @@ test('history preserves the original generator profile and reused comparison pro
   ).toBeVisible();
   await area.getByRole('combobox', { name: 'История запусков' }).selectOption('old');
   await expect(area.getByText('Возможная коллизия найдена', { exact: true })).toBeVisible();
+  const collision = area.getByRole('group', { name: /^Возможные противоречия/ });
+  await expandGroup(collision);
+  const oldPair = await expandPair(collision);
   await expect(
-    area.getByText('Использован результат проверки original-check', { exact: true }),
+    oldPair.getByText('Использован результат проверки original-check', { exact: true }),
   ).toBeVisible();
   await area.getByText('Профиль генератора и происхождение проверки', { exact: true }).click();
   await expect(area.locator('pre')).toHaveText(old.generatorProvenance);
@@ -1010,23 +1095,33 @@ test('duplicate group distinguishes deterministic equality from model suggestion
   await page.goto('/projects/demo/analysis');
   const area = analysisRegion(page),
     group = area.getByRole('group', { name: 'Дубли требований: 2', exact: true });
+  await expandGroup(group);
+  const exactCard = await expandPair(group, 0);
+  const semanticCard = await expandPair(group, 1);
   await expect(group.getByRole('article')).toHaveCount(2);
   await expect(
-    group.getByText('Точное совпадение после нормализации пробелов и переносов', { exact: true }),
-  ).toBeVisible();
-  await expect(
-    group.getByText('Возможный смысловой дубль — предложение модели для проверки человеком', {
+    exactCard.getByText('Точное совпадение после нормализации пробелов и переносов', {
       exact: true,
     }),
   ).toBeVisible();
-  await expect(group.getByText('analysis.exactDuplicateExplanation', { exact: true })).toHaveCount(
-    0,
-  );
   await expect(
-    group.getByText('Источник: алгоритм exact_text_v1; без вызова модели', { exact: true }),
+    semanticCard.getByText(
+      'Возможный смысловой дубль — предложение модели для проверки человеком',
+      {
+        exact: true,
+      },
+    ),
   ).toBeVisible();
   await expect(
-    group.getByText('Возможно, оба требования описывают одно обязательство.', { exact: true }),
+    exactCard.getByText('analysis.exactDuplicateExplanation', { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    exactCard.getByText('Источник: алгоритм exact_text_v1; без вызова модели', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    semanticCard.getByText('Возможно, оба требования описывают одно обязательство.', {
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(area.getByText('Всего возможных пар проекта: 4950', { exact: true })).toBeVisible();
   await expect(area.getByText('Отобрано в очередь: 2', { exact: true })).toBeVisible();
@@ -1041,10 +1136,13 @@ test('revoked access clears saved pair texts and history after invalidation', as
 }) => {
   const live = await liveFixture(context, complete());
   await page.goto('/projects/demo/analysis');
+  const collision = analysisRegion(page).getByRole('group', { name: /^Возможные противоречия/ });
+  await expandGroup(collision);
+  await expandPair(collision);
   await expect(analysisRegion(page).getByText(sources[0].text, { exact: true })).toBeVisible();
   await expect.poll(() => live.stats().waiting).toBeGreaterThan(0);
   live.deny();
-  live.send('access-revoked');
+  live.send('access-revoked', false, ['project:demo:requirements']);
   await expect(page.getByText(sources[0].text, { exact: true })).toHaveCount(0);
   await expect(page.getByText(sources[1].text, { exact: true })).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: 'История запусков' })).toHaveCount(0);
@@ -1082,13 +1180,16 @@ test('historical failures cannot retry work after a newer run exists', async ({ 
     errorCode: 'TIMEOUT',
     pairs: [{ ...candidate('failed', 0, 'failed'), errorCode: 'TIMEOUT' }],
   });
-  const old = { ...current, id: 'old' };
+  const old = { ...current, id: 'old', createdAt: '2025-12-31T23:59:59.999Z' };
   await fixture(page, current);
   await page.route('**/api/graphql', async (route) => {
     const { query, variables } = route.request().postDataJSON();
     if (query.includes('analysisHistory(')) {
       await route.fulfill({ json: { data: { analysisHistory: [current, old] } } });
-    } else if (query.includes('projectAnalysis(') && !query.includes('analysisPairs(')) {
+    } else if (
+      (query.includes('projectAnalysis(') || query.includes('analysisRunMetadata(')) &&
+      !query.includes('analysisPairs(')
+    ) {
       await route.fulfill({
         json: { data: { projectAnalysis: variables.analysisId === 'old' ? old : current } },
       });

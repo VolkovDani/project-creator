@@ -27,6 +27,27 @@ func TestRequirementIndexResultsCarryProjectCacheTags(t *testing.T) {
 		t.Fatalf("tags %v", got)
 	}
 }
+func TestAnalysisSummaryAndHistoryUseAnalysisTagOnly(t *testing.T) {
+	for _, data := range []map[string]any{
+		{"projectAnalysis": map[string]any{"id": "r", "projectId": "p", "revision": "3", "mode": "all", "status": "running"}},
+		{"scope": map[string]any{"__typename": "ProjectAnalysis", "projectId": "p"}},
+		{"analysisHistory": []any{map[string]any{"id": "r", "projectId": "p", "mode": "all", "createdAt": "now"}}},
+	} {
+		if got := cacheTags(data); !reflect.DeepEqual(got, []string{"project:p:analysis"}) {
+			t.Fatalf("analysis tags %v", got)
+		}
+	}
+}
+func TestCacheTagsKeepProjectListForMixedAnalysisQueries(t *testing.T) {
+	data := map[string]any{
+		"projects": []any{map[string]any{"id": "p", "goal": "g"}},
+		"analysis": map[string]any{"id": "r", "projectId": "p", "revision": "2", "mode": "all", "status": "running"},
+	}
+	want := []string{"project:p", "project:p:analysis", "project:p:requirements", "projects"}
+	if got := cacheTags(data); !reflect.DeepEqual(got, want) {
+		t.Fatalf("mixed tags %v", got)
+	}
+}
 func TestTaggedResponseIsNotServerCached(t *testing.T) {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

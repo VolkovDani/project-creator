@@ -61,6 +61,56 @@ func (s *Service) Get(ctx context.Context, workspace, project, id string) (*Run,
 	return r, nil
 }
 
+// Summary loads a run without fetching source text, findings, or pair details.
+func (s *Service) Summary(ctx context.Context, workspace, project, id string) (*Run, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, errStorage
+	}
+	defer tx.Rollback()
+	if err = s.authorize(ctx, tx, workspace, project, false); err != nil {
+		return nil, err
+	}
+	r, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+compactRunColumns+` FROM analysis_runs WHERE workspace=$1 AND project_id=$2 AND ($3='' OR id=$3) ORDER BY seq DESC LIMIT 1`, workspace, project, id))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, errStorage
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, errStorage
+	}
+	if err = s.markStale(ctx, workspace, project, r); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// Metadata loads stable run provenance on demand without source or pair details.
+func (s *Service) Metadata(ctx context.Context, workspace, project, id string) (*Run, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, errStorage
+	}
+	defer tx.Rollback()
+	if err = s.authorize(ctx, tx, workspace, project, false); err != nil {
+		return nil, err
+	}
+	r := &Run{}
+	err = tx.QueryRowContext(ctx, `SELECT id,project_id,generator_profile,generator_provenance,embedding_profile,selection_profile FROM analysis_runs WHERE workspace=$1 AND project_id=$2 AND id=$3`, workspace, project, id).Scan(&r.ID, &r.ProjectID, &r.GeneratorProfile, &r.GeneratorProvenance, &r.EmbeddingProfile, &r.SelectionProfile)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, errStorage
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, errStorage
+	}
+	return r, nil
+}
+
 // Cancel stops an active run and fences any provider response that arrives
 // after cancellation. Completed pairs remain available for inspection/retry.
 func (s *Service) Cancel(ctx context.Context, workspace, project, id string) (Run, error) {
@@ -232,6 +282,7 @@ func (s *Service) StartWithOptions(ctx context.Context, workspace, project strin
 	}
 	r := empty
 	r.ID = id
+	r.Revision = "1"
 	r.Status = "running"
 	r.Stage = "checking_index"
 	r.signature = signature

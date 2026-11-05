@@ -226,66 +226,113 @@ class Runtime:
         verify_model(model, manifest)
         if inventory(model, hashes=False) != self.snapshot:
             raise ValueError('model changed during hash verification')
-        self.model, self.manifest = model, manifest
+        self.model, self.manifest, self.cache = model, manifest, cache
+        self.startup_timeout = startup_timeout
         self.profile = profile_id(manifest)
         self.lock = threading.Lock()
+        self.recoverable_after_cancel = False
+        self.process = None
+        self.connection = None
+        self.metadata = {}
+        self._start_worker(verify_artifacts=False)
+
+    def _start_worker(self, verify_artifacts=True):
+        """Start a clean worker after explicitly verifying the pinned model again."""
+        if verify_artifacts:
+            verify_model(self.model, self.manifest)
+            if inventory(self.model, hashes=False) != self.snapshot:
+                raise ValueError('model changed during hash verification')
         context = multiprocessing.get_context('spawn')
-        self.connection, child = context.Pipe()
-        self.process = context.Process(target=worker, args=(child, model, manifest, cache), daemon=True)
-        self.process.start()
+        connection, child = context.Pipe()
+        process = context.Process(target=worker, args=(child, self.model, self.manifest, self.cache), daemon=True)
+        process.start()
         child.close()
-        if not self.connection.poll(startup_timeout):
-            self.close()
+        self.connection, self.process = connection, process
+        if not connection.poll(self.startup_timeout):
+            self._stop_worker()
             raise ValueError('NPU startup timeout')
         try:
-            self.metadata = self.connection.recv()
+            metadata = connection.recv()
         except EOFError:
-            self.close()
+            self._stop_worker()
             raise ValueError('NPU worker exited during startup') from None
-        if not self.metadata.get('ready'):
-            self.close()
-            raise ValueError(self.metadata.get('error', 'NPU startup failed'))
-        if inventory(model, hashes=False) != self.snapshot:
-            self.close()
+        if not metadata.get('ready'):
+            self._stop_worker()
+            raise ValueError(metadata.get('error', 'NPU startup failed'))
+        if inventory(self.model, hashes=False) != self.snapshot:
+            self._stop_worker()
             raise ValueError('model changed during compilation')
+        self.metadata = metadata
+        self.recoverable_after_cancel = False
+
+    def _stop_worker(self):
+        process, connection = self.process, self.connection
+        if process is not None:
+            if process.is_alive():
+                process.terminate()
+            process.join(timeout=5)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=5)
+            if process.is_alive():
+                raise ValueError('NPU worker could not be stopped safely')
+        if connection is not None:
+            connection.close()
+        self.process = None
+        self.connection = None
 
     def close(self):
-        if self.process.is_alive():
-            self.process.terminate()
-        self.process.join(timeout=5)
-        if self.process.is_alive():
-            self.process.kill()
-            self.process.join(timeout=5)
-        self.connection.close()
+        self.recoverable_after_cancel = False
+        self._stop_worker()
 
-    def health(self):
-        if not self.process.is_alive() or inventory(self.model, hashes=False) != self.snapshot:
+    def _health_locked(self):
+        if not self.process or not self.process.is_alive() or inventory(self.model, hashes=False) != self.snapshot:
             raise ValueError('NPU worker unavailable or model changed; explicit restart required')
         return {'profile': self.profile, 'device': 'NPU'}
+
+    def health(self):
+        if self.recoverable_after_cancel:
+            with self.lock:
+                if self.recoverable_after_cancel:
+                    # Recreate the process only for an observed client disconnect. Timeouts,
+                    # crashes, and artifact drift still require an operator restart.
+                    self._start_worker()
+                return self._health_locked()
+        return self._health_locked()
 
     def compare(self, request, client, timeout=110):
         validate_request(request, self.profile)
         if not self.lock.acquire(blocking=False):
             raise ValueError('NPU busy; retry explicitly after current request')
         try:
-            self.health()
+            if self.recoverable_after_cancel:
+                self._start_worker()
+            self._health_locked()
             self.connection.send(request)
             deadline = time.monotonic()+timeout
             while not self.connection.poll(0.1):
                 readable, _, _ = select.select([client], [], [], 0)
                 disconnected = bool(readable) and client.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) == b''
-                if disconnected or time.monotonic() >= deadline or not self.process.is_alive():
-                    self.close()
+                if disconnected:
+                    self.recoverable_after_cancel = True
+                    try:
+                        self._stop_worker()
+                    except Exception:
+                        self.recoverable_after_cancel = False
+                        raise
+                    raise ValueError('NPU request cancelled; worker will restart before next request')
+                if time.monotonic() >= deadline or not self.process.is_alive():
+                    self._stop_worker()
                     raise ValueError('NPU request cancelled or timed out; restart runtime before retry')
             response = self.connection.recv()
-            self.health()
+            self._health_locked()
             if 'error' in response:
                 raise ValueError(response['error'])
             finding = parse_finding(json.dumps(response['finding'], ensure_ascii=False), request['pair'])
             print(json.dumps({'device': 'NPU', 'profile': self.profile,
                               'prompt_tokens': response['prompt_tokens'],
                               'seconds': response['seconds']}, ensure_ascii=False), flush=True)
-            return dict(self.health(), finding=finding)
+            return dict(self._health_locked(), finding=finding)
         finally:
             self.lock.release()
 

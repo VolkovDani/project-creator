@@ -988,5 +988,6 @@ SSE/reconnect/reset, ошибки и повтор, отзыв доступа, я
 состояние; отмена сохраняет готовые результаты.
 
 Контракт и ограничения: [ADR-006](docs/adr/006-analysis-live-snapshots.md).
-Воспроизводимый сценарий 20 пар: `scripts/analysis-live-benchmark.mjs`.
+Замеры до/после, методика и команды: [20 пар](docs/analysis-live-performance.md).
+Сценарий: `scripts/analysis-live-benchmark.mjs`.
 Обычные тесты не вызывают реальные модели.

@@ -18,7 +18,7 @@ test('Docker CI caches three independent image builds with pinned official actio
     assert.match(step, /load: true/);
     assert.match(step, /push: false/);
     const from = step.match(/cache-from: type=gha,version=2,scope=([^\s,]+)/);
-    const to = step.match(/cache-to: type=gha,version=2,scope=([^\s,]+),mode=max,ignore-error=true,timeout=60s/);
+    const to = step.match(/cache-to:[^\n]*type=gha,version=2,scope=([^\s,]+),mode=max,ignore-error=true,timeout=60s/);
     assert.ok(from && to, 'Cache v2 must be imported and exported with bounded best-effort writes');
     assert.equal(from[1], to[1]);
     scopes.add(from[1]);
@@ -68,4 +68,31 @@ test('large Intel layers have disk budget and are released before application bu
   assert.ok(steps.indexOf(prepare) < steps.indexOf(builds[0]));
   assert.ok(steps.indexOf(release) > steps.findIndex((step) => step.includes('name: Verify Intel Vulkan runtime')));
   assert.ok(steps.indexOf(release) < steps.indexOf(builds[1]));
+});
+
+test('private-repository CI avoids duplicate runs and superseded work', () => {
+  const header = workflow.split('\njobs:')[0];
+  assert.match(header, /push:\n    branches:\n      - main\n/);
+  assert.match(header, /pull_request:/);
+  assert.match(header, /concurrency:[\s\S]*github\.event\.pull_request\.number \|\| github\.ref/);
+  assert.match(header, /cancel-in-progress: true/);
+  const checks = workflow.split('\n  checks:\n')[1].split('\n  containers:\n')[0];
+  assert.match(checks, /timeout-minutes: 20/);
+});
+
+test('only main writes large Docker caches and build-record artifacts are disabled', () => {
+  assert.match(containers, /DOCKER_BUILD_RECORD_UPLOAD: 'false'/);
+  for (const step of builds) {
+    const to = step.split('\n').find((line) => line.includes('cache-to:'));
+    assert.match(to, /github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
+    assert.match(to, /\|\| ''/);
+  }
+  assert.match(workflow, /name: desktop-screenshots[\s\S]*retention-days: 3/);
+});
+
+test('browser setup uses supported LTS and downloads only the needed headless shell', () => {
+  const checks = workflow.split('\n  checks:\n')[1].split('\n  containers:\n')[0];
+  assert.match(checks, /runs-on: ubuntu-24\.04\n/);
+  assert.match(checks, /playwright install --with-deps --only-shell chromium/);
+  assert.doesNotMatch(checks, /mcr\.microsoft\.com\/playwright/);
 });

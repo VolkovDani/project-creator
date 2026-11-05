@@ -1,10 +1,16 @@
 name: CI
 on:
   push:
+    branches:
+      - main
   pull_request:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   checks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     services:
       postgres:
         image: pgvector/pgvector:0.8.0-pg16
@@ -59,7 +65,7 @@ jobs:
         working-directory: frontend
       - run: npm run typecheck && npm run build
         working-directory: frontend
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps --only-shell chromium
         timeout-minutes: 10
         working-directory: frontend
       - name: Deterministic desktop and narrow UX regressions
@@ -75,6 +81,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: desktop-screenshots
+          retention-days: 3
           path: frontend/screenshots/*.png
           if-no-files-found: warn
 
@@ -86,6 +93,7 @@ jobs:
       COMPOSE_PROJECT_NAME: project-creator-ci-smoke
       COMPOSE_FILE: compose.yml:compose.smoke.yml
       COMPOSE_ENV_FILE: .env.smoke.example
+      DOCKER_BUILD_RECORD_UPLOAD: 'false'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -120,7 +128,7 @@ jobs:
           provenance: false
           tags: project-creator-ollama-intel:0.40.11
           cache-from: type=gha,version=2,scope=ci-intel-v1
-          cache-to: type=gha,version=2,scope=ci-intel-v1,mode=max,ignore-error=true,timeout=60s
+          cache-to: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'type=gha,version=2,scope=ci-intel-v1,mode=max,ignore-error=true,timeout=60s' || '' }}
       - name: Verify Intel Vulkan runtime
         run: docker run --rm --entrypoint sh project-creator-ollama-intel:0.40.11 -c 'test -s /etc/project-creator-intel-vulkan.json && cat /etc/project-creator-intel-vulkan.json && ollama --version'
       - name: Release verified Intel image and builder data
@@ -138,7 +146,7 @@ jobs:
           provenance: false
           tags: project-creator-ci-smoke-backend:latest
           cache-from: type=gha,version=2,scope=ci-backend-v1
-          cache-to: type=gha,version=2,scope=ci-backend-v1,mode=max,ignore-error=true,timeout=60s
+          cache-to: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'type=gha,version=2,scope=ci-backend-v1,mode=max,ignore-error=true,timeout=60s' || '' }}
       - name: Build frontend with cached layers
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -149,7 +157,7 @@ jobs:
           provenance: false
           tags: project-creator-ci-smoke-frontend:latest
           cache-from: type=gha,version=2,scope=ci-frontend-v1
-          cache-to: type=gha,version=2,scope=ci-frontend-v1,mode=max,ignore-error=true,timeout=60s
+          cache-to: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'type=gha,version=2,scope=ci-frontend-v1,mode=max,ignore-error=true,timeout=60s' || '' }}
       - name: Build and start clean disposable stack
         run: docker compose --env-file "$COMPOSE_ENV_FILE" up -d --no-build --wait --wait-timeout 180
       - name: Exercise HTTP model workflow and restart persistence

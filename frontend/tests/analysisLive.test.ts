@@ -62,3 +62,18 @@ test('run creation timestamps compare subsecond precision across whole-second bo
   const next = snapshot('second', '1', '2026-11-05T00:00:00.001Z');
   assert.equal(acceptSnapshot(current, next), next);
 });
+
+test('newer pair progress cannot undo known source staleness from another request', () => {
+  const stale = { ...snapshot('run', '5'), stale: true };
+  const buffered = { ...snapshot('run', '6'), stale: false, processedPairs: 1 };
+  assert.deepEqual(acceptSnapshot(stale, buffered), { ...buffered, stale: true });
+  const channel = new AnalysisChannel<typeof buffered>();
+  const received: (typeof buffered)[] = [];
+  channel.subscribe('p', (value) => received.push(value));
+  channel.push(stale);
+  channel.flush();
+  channel.push(buffered);
+  channel.flush();
+  assert.equal(received.at(-1)?.stale, true);
+  assert.equal(received.at(-1)?.revision, '6');
+});

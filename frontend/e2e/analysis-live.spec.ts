@@ -237,3 +237,17 @@ test('late slow snapshot cannot overwrite newer push and only one catch-up query
     .toBe(2);
   await expect(page.getByText('Обработано 20 из 20', { exact: true })).toBeVisible();
 });
+
+test('buffered newer pair progress preserves known source staleness', async ({ page }) => {
+  const live = await fixture(page);
+  live.set({ ...snapshot('5'), stale: true });
+  await page.goto('/projects/demo/analysis');
+  const warning = page.getByText(
+    'Результат устарел: требования или профиль модели изменились. Повторите анализ.',
+    { exact: true },
+  );
+  await expect(warning).toBeVisible();
+  await push(page, snapshot('6', 1));
+  await expect(page.getByText('Обработано 1 из 20', { exact: true })).toBeVisible();
+  await expect(warning).toBeVisible();
+});

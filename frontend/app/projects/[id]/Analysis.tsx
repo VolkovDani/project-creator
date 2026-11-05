@@ -620,9 +620,9 @@ export default function Analysis({
   runRef.current = run;
   useAnalysisProgress(projectId, (snapshot) => {
     if (selected && selected !== snapshot.id) return;
-    const next = liveRun(snapshot);
     const previous = runRef.current;
-    if (acceptSnapshot(previous, next) === previous) return;
+    const next = acceptSnapshot(previous, liveRun(snapshot));
+    if (next === previous) return;
     if (previous?.id === next.id) {
       for (const group of groupPairs(next)) {
         const old = groupPairs(previous).find((item) => item.key === group.key);
@@ -674,9 +674,9 @@ export default function Analysis({
               ).startProjectAnalysis;
       if (active.current && context.current === projectId && operation.current === epoch) {
         latest.current.invalidate();
-        const confirmed = liveRun(next);
         const current = runRef.current;
-        if (acceptSnapshot(current, confirmed) !== current) {
+        const confirmed = acceptSnapshot(current, liveRun(next));
+        if (confirmed !== current) {
           runRef.current = confirmed;
           setRun(confirmed);
           if (current?.id === confirmed.id)

@@ -14,9 +14,8 @@ export function acceptSnapshot<T extends AnalysisVersion>(
   if (current.projectId !== next.projectId) return current;
   if (current.id === next.id) {
     const revision = BigInt(next.revision) - BigInt(current.revision);
-    return revision > 0n || (revision === 0n && next.stale === true && !current.stale)
-      ? next
-      : current;
+    if (revision > 0n) return current.stale && !next.stale ? { ...next, stale: true } : next;
+    return revision === 0n && next.stale === true && !current.stale ? next : current;
   }
   // RFC3339Nano omits a zero fraction. Pad it before lexical comparison.
   const timestamp = (value: string) =>
@@ -46,9 +45,10 @@ export class AnalysisChannel<T extends AnalysisVersion = AnalysisVersion> {
   }
   push(snapshot: T) {
     const previous = this.current.get(snapshot.projectId);
-    if (acceptSnapshot(previous, snapshot) === previous) return;
-    this.current.set(snapshot.projectId, snapshot);
-    this.pending.set(snapshot.projectId, snapshot);
+    const accepted = acceptSnapshot(previous, snapshot);
+    if (accepted === previous) return;
+    this.current.set(accepted.projectId, accepted);
+    this.pending.set(accepted.projectId, accepted);
   }
   flush() {
     const pending = [...this.pending];

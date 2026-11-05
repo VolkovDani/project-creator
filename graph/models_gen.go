@@ -93,6 +93,19 @@ type ProjectAnalysisArgs struct {
 	ProjectId  graphql.ID
 	AnalysisId *graphql.ID
 }
+type ProjectAnalysisSummaryArgs struct {
+	ProjectId  graphql.ID
+	AnalysisId *graphql.ID
+}
+type AnalysisRunMetadataArgs struct {
+	ProjectId  graphql.ID
+	AnalysisId graphql.ID
+}
+type AnalysisPairArgs struct {
+	ProjectId  graphql.ID
+	AnalysisId graphql.ID
+	PairId     graphql.ID
+}
 type AnalysisPairsArgs struct {
 	ProjectId  graphql.ID
 	AnalysisId graphql.ID
@@ -228,6 +241,7 @@ type AnalysisPair struct {
 	ErrorCode        string
 }
 type ProjectAnalysis struct {
+	Revision              string
 	Mode                  string
 	SimilarityThreshold   float64
 	SelectionProfile      string
@@ -273,4 +287,43 @@ type RequirementIndexProgress struct {
 	Failed     int32
 	Profile    string
 	Configured bool
+}
+type AnalysisRunMetadata struct {
+	ID                  graphql.ID
+	ProjectId           graphql.ID
+	GeneratorProfile    string
+	GeneratorProvenance string
+	EmbeddingProfile    string
+	SelectionProfile    string
+}
+type ProjectAnalysisSummary struct {
+	Revision              string
+	Mode                  string
+	SimilarityThreshold   float64
+	PossiblePairs         *int32
+	NotSelectedPairs      *int32
+	DuplicatePairs        int32
+	ReusedPairs           int32
+	NewPairs              int32
+	CompletedPairs        int32
+	PendingPairs          int32
+	RunningPairs          int32
+	FailedPairs           int32
+	CollisionPairs        int32
+	CompatiblePairs       int32
+	InsufficientPairs     int32
+	Stage                 string
+	TotalPairs            *int32
+	ProcessedPairs        int32
+	ActivePairId          graphql.ID
+	ReasonCode            string
+	MissingRequirementIds []graphql.ID
+	ID                    graphql.ID
+	ProjectId             graphql.ID
+	Status                string
+	Outcome               string
+	ErrorCode             string
+	CreatedAt             string
+	CompletedAt           string
+	Stale                 bool
 }

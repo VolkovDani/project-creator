@@ -48,6 +48,7 @@ type Run struct {
 	ReasonCode                                                                                                                                         string
 	MissingRequirementIDs                                                                                                                              []string
 	ID, ProjectID, Status, Outcome, ErrorCode, CreatedAt, CompletedAt, GeneratorProfile, GeneratorProvenance, EmbeddingProfile                         string
+	Revision                                                                                                                                           string
 	Stage                                                                                                                                              string
 	TotalPairs                                                                                                                                         *int
 	PossiblePairs                                                                                                                                      *int
@@ -156,7 +157,12 @@ const runColumns = `id,project_id,status,outcome,error_code,generator_profile,em
  created_at,completed_at,reason_code,missing_requirement_ids,stage,total_pairs,processed_pairs,active_pair_id,
  coalesce((SELECT jsonb_agg(` + pairJSON + ` ORDER BY p.position) FROM (SELECT * FROM analysis_pairs WHERE run_id=analysis_runs.id ORDER BY position LIMIT 100) p),'[]'::jsonb),
  incomplete,worker_id,generator_provenance,mode,similarity_threshold,selection_profile,possible_pairs,pair_cursor_left,pair_cursor_right,full_queue,
- (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs) FROM analysis_pairs WHERE run_id=analysis_runs.id)`
+ (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text`
+
+const compactRunColumns = `id,project_id,status,outcome,error_code,generator_profile,embedding_profile,source_signature,
+ '[]'::jsonb,'[]'::jsonb,created_at,completed_at,reason_code,missing_requirement_ids,stage,total_pairs,processed_pairs,active_pair_id,
+ '[]'::jsonb,incomplete,worker_id,''::text,mode,similarity_threshold,''::text,possible_pairs,pair_cursor_left,pair_cursor_right,full_queue,
+ (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text`
 
 func scanRun(row *sql.Row) (*Run, error) {
 	r := &Run{Sources: []Source{}, Findings: []Finding{}, Pairs: []PairResult{}, MissingRequirementIDs: []string{}}
@@ -164,7 +170,7 @@ func scanRun(row *sql.Row) (*Run, error) {
 	var created time.Time
 	var completed sql.NullTime
 	var total, possible sql.NullInt64
-	err := row.Scan(&r.ID, &r.ProjectID, &r.Status, &r.Outcome, &r.ErrorCode, &r.GeneratorProfile, &r.EmbeddingProfile, &r.signature, &sources, &findings, &created, &completed, &r.ReasonCode, &missing, &r.Stage, &total, &r.ProcessedPairs, &r.ActivePairID, &pairs, &r.incomplete, &r.workerID, &r.GeneratorProvenance, &r.Mode, &r.SimilarityThreshold, &r.SelectionProfile, &possible, &r.cursorLeft, &r.cursorRight, &r.fullQueue, &counts)
+	err := row.Scan(&r.ID, &r.ProjectID, &r.Status, &r.Outcome, &r.ErrorCode, &r.GeneratorProfile, &r.EmbeddingProfile, &r.signature, &sources, &findings, &created, &completed, &r.ReasonCode, &missing, &r.Stage, &total, &r.ProcessedPairs, &r.ActivePairID, &pairs, &r.incomplete, &r.workerID, &r.GeneratorProvenance, &r.Mode, &r.SimilarityThreshold, &r.SelectionProfile, &possible, &r.cursorLeft, &r.cursorRight, &r.fullQueue, &counts, &r.Revision)
 	if err != nil {
 		return nil, err
 	}

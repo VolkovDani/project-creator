@@ -4,6 +4,9 @@ import { TaggedCache } from './cache.ts';
 export const clientCache = new TaggedCache();
 let unauthorized = false;
 let sessionEpoch = 0;
+export function clientSessionVersion() {
+  return sessionEpoch;
+}
 export function clearClientSession() {
   sessionEpoch++;
   unauthorized = false;
@@ -24,7 +27,11 @@ function fallbackTags(variables: unknown) {
   const id = v.projectId || v.input?.projectId || v.id;
   return ['projects', ...(id ? [`project:${id}`, `project:${id}:requirements`] : [])];
 }
-export async function query<T, V>(document: TypedDocumentNode<T, V>, variables: V): Promise<T> {
+export async function query<T, V>(
+  document: TypedDocumentNode<T, V>,
+  variables: V,
+  options?: { tags?: string[]; version?: string; notify?: boolean },
+): Promise<T> {
   const epoch = sessionEpoch;
   const source = print(document);
   const operation = document.definitions.find((def) => def.kind === 'OperationDefinition');
@@ -33,7 +40,12 @@ export async function query<T, V>(document: TypedDocumentNode<T, V>, variables: 
     const response = await fetch('/api/graphql', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query: source, variables }),
+      body: JSON.stringify({
+        query: source,
+        variables,
+        operationName:
+          operation?.kind === 'OperationDefinition' ? operation.name?.value : undefined,
+      }),
       cache: 'no-store',
     });
     ensureSession(epoch);
@@ -49,15 +61,19 @@ export async function query<T, V>(document: TypedDocumentNode<T, V>, variables: 
     const tags = Array.isArray(payload.extensions?.cacheTags)
       ? payload.extensions.cacheTags.filter((tag: unknown) => typeof tag === 'string')
       : fallbackTags(variables);
-    return { data: payload.data as T, tags };
+    return { data: payload.data as T, tags: options?.tags ?? tags };
   };
   if (mutation) {
     const result = await load();
     ensureSession(epoch);
-    clientCache.invalidate(result.tags);
+    if (options?.notify === false) clientCache.evict(result.tags);
+    else clientCache.invalidate(result.tags);
     return result.data;
   }
-  const result = await clientCache.read(JSON.stringify([source, variables]), load);
+  const result = await clientCache.read(
+    JSON.stringify([source, variables, options?.version]),
+    load,
+  );
   ensureSession(epoch);
   return result;
 }

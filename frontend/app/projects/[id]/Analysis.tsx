@@ -8,13 +8,18 @@ import {
   groupFilter,
   groupPairs,
 } from '../../../lib/analysis';
+import { acceptSnapshot } from '../../../lib/analysisLive';
+import type { AnalysisSnapshot } from '../../../lib/analysisSnapshot';
 import { analysisRules, validateAnalysisSelection } from '../../../lib/analysisValidation';
 import { clientCache, query } from '../../../lib/client';
 import {
   AnalysisHistoryDocument,
   type AnalysisHistoryQuery,
   AnalysisPairConnectionDocument,
+  type AnalysisPairConnectionQuery,
+  AnalysisPairDetailDocument,
   AnalysisPairPageDocument,
+  AnalysisRunMetadataDocument,
   CancelProjectAnalysisDocument,
   ProjectAnalysisSummaryDocument,
   RetryProjectAnalysisDocument,
@@ -22,10 +27,11 @@ import {
 } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
 import { Latest } from '../../../lib/latest';
-import { useInvalidation } from '../../../lib/live';
+import { useAnalysisProgress, useInvalidation } from '../../../lib/live';
 import { requirementURL } from '../../../lib/rag';
 import { useInfinite } from '../../../lib/useInfinite';
 import { useListMode } from '../../../lib/useListMode';
+import { useResource } from '../../../lib/useResource';
 import Group from '../../components/Group';
 import { ListModeSelect, LoadMore } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
@@ -51,6 +57,21 @@ const verdicts: Record<string, string> = {
   duplicate: 'analysis.verdict.duplicate',
 };
 const stages = new Set(['checking_index', 'finding_pairs', 'comparing']);
+type PairSummary = AnalysisPairConnectionQuery['analysisPairsConnection']['edges'][number]['node'];
+type LiveRun = AnalysisRun & { revision: string };
+function liveRun(snapshot: AnalysisSnapshot): LiveRun {
+  return {
+    ...snapshot,
+    revision: snapshot.revision || '0',
+    generatorProvenance: '',
+    generatorProfile: '',
+    embeddingProfile: '',
+    selectionProfile: '',
+    sources: [],
+    pairs: [],
+    findings: [],
+  };
+}
 type Source = AnalysisPairView['left'];
 type SourceHandler = (id: string) => Promise<void>;
 
@@ -109,11 +130,170 @@ function PairGroup({
         count: group.count,
       })}
       lazy
+      defaultOpen={false}
     >
       <PairList group={group} run={run} projectId={projectId} locale={locale} onSource={onSource} />
     </Group>
   );
 }
+
+function AnalysisProvenance({
+  runId,
+  projectId,
+  locale,
+}: {
+  runId: string;
+  projectId: string;
+  locale: Locale;
+}) {
+  const load = useCallback(
+    async () =>
+      (
+        await query(
+          AnalysisRunMetadataDocument,
+          { projectId, analysisId: runId },
+          { tags: [`project:${projectId}:analysis:${runId}:metadata`] },
+        )
+      ).projectAnalysis,
+    [projectId, runId],
+  );
+  const resource = useResource(load, [`project:${projectId}:analysis:${runId}:metadata`]);
+  return (
+    <>
+      <ResourceState
+        locale={locale}
+        loading={resource.loading}
+        error={resource.error}
+        hasData={resource.data !== undefined}
+        retry={() => void resource.reload()}
+      />
+      {resource.data && (
+        <>
+          <pre>{resource.data.generatorProvenance || resource.data.generatorProfile}</pre>
+          <p>
+            {t(locale, 'analysis.selectionProfile', {
+              profile: resource.data.selectionProfile,
+              embedding: resource.data.embeddingProfile,
+            })}
+          </p>
+        </>
+      )}
+    </>
+  );
+}
+
+function PairDetails({
+  pairId,
+  runId,
+  projectId,
+  locale,
+  version,
+  onSource,
+}: {
+  pairId: string;
+  runId: string;
+  projectId: string;
+  locale: Locale;
+  version: string;
+  onSource?: SourceHandler;
+}) {
+  const load = useCallback(
+    async () =>
+      (
+        await query(
+          AnalysisPairDetailDocument,
+          { projectId, analysisId: runId, pairId },
+          { tags: [`project:${projectId}:analysis:${runId}:pair:${pairId}`], version },
+        )
+      ).analysisPair,
+    [projectId, runId, pairId, version],
+  );
+  const resource = useResource(load, [`project:${projectId}:analysis:${runId}:pair:${pairId}`]);
+  const pair = resource.data;
+  return (
+    <>
+      <ResourceState
+        locale={locale}
+        loading={resource.loading}
+        error={resource.error}
+        hasData={pair !== undefined}
+        retry={() => void resource.reload()}
+      />
+      {pair && (
+        <>
+          <SavedSource
+            projectId={projectId}
+            source={pair.left}
+            locale={locale}
+            onSource={onSource}
+          />
+          <SavedSource
+            projectId={projectId}
+            source={pair.right}
+            locale={locale}
+            onSource={onSource}
+          />
+          {pair.verdict === 'duplicate' && (
+            <p>
+              {t(
+                locale,
+                pair.resultOrigin === 'exact_text_v1'
+                  ? 'analysis.duplicate.exact'
+                  : 'analysis.duplicate.possible',
+              )}
+            </p>
+          )}
+          {pair.explanation && (
+            <p>
+              {pair.resultOrigin === 'exact_text_v1'
+                ? t(locale, 'analysis.exactDuplicateExplanation')
+                : pair.explanation}
+            </p>
+          )}
+          {pair.selectionReasons.length > 0 && (
+            <p>
+              {t(locale, 'analysis.selectionReasons')}{' '}
+              {pair.selectionReasons
+                .map((reason) =>
+                  t(
+                    locale,
+                    ['exact_text', 'semantic_similarity', 'shared_terms', 'all_pairs'].includes(
+                      reason,
+                    )
+                      ? `analysis.selection.${reason}`
+                      : 'analysis.selection.unknown',
+                  ),
+                )
+                .join('; ')}
+            </p>
+          )}
+          {pair.similarityScore != null && (
+            <p>
+              {t(locale, 'analysis.similarityScore', { score: pair.similarityScore.toFixed(4) })}
+            </p>
+          )}
+          {pair.resultOrigin && (
+            <p className="muted">
+              {t(
+                locale,
+                pair.resultOrigin === 'exact_text_v1'
+                  ? 'analysis.origin.exact'
+                  : 'analysis.origin.model',
+              )}
+            </p>
+          )}
+          {pair.checkedAt && (
+            <p className="muted">{t(locale, 'analysis.checkedAt', { time: pair.checkedAt })}</p>
+          )}
+          {pair.reusedFrom && (
+            <p className="muted">{t(locale, 'analysis.reusedFrom', { id: pair.reusedFrom })}</p>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
 function PairList({
   group,
   run,
@@ -131,19 +311,31 @@ function PairList({
   const loader = useCallback(
     async (after: string | null) =>
       (
-        await query(AnalysisPairConnectionDocument, {
-          projectId,
-          analysisId: run.id,
-          first: 40,
-          after,
-          ...groupFilter(group.key),
-        })
+        await query(
+          AnalysisPairConnectionDocument,
+          {
+            projectId,
+            analysisId: run.id,
+            first: 40,
+            after,
+            ...groupFilter(group.key),
+          },
+          {
+            tags: [
+              `project:${projectId}:analysis:${run.id}:${group.key}`,
+              `project:${projectId}:requirements`,
+            ],
+          },
+        )
       ).analysisPairsConnection,
     [projectId, run.id, group.key],
   );
   const infinite = useInfinite({
     identity: `pairs:${projectId}:${run.id}:${group.key}`,
-    tags: [`project:${projectId}`, `project:${projectId}:requirements`],
+    tags: [
+      `project:${projectId}:analysis:${run.id}:${group.key}`,
+      `project:${projectId}:requirements`,
+    ],
     load: loader,
     enabled: mode === 'infinite',
   });
@@ -152,7 +344,7 @@ function PairList({
       void infinite.loadMore().catch(() => {});
   }, [infinite.loading, infinite.error, infinite.hasNextPage, infinite.loadMore]);
   const [offset, setOffset] = useState(0);
-  const [pagedPairs, setPairs] = useState<AnalysisPairView[]>([]);
+  const [pagedPairs, setPairs] = useState<PairSummary[]>([]);
   const [pageLoading, setLoading] = useState(true);
   const [pageError, setError] = useState(false);
   const latest = useRef(new Latest());
@@ -161,13 +353,22 @@ function PairList({
     const generation = latest.current.begin();
     setLoading(true);
     try {
-      const data = await query(AnalysisPairPageDocument, {
-        projectId,
-        analysisId: run.id,
-        limit: 20,
-        offset,
-        ...groupFilter(group.key),
-      });
+      const data = await query(
+        AnalysisPairPageDocument,
+        {
+          projectId,
+          analysisId: run.id,
+          limit: 20,
+          offset,
+          ...groupFilter(group.key),
+        },
+        {
+          tags: [
+            `project:${projectId}:analysis:${run.id}:${group.key}`,
+            `project:${projectId}:requirements`,
+          ],
+        },
+      );
       if (latest.current.isCurrent(generation)) {
         setPairs(data.analysisPairs);
         setError(false);
@@ -179,7 +380,15 @@ function PairList({
     } finally {
       if (latest.current.isCurrent(generation)) setLoading(false);
     }
-  }, [projectId, run, offset, group.key, mode]);
+  }, [projectId, run.id, offset, group.key, mode]);
+  useInvalidation(
+    [`project:${projectId}:analysis:${run.id}:${group.key}`, `project:${projectId}:requirements`],
+    () => void load(),
+    () => {
+      latest.current.invalidate();
+      setPairs([]);
+    },
+  );
   useEffect(() => {
     void load();
     return () => latest.current.invalidate();
@@ -241,73 +450,21 @@ function PairList({
                 )}
               </p>
             )}
-            <SavedSource
-              projectId={projectId}
-              source={pair.left}
-              locale={locale}
-              onSource={onSource}
-            />
-            <SavedSource
-              projectId={projectId}
-              source={pair.right}
-              locale={locale}
-              onSource={onSource}
-            />
-            {pair.verdict === 'duplicate' && (
-              <p>
-                {t(
-                  locale,
-                  pair.resultOrigin === 'exact_text_v1'
-                    ? 'analysis.duplicate.exact'
-                    : 'analysis.duplicate.possible',
-                )}
-              </p>
-            )}
-            {pair.explanation && (
-              <p>
-                {pair.resultOrigin === 'exact_text_v1'
-                  ? t(locale, 'analysis.exactDuplicateExplanation')
-                  : pair.explanation}
-              </p>
-            )}
-            {pair.selectionReasons.length > 0 && (
-              <p>
-                {t(locale, 'analysis.selectionReasons')}{' '}
-                {pair.selectionReasons
-                  .map((reason) =>
-                    t(
-                      locale,
-                      ['exact_text', 'semantic_similarity', 'shared_terms', 'all_pairs'].includes(
-                        reason,
-                      )
-                        ? `analysis.selection.${reason}`
-                        : 'analysis.selection.unknown',
-                    ),
-                  )
-                  .join('; ')}
-              </p>
-            )}
-            {pair.similarityScore != null && (
-              <p>
-                {t(locale, 'analysis.similarityScore', { score: pair.similarityScore.toFixed(4) })}
-              </p>
-            )}
-            {pair.resultOrigin && (
-              <p className="muted">
-                {t(
-                  locale,
-                  pair.resultOrigin === 'exact_text_v1'
-                    ? 'analysis.origin.exact'
-                    : 'analysis.origin.model',
-                )}
-              </p>
-            )}
-            {pair.checkedAt && (
-              <p className="muted">{t(locale, 'analysis.checkedAt', { time: pair.checkedAt })}</p>
-            )}
-            {pair.reusedFrom && (
-              <p className="muted">{t(locale, 'analysis.reusedFrom', { id: pair.reusedFrom })}</p>
-            )}
+            <Group
+              id={`analysis-pair:${run.id}:${pair.id}`}
+              title={t(locale, 'analysis.details')}
+              lazy
+              defaultOpen={false}
+            >
+              <PairDetails
+                pairId={pair.id}
+                runId={run.id}
+                projectId={projectId}
+                locale={locale}
+                version={`${pair.status}:${pair.checkedAt}:${pair.errorCode}`}
+                onSource={onSource}
+              />
+            </Group>
           </article>
         )}
       />
@@ -354,7 +511,7 @@ export default function Analysis({
   locale: Locale;
   onSource?: SourceHandler;
 }) {
-  const [run, setRun] = useState<AnalysisRun | null>();
+  const [run, setRun] = useState<LiveRun | null>();
   const [selected, setSelected] = useState('');
   const [mode, setMode] = useState(analysisRules.defaultMode);
   const [threshold, setThreshold] = useState(String(analysisRules.defaultThreshold));
@@ -367,6 +524,7 @@ export default function Analysis({
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
   const latest = useRef(new Latest());
+  const historyLatest = useRef(new Latest());
   const operation = useRef(0);
   const context = useRef(projectId);
   const active = useRef(true);
@@ -380,18 +538,22 @@ export default function Analysis({
     setLoading(true);
     const epoch = operation.current;
     try {
-      const [data, past] = await Promise.all([
-        query(ProjectAnalysisSummaryDocument, { projectId, analysisId: selected || null }),
-        query(AnalysisHistoryDocument, { projectId, limit: 20, offset: historyOffset }),
-      ]);
+      const data = await query(
+        ProjectAnalysisSummaryDocument,
+        { projectId, analysisId: selected || null },
+        { tags: [`project:${projectId}:analysis`, `project:${projectId}:requirements`] },
+      );
       if (
         active.current &&
         context.current === projectId &&
         operation.current === epoch &&
         latest.current.isCurrent(generation)
       ) {
-        setRun(data.projectAnalysis ? { ...data.projectAnalysis, pairs: [], findings: [] } : null);
-        setHistory(past.analysisHistory);
+        setRun((current) =>
+          data.projectAnalysis
+            ? acceptSnapshot(current, liveRun(data.projectAnalysis))
+            : (current ?? null),
+        );
         setError(false);
       }
     } catch {
@@ -401,7 +563,7 @@ export default function Analysis({
     } finally {
       if (active.current && latest.current.isCurrent(generation)) setLoading(false);
     }
-  }, [projectId, selected, historyOffset]);
+  }, [projectId, selected]);
   useEffect(() => {
     active.current = true;
     operation.current++;
@@ -415,9 +577,36 @@ export default function Analysis({
       latest.current.invalidate();
     };
   }, [load]);
+  const loadHistory = useCallback(async () => {
+    const generation = historyLatest.current.begin();
+    const epoch = operation.current;
+    try {
+      const data = await query(
+        AnalysisHistoryDocument,
+        { projectId, limit: 20, offset: historyOffset },
+        { tags: [`project:${projectId}:analysis`, `project:${projectId}:requirements`] },
+      );
+      if (
+        active.current &&
+        context.current === projectId &&
+        operation.current === epoch &&
+        historyLatest.current.isCurrent(generation)
+      )
+        setHistory(data.analysisHistory);
+    } catch {
+      if (active.current && operation.current === epoch) setError(true);
+    }
+  }, [projectId, historyOffset]);
+  useEffect(() => {
+    void loadHistory();
+    return () => historyLatest.current.invalidate();
+  }, [loadHistory]);
   useInvalidation(
-    [`project:${projectId}`, `project:${projectId}:requirements`],
-    () => void load(),
+    [`project:${projectId}:analysis`, `project:${projectId}:requirements`],
+    () => {
+      void load();
+      void loadHistory();
+    },
     () => {
       operation.current++;
       latest.current.invalidate();
@@ -427,6 +616,28 @@ export default function Analysis({
       setError(false);
     },
   );
+  const runRef = useRef(run);
+  runRef.current = run;
+  useAnalysisProgress(projectId, (snapshot) => {
+    if (selected && selected !== snapshot.id) return;
+    const previous = runRef.current;
+    const next = acceptSnapshot(previous, liveRun(snapshot));
+    if (next === previous) return;
+    if (previous?.id === next.id) {
+      for (const group of groupPairs(next)) {
+        const old = groupPairs(previous).find((item) => item.key === group.key);
+        if (
+          old?.count !== group.count ||
+          (group.key === 'pending' && previous.activePairId !== next.activePairId)
+        )
+          clientCache.invalidate([`project:${projectId}:analysis:${next.id}:${group.key}`]);
+      }
+    }
+    if (previous && previous.id !== next.id) void loadHistory();
+    runRef.current = next;
+    setRun(next);
+    setLoading(false);
+  });
   async function changeAnalysis(action: 'start' | 'retry' | 'cancel' = 'start') {
     const epoch = ++operation.current;
     latest.current.invalidate();
@@ -435,23 +646,48 @@ export default function Analysis({
     try {
       const next =
         action === 'cancel' && run
-          ? (await query(CancelProjectAnalysisDocument, { projectId, analysisId: run.id }))
-              .cancelProjectAnalysis
+          ? (
+              await query(
+                CancelProjectAnalysisDocument,
+                { projectId, analysisId: run.id },
+                { notify: false },
+              )
+            ).cancelProjectAnalysis
           : action === 'retry' && run
-            ? (await query(RetryProjectAnalysisDocument, { projectId, analysisId: run.id }))
-                .retryProjectAnalysis
+            ? (
+                await query(
+                  RetryProjectAnalysisDocument,
+                  { projectId, analysisId: run.id },
+                  { notify: false },
+                )
+              ).retryProjectAnalysis
             : (
-                await query(StartProjectAnalysisDocument, {
-                  projectId,
-                  mode,
-                  threshold: thresholdValue,
-                })
+                await query(
+                  StartProjectAnalysisDocument,
+                  {
+                    projectId,
+                    mode,
+                    threshold: thresholdValue,
+                  },
+                  { notify: false },
+                )
               ).startProjectAnalysis;
       if (active.current && context.current === projectId && operation.current === epoch) {
         latest.current.invalidate();
-        setRun({ ...next, pairs: [], findings: [] });
+        const current = runRef.current;
+        const confirmed = acceptSnapshot(current, liveRun(next));
+        if (confirmed !== current) {
+          runRef.current = confirmed;
+          setRun(confirmed);
+          if (current?.id === confirmed.id)
+            for (const group of groupPairs(confirmed))
+              clientCache.invalidate([
+                `project:${projectId}:analysis:${confirmed.id}:${group.key}`,
+              ]);
+        }
         setSelected('');
-        void load();
+        setLoading(false);
+        void loadHistory();
       }
     } catch {
       if (active.current && context.current === projectId && operation.current === epoch)
@@ -563,7 +799,7 @@ export default function Analysis({
         <button
           type="button"
           disabled={busy}
-          onClick={() => clientCache.invalidate([`project:${projectId}`])}
+          onClick={() => clientCache.invalidate([`project:${projectId}:analysis`])}
         >
           {t(locale, 'analysis.refresh')}
         </button>
@@ -620,16 +856,14 @@ export default function Analysis({
         <p>{t(locale, 'analysis.notSelectedPairs', { count: run.notSelectedPairs })}</p>
       )}
       {run && (
-        <details>
-          <summary>{t(locale, 'analysis.provenance')}</summary>
-          <pre>{run.generatorProvenance || run.generatorProfile}</pre>
-          <p>
-            {t(locale, 'analysis.selectionProfile', {
-              profile: run.selectionProfile,
-              embedding: run.embeddingProfile,
-            })}
-          </p>
-        </details>
+        <Group
+          id={`analysis-provenance:${run.id}`}
+          title={t(locale, 'analysis.provenance')}
+          lazy
+          defaultOpen={false}
+        >
+          <AnalysisProvenance runId={run.id} projectId={projectId} locale={locale} />
+        </Group>
       )}
       {run?.status === 'completed' && (
         <h3>{t(locale, outcomes[run.outcome] || 'analysis.outcome.insufficient')}</h3>

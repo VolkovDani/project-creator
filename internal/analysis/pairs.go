@@ -7,6 +7,32 @@ import (
 	"errors"
 )
 
+// Pair loads one authorized pair detail without paging through its run.
+func (s *Service) Pair(ctx context.Context, workspace, project, runID, pairID string) (PairResult, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return PairResult{}, errStorage
+	}
+	defer tx.Rollback()
+	if err = s.authorize(ctx, tx, workspace, project, false); err != nil {
+		return PairResult{}, err
+	}
+	var raw []byte
+	if err = tx.QueryRowContext(ctx, `SELECT `+pairJSON+` FROM analysis_pairs p WHERE workspace=$1 AND project_id=$2 AND run_id=$3 AND id=$4`, workspace, project, runID, pairID).Scan(&raw); err == sql.ErrNoRows {
+		return PairResult{}, ErrNotFound
+	} else if err != nil {
+		return PairResult{}, errStorage
+	}
+	var pair PairResult
+	if err = json.Unmarshal(raw, &pair); err != nil {
+		return PairResult{}, errStorage
+	}
+	if err = tx.Commit(); err != nil {
+		return PairResult{}, errStorage
+	}
+	return pair, nil
+}
+
 func jsonMarshal(value any) (string, error) { b, e := json.Marshal(value); return string(b), e }
 func (s *Service) Pairs(ctx context.Context, workspace, project, runID string, limit, offset int, status, verdict string) ([]PairResult, error) {
 	if !validPage(limit, offset) {

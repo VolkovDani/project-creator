@@ -172,5 +172,6 @@
   "rag.autoIndexHelp": "New and edited requirements are indexed automatically in the background. Failed attempts can be retried manually. Requirement analysis starts separately.",
   "rag.progressCounts": "Ready: {ready} of {total} · Queued: {queued} · Running: {running} · Failed: {failed}",
   "rag.progressFailed": "Could not refresh overall indexing progress. Last values may be stale.",
-  "rag.progressRetry": "Refresh progress"
+  "rag.progressRetry": "Refresh progress",
+  "analysis.details": "Texts and explanation"
 }

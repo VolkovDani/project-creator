@@ -243,7 +243,7 @@ func TestIndexConcurrentAndStaleVersionDiscard(t *testing.T) {
 	go func() { state, err := s.Index(ctx, "a", "p", "r"); done <- result{state, err} }()
 	<-embedder.started
 	second, err := s.Index(ctx, "a", "p", "r")
-	if err != nil || second.Status != "pending" || embedder.calls != 1 {
+	if err != nil || second.Status != "running" || embedder.calls != 1 {
 		close(embedder.release)
 		t.Fatalf("duplicate job: %+v %v", second, err)
 	}

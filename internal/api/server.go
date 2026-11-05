@@ -57,11 +57,6 @@ func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedd
 		db.Close()
 		return nil, err
 	}
-	if err = announceStartup(db, tokens); err != nil {
-		analyzer.Close()
-		db.Close()
-		return nil, errors.New("startup cache invalidation unavailable")
-	}
 	workspaces := make([]string, 0, len(tokens))
 	seen := map[string]bool{}
 	for _, ws := range tokens {
@@ -75,6 +70,12 @@ func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedd
 		analyzer.Close()
 		db.Close()
 		return nil, errors.New("index queue startup unavailable")
+	}
+	if err = announceStartup(db, tokens); err != nil {
+		retriever.Close()
+		analyzer.Close()
+		db.Close()
+		return nil, errors.New("startup cache invalidation unavailable")
 	}
 	h := &relay.Handler{Schema: schema}
 	return &Server{db: db, analysis: analyzer, indexing: retriever, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

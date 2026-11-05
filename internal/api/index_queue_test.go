@@ -185,7 +185,7 @@ func TestRequirementIndexProgressWithoutEmbedder(t *testing.T) {
 		t.Fatalf("requirement creation must work without an embedder: %v", created)
 	}
 	progress := indexQueueProgress(t, s, "token-a", "p")
-	if progress["configured"] != false || progress["profile"] != "" || progress["total"] != float64(1) || progress["queued"] != float64(0) {
+	if progress["configured"] != false || progress["profile"] != "" || progress["total"] != float64(1) || progress["queued"] != float64(1) {
 		t.Fatalf("unexpected progress without embedder: %v", progress)
 	}
 }

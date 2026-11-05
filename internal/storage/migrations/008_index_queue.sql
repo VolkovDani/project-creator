@@ -9,6 +9,24 @@ CREATE TABLE embedding_profiles (
  updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
 
+-- The outbox already serializes write transactions. Acquire it before row locks,
+-- including CRUD, so activation, queue publication and updates use one order.
+CREATE FUNCTION lock_index_queue_writes() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+ PERFORM pg_advisory_xact_lock(724183092);
+ RETURN NULL;
+END;
+$$;
+CREATE TRIGGER index_queue_write_order BEFORE INSERT OR UPDATE OR DELETE ON projects
+ FOR EACH STATEMENT EXECUTE FUNCTION lock_index_queue_writes();
+CREATE TRIGGER index_queue_write_order BEFORE INSERT OR UPDATE OR DELETE ON requirements
+ FOR EACH STATEMENT EXECUTE FUNCTION lock_index_queue_writes();
+CREATE TRIGGER index_queue_write_order BEFORE INSERT OR UPDATE OR DELETE ON requirement_index
+ FOR EACH STATEMENT EXECUTE FUNCTION lock_index_queue_writes();
+CREATE TRIGGER index_queue_write_order BEFORE INSERT OR UPDATE OR DELETE ON embedding_profiles
+ FOR EACH STATEMENT EXECUTE FUNCTION lock_index_queue_writes();
+
 CREATE FUNCTION enqueue_requirement_index() RETURNS trigger
 LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 DECLARE active_profile TEXT;

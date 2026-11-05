@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"encoding/json"
+	"github.com/VolkovDani/project-creator/contracts"
 	"github.com/VolkovDani/project-creator/internal/analysis"
 	"testing"
 
@@ -15,6 +16,7 @@ func TestProgressiveAnalysisContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, query := range []string{
+		`mutation{replaceProjectAnalysis(projectId:"p",analysisId:"run",mode:"related",threshold:0.55,strategy:"wait"){id stage status}}`,
 		`mutation{cancelProjectAnalysis(projectId:"p",analysisId:"run"){id status errorCode completedPairs pendingPairs runningPairs}}`,
 		`mutation{startProjectAnalysis(projectId:"p",mode:"related",threshold:0.65){mode similarityThreshold selectionProfile possiblePairs notSelectedPairs duplicatePairs pairs{resultOrigin selectionReasons similarityScore}}}`,
 		`query{projectAnalysis(projectId:"p"){id stage totalPairs processedPairs activePairId pairs{id position status left{id version text} right{id version text} verdict explanation errorCode}}}`,
@@ -90,5 +92,23 @@ func TestAnalysisSelectionValidationHasStableFieldMetadata(t *testing.T) {
 	}
 	if len(got.FieldErrors) != 2 || got.FieldErrors[0].Path[0] != "mode" || got.FieldErrors[0].Code != "INVALID_CHOICE" || got.FieldErrors[1].Path[0] != "threshold" || got.FieldErrors[1].Code != "RANGE" || got.FieldErrors[1].MessageKey != "analysis.validation.threshold" || got.FieldErrors[1].Params["max"] != 1 {
 		t.Fatalf("missing structured validation: %s", raw)
+	}
+}
+
+func TestReplacementStrategyValidationHasFieldMetadata(t *testing.T) {
+	schema, err := graphql.ParseSchema(Schema, &Resolver{}, graphql.UseFieldResolvers())
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := schema.Exec(WithBudget(context.Background()), `mutation{replaceProjectAnalysis(projectId:"p",analysisId:"r",strategy:"invalid"){id}}`, "", nil)
+	if len(response.Errors) != 1 {
+		t.Fatal(response)
+	}
+	raw, _ := json.Marshal(response.Errors[0].Extensions)
+	var ext struct {
+		FieldErrors []contracts.AnalysisFieldError `json:"fieldErrors"`
+	}
+	if err = json.Unmarshal(raw, &ext); err != nil || len(ext.FieldErrors) != 1 || ext.FieldErrors[0].Path[0] != "strategy" || ext.FieldErrors[0].Code != "INVALID_CHOICE" {
+		t.Fatalf("metadata %s %v", raw, err)
 	}
 }

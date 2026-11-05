@@ -44,3 +44,15 @@ export function validateAnalysisSelection(input: {
     });
   return { normalized, errors };
 }
+
+export function validateAnalysisReplacementStrategy(strategy: string): FieldError[] {
+  if (analysisRules.replacementStrategies.includes(strategy)) return [];
+  return [
+    {
+      path: ['strategy'],
+      code: 'INVALID_CHOICE',
+      messageKey: 'analysis.validation.replacementStrategy',
+      params: {},
+    },
+  ];
+}

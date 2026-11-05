@@ -55,6 +55,7 @@ func (s *Service) workOnce() bool {
 		}
 	}()
 	s.reap()
+	s.activateReplacement()
 	workspace, r, err := s.claim(conn)
 	if err != nil || r == nil {
 		return false
@@ -241,6 +242,12 @@ func (s *Service) process(lockConnection *sql.Conn, workspace string, r *Run) {
 		// The budget applies to one bounded preparation transaction, not the entire
 		// project; a large queue may span arbitrarily many committed batches.
 		for {
+			if stop, e := s.replacementBoundary(ctx, workspace, r); stop || e != nil {
+				if e != nil {
+					finish(errorCode(e))
+				}
+				return
+			}
 			prepCtx, prepCancel := context.WithTimeout(ctx, s.preparationTimeout)
 			done, err := s.prepareBatch(prepCtx, workspace, r)
 			prepCancel()
@@ -274,6 +281,7 @@ func (s *Service) process(lockConnection *sql.Conn, workspace string, r *Run) {
 			code = "NOT_CONFIGURED"
 		} else {
 			pairCtx, pairCancel := context.WithTimeout(ctx, s.timeout)
+			pairCtx = context.WithValue(pairCtx, npuCallKey{}, npuCall{RunID: r.ID, PairID: p.ID})
 			finding, code = checkedCompare(pairCtx, s.generator, pair)
 			pairCancel()
 		}
@@ -295,7 +303,7 @@ func errorCode(err error) string {
 		return "INTERRUPTED"
 	}
 	switch err.Error() {
-	case "SOURCE_CHANGED", "PROFILE_CHANGED", "INDEX_INCOMPLETE", "QUEUE_TOO_LARGE":
+	case "SOURCE_CHANGED", "PROFILE_CHANGED", "INDEX_INCOMPLETE", "QUEUE_TOO_LARGE", "REPLACED":
 		return err.Error()
 	}
 	return "STORAGE_FAILED"
@@ -333,6 +341,13 @@ func (s *Service) nextPair(ctx context.Context, workspace string, r *Run) (*Pair
 	}
 	if err = s.currentWith(ctx, tx, workspace, r); err != nil {
 		return nil, err
+	}
+	var replacement bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM analysis_replacements WHERE run_id=$1 AND successor_id IS NULL)`, r.ID).Scan(&replacement); err != nil {
+		return nil, errStorage
+	}
+	if replacement {
+		return nil, errors.New("REPLACED")
 	}
 	var raw []byte
 	err = tx.QueryRowContext(ctx, `SELECT `+pairJSON+` FROM analysis_pairs p WHERE run_id=$1 AND workspace=$2 AND project_id=$3 AND status='pending' ORDER BY position LIMIT 1 FOR UPDATE`, r.ID, workspace, r.ProjectID).Scan(&raw)

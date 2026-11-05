@@ -129,6 +129,9 @@ func (s *Service) Cancel(ctx context.Context, workspace, project, id string) (Ru
 	if err != nil {
 		return Run{}, errStorage
 	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM analysis_replacements WHERE run_id=$1 AND successor_id IS NULL`, id); err != nil {
+		return Run{}, errStorage
+	}
 	if r.Status == "running" {
 		if _, err = tx.ExecContext(ctx, `UPDATE analysis_pairs SET status='failed',error_code='CANCELLED' WHERE run_id=$1 AND status IN ('pending','running')`, id); err != nil {
 			return Run{}, errStorage
@@ -232,6 +235,9 @@ func (s *Service) Start(ctx context.Context, workspace, project string) (Run, er
 	return s.StartWithOptions(ctx, workspace, project, Options{Mode: "all", Threshold: contracts.AnalysisConstraints().DefaultThreshold})
 }
 func (s *Service) StartWithOptions(ctx context.Context, workspace, project string, opts Options) (Run, error) {
+	return s.startWithOptions(ctx, workspace, project, opts, "")
+}
+func (s *Service) startWithOptions(ctx context.Context, workspace, project string, opts Options, predecessor string) (Run, error) {
 	empty := Run{ProjectID: project, Sources: []Source{}, Findings: []Finding{}, Pairs: []PairResult{}, MissingRequirementIDs: []string{}}
 	if opts.Mode == "" {
 		opts.Mode, opts.Threshold = contracts.AnalysisDefaults()
@@ -246,6 +252,15 @@ func (s *Service) StartWithOptions(ctx context.Context, workspace, project strin
 	defer tx.Rollback()
 	if err = s.authorize(ctx, tx, workspace, project, true); err != nil {
 		return empty, err
+	}
+	if predecessor != "" {
+		var expected string
+		if err = tx.QueryRowContext(ctx, `SELECT r.id FROM analysis_runs r JOIN analysis_replacements q ON q.run_id=r.id WHERE r.workspace=$1 AND r.project_id=$2 AND r.id=$3 AND r.status<>'running' AND q.successor_id IS NULL AND r.id=(SELECT id FROM analysis_runs WHERE workspace=$1 AND project_id=$2 ORDER BY seq DESC LIMIT 1) FOR UPDATE OF r,q`, workspace, project, predecessor).Scan(&expected); err != nil {
+			return empty, ErrReplacementUnavailable
+		}
+		if err = tx.QueryRowContext(ctx, `SELECT mode,threshold FROM analysis_replacements WHERE run_id=$1`, predecessor).Scan(&opts.Mode, &opts.Threshold); err != nil {
+			return empty, errStorage
+		}
 	}
 	if err = s.recoverProject(ctx, tx, workspace, project); err != nil {
 		return empty, err
@@ -271,6 +286,11 @@ func (s *Service) StartWithOptions(ctx context.Context, workspace, project strin
 		}
 	} else if err != sql.ErrNoRows {
 		return empty, errStorage
+	}
+	if predecessor == "" {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM analysis_replacements q USING analysis_runs r WHERE q.run_id=r.id AND r.workspace=$1 AND r.project_id=$2 AND q.successor_id IS NULL`, workspace, project); err != nil {
+			return empty, errStorage
+		}
 	}
 	signature, err := sourceSignature(ctx, tx, workspace, project)
 	if err != nil {
@@ -315,6 +335,12 @@ func (s *Service) StartWithOptions(ctx context.Context, workspace, project strin
 	}
 	r.Sources = persisted.Sources
 	r.CreatedAt = created.UTC().Format(time.RFC3339Nano)
+	if predecessor != "" {
+		if _, err = tx.ExecContext(ctx, `UPDATE analysis_replacements SET successor_id=$2 WHERE run_id=$1`, predecessor, id); err != nil {
+			return empty, errStorage
+		}
+	}
+
 	if err = tx.Commit(); err != nil {
 		return empty, errStorage
 	}
@@ -347,7 +373,7 @@ func (s *Service) Retry(ctx context.Context, workspace, project, id string) (Run
 	if err != nil {
 		return Run{}, err
 	}
-	if r.Status != "failed" || signature != r.signature || r.GeneratorProfile != s.generatorProfile() || (r.Mode == "related" && r.EmbeddingProfile != s.embeddingProfile) {
+	if r.ErrorCode == "REPLACED" || r.Status != "failed" || signature != r.signature || r.GeneratorProfile != s.generatorProfile() || (r.Mode == "related" && r.EmbeddingProfile != s.embeddingProfile) {
 		return Run{}, ErrRetryUnavailable
 	}
 	if r.FailedPairs == 0 && r.TotalPairs != nil {

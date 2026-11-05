@@ -22,6 +22,7 @@ import {
   AnalysisRunMetadataDocument,
   CancelProjectAnalysisDocument,
   ProjectAnalysisSummaryDocument,
+  ReplaceProjectAnalysisDocument,
   RetryProjectAnalysisDocument,
   StartProjectAnalysisDocument,
 } from '../../../lib/generated';
@@ -57,6 +58,15 @@ const verdicts: Record<string, string> = {
   duplicate: 'analysis.verdict.duplicate',
 };
 const stages = new Set(['checking_index', 'finding_pairs', 'comparing']);
+const analysisErrorMessages: Record<string, string> = {
+  TIMEOUT: 'analysis.error.TIMEOUT',
+  NPU_UNAVAILABLE: 'analysis.error.NPU_UNAVAILABLE',
+  NPU_RECOVERY_FAILED: 'analysis.error.NPU_RECOVERY_FAILED',
+  NPU_WORKER_EXIT: 'analysis.error.NPU_WORKER_EXIT',
+  INVALID_OUTPUT: 'analysis.error.INVALID_OUTPUT',
+  PROFILE_CHANGED: 'analysis.error.PROFILE_CHANGED',
+  SOURCE_CHANGED: 'analysis.error.SOURCE_CHANGED',
+};
 type PairSummary = AnalysisPairConnectionQuery['analysisPairsConnection']['edges'][number]['node'];
 type LiveRun = AnalysisRun & { revision: string };
 function liveRun(snapshot: AnalysisSnapshot): LiveRun {
@@ -515,6 +525,7 @@ export default function Analysis({
   const [selected, setSelected] = useState('');
   const [mode, setMode] = useState(analysisRules.defaultMode);
   const [threshold, setThreshold] = useState(String(analysisRules.defaultThreshold));
+  const [replacementStrategy, setReplacementStrategy] = useState<'wait' | 'cancel'>('wait');
   const thresholdValue = threshold.trim() === '' ? NaN : Number(threshold);
   const selectionValidation = validateAnalysisSelection({ mode, threshold: thresholdValue });
   const validSelection = selectionValidation.errors.length === 0;
@@ -638,40 +649,54 @@ export default function Analysis({
     setRun(next);
     setLoading(false);
   });
-  async function changeAnalysis(action: 'start' | 'retry' | 'cancel' = 'start') {
+  async function changeAnalysis(action: 'start' | 'retry' | 'cancel' | 'replace' = 'start') {
     const epoch = ++operation.current;
     latest.current.invalidate();
     setBusy(true);
     setError(false);
     try {
       const next =
-        action === 'cancel' && run
+        action === 'replace' && run
           ? (
               await query(
-                CancelProjectAnalysisDocument,
-                { projectId, analysisId: run.id },
+                ReplaceProjectAnalysisDocument,
+                {
+                  projectId,
+                  analysisId: run.id,
+                  mode,
+                  threshold: thresholdValue,
+                  strategy: replacementStrategy,
+                },
                 { notify: false },
               )
-            ).cancelProjectAnalysis
-          : action === 'retry' && run
+            ).replaceProjectAnalysis
+          : action === 'cancel' && run
             ? (
                 await query(
-                  RetryProjectAnalysisDocument,
+                  CancelProjectAnalysisDocument,
                   { projectId, analysisId: run.id },
                   { notify: false },
                 )
-              ).retryProjectAnalysis
-            : (
-                await query(
-                  StartProjectAnalysisDocument,
-                  {
-                    projectId,
-                    mode,
-                    threshold: thresholdValue,
-                  },
-                  { notify: false },
-                )
-              ).startProjectAnalysis;
+              ).cancelProjectAnalysis
+            : action === 'retry' && run
+              ? (
+                  await query(
+                    RetryProjectAnalysisDocument,
+                    { projectId, analysisId: run.id },
+                    { notify: false },
+                  )
+                ).retryProjectAnalysis
+              : (
+                  await query(
+                    StartProjectAnalysisDocument,
+                    {
+                      projectId,
+                      mode,
+                      threshold: thresholdValue,
+                    },
+                    { notify: false },
+                  )
+                ).startProjectAnalysis;
       if (active.current && context.current === projectId && operation.current === epoch) {
         latest.current.invalidate();
         const current = runRef.current;
@@ -710,6 +735,8 @@ export default function Analysis({
           ? 'analysis.status.completed'
           : undefined;
   const groups = run ? groupPairs(run) : [];
+  const parametersChanged =
+    !!run && (mode !== run.mode || thresholdValue !== run.similarityThreshold);
   const retryable = !selected && !!run && canRetryPairs(run);
   const candidatesKnown = !!run && run.totalPairs != null;
   return (
@@ -756,6 +783,40 @@ export default function Analysis({
       >
         {t(locale, busy ? 'analysis.starting' : run ? 'analysis.newRun' : 'analysis.start')}
       </button>
+      {run?.status === 'running' && parametersChanged && !selected && (
+        <fieldset>
+          <legend>{t(locale, 'analysis.replacement.strategy')}</legend>
+          <label>
+            <input
+              type="radio"
+              name={`analysis-replacement-${projectId}`}
+              value="wait"
+              checked={replacementStrategy === 'wait'}
+              onChange={() => setReplacementStrategy('wait')}
+              disabled={busy}
+            />
+            {t(locale, 'analysis.replacement.wait')}
+          </label>
+          <label>
+            <input
+              type="radio"
+              name={`analysis-replacement-${projectId}`}
+              value="cancel"
+              checked={replacementStrategy === 'cancel'}
+              onChange={() => setReplacementStrategy('cancel')}
+              disabled={busy}
+            />
+            {t(locale, 'analysis.replacement.cancel')}
+          </label>
+          <button
+            type="button"
+            disabled={!validSelection || busy}
+            onClick={() => void changeAnalysis('replace')}
+          >
+            {t(locale, 'analysis.replacement.submit')}
+          </button>
+        </fieldset>
+      )}
       {(history.length > 0 || historyOffset > 0) && (
         <div>
           <label>
@@ -820,6 +881,9 @@ export default function Analysis({
       {run?.stale && <p role="alert">{t(locale, 'analysis.stale')}</p>}
       {run?.status === 'running' && stages.has(run.stage) && (
         <p role="status">{t(locale, `analysis.stage.${run.stage}`)}</p>
+      )}
+      {run?.stage === 'waiting_current_pair' && (
+        <p role="status">{t(locale, 'analysis.stage.waiting_current_pair')}</p>
       )}
       {run && run.totalPairs != null && (
         <p role="status">
@@ -905,9 +969,14 @@ export default function Analysis({
           </fieldset>
         )}
       {run?.errorCode === 'CANCELLED' && <p>{t(locale, 'analysis.cancelledHelp')}</p>}
-      {run?.status === 'failed' && run.errorCode !== 'CANCELLED' && (
-        <p>{t(locale, 'analysis.failureHelp')}</p>
+      {run?.errorCode === 'REPLACED' && <p>{t(locale, 'analysis.replaced')}</p>}
+      {run?.status === 'failed' && analysisErrorMessages[run.errorCode] && (
+        <p>{t(locale, analysisErrorMessages[run.errorCode])}</p>
       )}
+      {run?.status === 'failed' &&
+        !['CANCELLED', 'REPLACED', ...Object.keys(analysisErrorMessages)].includes(
+          run.errorCode,
+        ) && <p>{t(locale, 'analysis.failureHelp')}</p>}
       {retryable && <p>{t(locale, 'analysis.retryFailedHelp')}</p>}
       {run && (
         <>

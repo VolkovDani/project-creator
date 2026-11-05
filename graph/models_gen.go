@@ -162,6 +162,13 @@ type ProjectsConnectionArgs struct {
 	First *int32
 	After *string
 }
+type ReplaceProjectAnalysisArgs struct {
+	ProjectId  graphql.ID
+	AnalysisId graphql.ID
+	Mode       *string
+	Threshold  *float64
+	Strategy   string
+}
 type CancelProjectAnalysisArgs struct {
 	ProjectId  graphql.ID
 	AnalysisId graphql.ID

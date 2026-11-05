@@ -65,7 +65,7 @@ export default function IndexProgress({
           </p>
           <progress
             style={{
-              width:'100%'
+              width: '100%',
             }}
             max={Math.max(1, progress.total)}
             value={progress.ready}

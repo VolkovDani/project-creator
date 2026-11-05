@@ -123,7 +123,12 @@ function requirementConnection<T extends { id: string }>(
     totalCount: rows.length,
   };
 }
-async function fixture(page: Page, initial: unknown = null, onStart?: () => unknown) {
+async function fixture(
+  page: Page,
+  initial: unknown = null,
+  onStart?: () => unknown,
+  onCancel?: () => Promise<unknown>,
+) {
   let latest = initial as ReturnType<typeof complete> | null,
     calls = 0;
   await page.route('**/api/events', (route) =>
@@ -136,6 +141,10 @@ async function fixture(page: Page, initial: unknown = null, onStart?: () => unkn
       calls++;
       latest = (onStart ? onStart() : complete()) as ReturnType<typeof complete>;
       data = { startProjectAnalysis: latest };
+    } else if (query.includes('cancelProjectAnalysis(')) {
+      expect(variables).toEqual({ projectId: 'demo', analysisId: latest?.id });
+      latest = (await onCancel?.()) as ReturnType<typeof complete>;
+      data = { cancelProjectAnalysis: latest };
     } else if (query.includes('analysisHistory('))
       data = { analysisHistory: latest ? [latest] : [] };
     else if (query.includes('analysisPairsConnection('))
@@ -1094,4 +1103,73 @@ test('historical failures cannot retry work after a newer run exists', async ({ 
   await expect(retry).toHaveCount(0);
   await area.getByRole('combobox', { name: 'История запусков' }).selectOption('');
   await expect(retry).toBeVisible();
+});
+
+test('cancel stops the whole run, preserves results and persists across reload', async ({
+  page,
+}) => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const saved = candidate('saved', 0, 'completed', 'collision');
+  const running = complete({
+    status: 'running',
+    outcome: '',
+    totalPairs: 3,
+    pairs: [saved, candidate('active', 1, 'running'), candidate('queued', 2, 'pending')],
+  });
+  const cancelled = complete({
+    status: 'failed',
+    errorCode: 'CANCELLED',
+    outcome: '',
+    totalPairs: 3,
+    processedPairs: 1,
+    pairs: [
+      saved,
+      ...['active', 'queued'].map((id, i) => ({
+        ...candidate(id, i + 1, 'failed'),
+        errorCode: 'CANCELLED',
+      })),
+    ],
+  });
+  const starts = await fixture(page, running, undefined, async () => {
+    await pending;
+    return cancelled;
+  });
+  await page.goto('/projects/demo/analysis');
+  const cancel = page.getByRole('button', { name: 'Отменить анализ всех пар', exact: true });
+  await cancel.click();
+  await expect(cancel).toBeDisabled();
+  release();
+  await expect(page.getByText('Анализ отменён', { exact: true })).toBeVisible();
+  await expect(cancel).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Начать новый анализ', exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole('group', { name: 'Возможные противоречия: 1', exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Анализ отменён', { exact: true })).toBeVisible();
+  expect(starts()).toBe(0);
+});
+
+test('cancel failure leaves the running analysis available for another attempt', async ({
+  page,
+}) => {
+  await fixture(page, complete({ status: 'running', outcome: '' }));
+  await page.route('**/api/graphql', async (route) => {
+    if (!route.request().postDataJSON().query.includes('cancelProjectAnalysis(')) {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({ json: { errors: [{ message: 'unavailable' }] } });
+  });
+  await page.goto('/projects/demo/analysis');
+  const cancel = page.getByRole('button', { name: 'Отменить анализ всех пар', exact: true });
+  await cancel.click();
+  await expect(cancel).toBeEnabled();
+  await expect(page.getByText('Анализ выполняется', { exact: true })).toBeVisible();
+  await expect(page.getByText('Анализ отменён', { exact: true })).toHaveCount(0);
 });

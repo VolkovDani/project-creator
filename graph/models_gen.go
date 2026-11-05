@@ -149,6 +149,10 @@ type ProjectsConnectionArgs struct {
 	First *int32
 	After *string
 }
+type CancelProjectAnalysisArgs struct {
+	ProjectId  graphql.ID
+	AnalysisId graphql.ID
+}
 type RetryProjectAnalysisArgs struct {
 	ProjectId  graphql.ID
 	AnalysisId graphql.ID

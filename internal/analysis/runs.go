@@ -60,6 +60,70 @@ func (s *Service) Get(ctx context.Context, workspace, project, id string) (*Run,
 	}
 	return r, nil
 }
+
+// Cancel stops an active run and fences any provider response that arrives
+// after cancellation. Completed pairs remain available for inspection/retry.
+func (s *Service) Cancel(ctx context.Context, workspace, project, id string) (Run, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Run{}, errStorage
+	}
+	defer tx.Rollback()
+	if err = s.authorize(ctx, tx, workspace, project, true); err != nil {
+		return Run{}, err
+	}
+	r, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM analysis_runs WHERE workspace=$1 AND project_id=$2 AND id=$3 FOR UPDATE`, workspace, project, id))
+	if err == sql.ErrNoRows {
+		return Run{}, ErrNotFound
+	}
+	if err != nil {
+		return Run{}, errStorage
+	}
+	if r.Status == "running" {
+		if _, err = tx.ExecContext(ctx, `UPDATE analysis_pairs SET status='failed',error_code='CANCELLED' WHERE run_id=$1 AND status IN ('pending','running')`, id); err != nil {
+			return Run{}, errStorage
+		}
+		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM analysis_pairs WHERE run_id=$1 AND status='completed'`, id).Scan(&r.ProcessedPairs); err != nil {
+			return Run{}, errStorage
+		}
+		if r.ActivePairID != "" {
+			r.ProcessedPairs++
+		}
+		r.Status = "failed"
+		r.ErrorCode = "CANCELLED"
+		r.Stage = "finished"
+		r.Outcome = ""
+		r.ActivePairID = ""
+		r.workerID = ""
+		if _, err = tx.ExecContext(ctx, `UPDATE analysis_runs SET status='failed',error_code='CANCELLED',outcome='',stage='finished',active_pair_id='',worker_id='',processed_pairs=$4,completed_at=clock_timestamp() WHERE workspace=$1 AND project_id=$2 AND id=$3`, workspace, project, id, r.ProcessedPairs); err != nil {
+			return Run{}, errStorage
+		}
+	}
+	r, err = scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM analysis_runs WHERE workspace=$1 AND project_id=$2 AND id=$3`, workspace, project, id))
+	if err != nil {
+		return Run{}, errStorage
+	}
+	var cancelWorker context.CancelFunc
+	if r.ErrorCode == "CANCELLED" {
+		s.workersMu.Lock()
+		cancelWorker = s.workers[id]
+		s.workersMu.Unlock()
+	}
+	if err = tx.Commit(); err != nil {
+		return Run{}, errStorage
+	}
+	if r.ErrorCode == "CANCELLED" {
+		if cancelWorker != nil {
+			cancelWorker()
+		}
+		s.notify()
+	}
+	if err = s.markStale(ctx, workspace, project, r); err != nil {
+		return Run{}, err
+	}
+	return *r, nil
+}
+
 func (s *Service) History(ctx context.Context, workspace, project string, limit, offset int) ([]Run, error) {
 	if !validPage(limit, offset) {
 		return nil, errors.New("invalid analysis page")

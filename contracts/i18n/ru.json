@@ -1,4 +1,8 @@
 {
+  "analysis.cancel": "Отменить анализ всех пар",
+  "analysis.status.cancelled": "Анализ отменён",
+  "analysis.pair.cancelled": "Проверка пары отменена",
+  "analysis.cancelledHelp": "Все незавершённые проверки отменены. Готовые результаты сохранены.",
   "validation.required": "Заполните поле",
   "validation.maxLength": "Максимальная длина: {max} символов",
   "validation.invalidEncoding": "Поле содержит некорректный текст",

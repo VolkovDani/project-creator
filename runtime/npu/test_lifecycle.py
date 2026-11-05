@@ -35,6 +35,9 @@ class FakeProcess:
     def join(self, timeout=None):
         pass
 
+    def start(self):
+        self.alive = True
+
 
 class FakePipe:
     def __init__(self, responses=()):
@@ -60,11 +63,15 @@ class FakePipe:
 def runtime_fixture(responses=()):
     runtime = npu.Runtime.__new__(npu.Runtime)
     runtime.model = Path('/unused-test-model')
+    runtime.manifest = {}
+    runtime.cache = Path('/unused-test-cache')
+    runtime.startup_timeout = 600
     runtime.profile = 'a'*64
     runtime.snapshot = {'same': (1, 2, 3, 4, 5)}
     runtime.lock = threading.Lock()
     runtime.process = FakeProcess()
     runtime.connection = FakePipe(responses)
+    runtime.recoverable_after_cancel = False
     return runtime
 
 
@@ -81,24 +88,132 @@ class RuntimeLifecycleTests(unittest.TestCase):
     def test_timeout_kills_native_worker_and_requires_explicit_restart(self):
         server, _ = self.sockets()
         runtime = runtime_fixture()
+        process = runtime.process
+        connection = runtime.connection
         with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot):
             with self.assertRaisesRegex(ValueError, 'restart runtime'):
                 runtime.compare(request(), server, timeout=-1)
             with self.assertRaisesRegex(ValueError, 'explicit restart'):
                 runtime.health()
-        self.assertTrue(runtime.process.terminated)
-        self.assertTrue(runtime.connection.closed)
+        self.assertTrue(process.terminated)
+        self.assertTrue(connection.closed)
         self.assertFalse(runtime.lock.locked())
 
     def test_disconnected_client_cancels_native_inference(self):
         server, client = self.sockets()
         client.close()
         runtime = runtime_fixture()
+        process = runtime.process
         with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot):
             with self.assertRaisesRegex(ValueError, 'cancelled'):
                 runtime.compare(request(), server)
-        self.assertTrue(runtime.process.terminated)
+        self.assertTrue(process.terminated)
         self.assertFalse(runtime.lock.locked())
+
+    def test_next_health_recovers_worker_after_client_disconnect(self):
+        server, client = self.sockets()
+        client.close()
+        runtime = runtime_fixture()
+        process = runtime.process
+        restarted_process = FakeProcess()
+        ready = {'ready': True, 'device_name': 'fixture', 'load_seconds': 0.1}
+        restarted_connection = FakePipe([ready])
+        child = FakePipe()
+        context = SimpleNamespace(
+            Pipe=mock.Mock(return_value=(restarted_connection, child)),
+            Process=mock.Mock(return_value=restarted_process))
+        with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot), \
+             mock.patch.object(npu, 'verify_model'), \
+             mock.patch.object(npu.multiprocessing, 'get_context', return_value=context), \
+             contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, 'cancelled'):
+                runtime.compare(request(), server)
+            self.assertTrue(runtime.recoverable_after_cancel)
+            self.assertEqual(runtime.health(), {'profile': runtime.profile, 'device': 'NPU'})
+            restarted_connection.responses.append({'finding': finding(), 'prompt_tokens': 10, 'seconds': .01})
+            result = runtime.compare(request(), server)
+        context.Process.assert_called_once_with(target=npu.worker, args=(child, runtime.model, runtime.manifest, runtime.cache), daemon=True)
+        context.Pipe.assert_called_once_with()
+        self.assertTrue(child.closed)
+        self.assertTrue(process.terminated)
+        self.assertTrue(restarted_process.is_alive())
+        self.assertEqual(result['finding'], finding())
+
+    def test_recovery_startup_failure_does_not_dispatch_request(self):
+        server, _ = self.sockets()
+        runtime = runtime_fixture()
+        runtime.recoverable_after_cancel = True
+        with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot), \
+             mock.patch.object(npu.Runtime, '_start_worker', side_effect=ValueError('startup failed'), create=True):
+            with self.assertRaisesRegex(ValueError, 'startup failed'):
+                runtime.health()
+            self.assertEqual(runtime.connection.sent, [])
+
+    def test_model_drift_blocks_recovery_after_client_disconnect(self):
+        server, client = self.sockets()
+        client.close()
+        runtime = runtime_fixture()
+        with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot):
+            with self.assertRaisesRegex(ValueError, 'cancelled'):
+                runtime.compare(request(), server)
+        with mock.patch.object(npu, 'inventory', return_value={}):
+            with mock.patch.object(npu, 'verify_model'), \
+                 mock.patch.object(npu.multiprocessing, 'get_context') as spawn:
+                with self.assertRaisesRegex(ValueError, 'model changed'):
+                    runtime.health()
+        spawn.assert_not_called()
+
+    def test_worker_that_cannot_be_stopped_is_not_marked_recoverable(self):
+        server, client = self.sockets()
+        client.close()
+
+        class UnstoppableProcess(FakeProcess):
+            def terminate(self):
+                self.terminated = True
+
+            def kill(self):
+                pass
+
+            def is_alive(self):
+                return True
+
+        runtime = runtime_fixture()
+        runtime.process = UnstoppableProcess()
+        with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot):
+            with self.assertRaisesRegex(ValueError, 'could not be stopped'):
+                runtime.compare(request(), server)
+        self.assertFalse(runtime.recoverable_after_cancel)
+
+    def test_concurrent_health_checks_restart_once(self):
+        runtime = runtime_fixture()
+        runtime.recoverable_after_cancel = True
+        process = FakeProcess()
+        connection = FakePipe()
+        entered, release = threading.Event(), threading.Event()
+
+        def restart():
+            entered.set()
+            self.assertTrue(release.wait(1))
+            runtime.process = process
+            runtime.connection = connection
+            runtime.recoverable_after_cancel = False
+
+        start_worker = mock.Mock(side_effect=restart)
+        results = []
+        with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot), \
+             mock.patch.object(npu.Runtime, '_start_worker', start_worker, create=True):
+            first = threading.Thread(target=lambda: results.append(runtime.health()))
+            second = threading.Thread(target=lambda: results.append(runtime.health()))
+            first.start()
+            self.assertTrue(entered.wait(1))
+            second.start()
+            release.set()
+            first.join(1)
+            second.join(1)
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        start_worker.assert_called_once_with()
+        self.assertEqual(len(results), 2)
 
     def test_busy_and_bad_profile_never_dispatch_to_worker(self):
         runtime = runtime_fixture()

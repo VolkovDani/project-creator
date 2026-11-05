@@ -141,3 +141,15 @@ func analysisOptions(mode *string, threshold *float64) (analysis.Options, error)
 	}
 	return analysis.Options{Mode: normalized.Mode, Threshold: normalized.Threshold}, nil
 }
+
+// CancelProjectAnalysis stops every unfinished pair in the specified run.
+func (r *Resolver) CancelProjectAnalysis(ctx context.Context, args CancelProjectAnalysisArgs) (*ProjectAnalysis, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
+	run, err := r.Analysis.Cancel(ctx, workspace(ctx), string(args.ProjectId), string(args.AnalysisId))
+	if err != nil {
+		return nil, errors.New("analysis cancellation unavailable")
+	}
+	return projectAnalysis(run), nil
+}

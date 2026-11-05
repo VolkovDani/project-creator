@@ -15,6 +15,7 @@ func TestProgressiveAnalysisContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, query := range []string{
+		`mutation{cancelProjectAnalysis(projectId:"p",analysisId:"run"){id status errorCode completedPairs pendingPairs runningPairs}}`,
 		`mutation{startProjectAnalysis(projectId:"p",mode:"related",threshold:0.65){mode similarityThreshold selectionProfile possiblePairs notSelectedPairs duplicatePairs pairs{resultOrigin selectionReasons similarityScore}}}`,
 		`query{projectAnalysis(projectId:"p"){id stage totalPairs processedPairs activePairId pairs{id position status left{id version text} right{id version text} verdict explanation errorCode}}}`,
 		`query{analysisPairs(projectId:"p",analysisId:"r",limit:20,offset:20,status:"completed",verdict:"collision"){id reusedFrom checkedAt generatorProfile}}`,

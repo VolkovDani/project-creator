@@ -56,3 +56,16 @@ test('cache hits still run smoke verification and disposable-stack cleanup', () 
   assert.match(containers, /docker run --rm --entrypoint sh project-creator-ollama-intel:0\.40\.11/);
   for (const step of builds) assert.doesNotMatch(step, /\n        if:/);
 });
+
+test('large Intel layers have disk budget and are released before application builds', () => {
+  assert.match(containers, /runs-on: ubuntu-(?:latest|24\.04)\n/);
+  const release = steps.find((step) => step.includes('Release verified Intel image'));
+  const prepare = steps.find((step) => step.includes('Free space for large Docker layers'));
+  assert.ok(prepare && release);
+  assert.match(prepare, /sudo rm -rf \/usr\/share\/dotnet \/usr\/local\/lib\/android/);
+  assert.match(release, /docker image rm project-creator-ollama-intel:0\.40\.11/);
+  assert.match(release, /docker buildx prune --all --force/);
+  assert.ok(steps.indexOf(prepare) < steps.indexOf(builds[0]));
+  assert.ok(steps.indexOf(release) > steps.findIndex((step) => step.includes('name: Verify Intel Vulkan runtime')));
+  assert.ok(steps.indexOf(release) < steps.indexOf(builds[1]));
+});

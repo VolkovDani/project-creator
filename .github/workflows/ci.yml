@@ -99,6 +99,12 @@ jobs:
           PROJECT_CREATOR_NPU_PROFILE=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa NPU_SOCKET_GID=1000 NPU_SOCKET_DIR=/tmp/project-creator-npu docker compose --env-file "$COMPOSE_ENV_FILE" -f compose.yml -f compose.npu.yml config --quiet
           PROJECT_CREATOR_GPU_ID=GPU-1234abcd docker compose --env-file "$COMPOSE_ENV_FILE" -f compose.yml -f compose.amd.yml config --quiet
           node --test scripts/intel-compose.check.mjs scripts/npu-compose.check.mjs scripts/gpu-compose.check.mjs
+      - name: Free space for large Docker layers
+        # This job uses an ephemeral GitHub-hosted runner, never a developer host.
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android
+          df -h /
       - name: Set up cached Docker builder
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
@@ -117,6 +123,11 @@ jobs:
           cache-to: type=gha,version=2,scope=ci-intel-v1,mode=max,ignore-error=true,timeout=60s
       - name: Verify Intel Vulkan runtime
         run: docker run --rm --entrypoint sh project-creator-ollama-intel:0.40.11 -c 'test -s /etc/project-creator-intel-vulkan.json && cat /etc/project-creator-intel-vulkan.json && ollama --version'
+      - name: Release verified Intel image and builder data
+        # The Intel image is already verified and its cache export has finished.
+        run: |
+          docker image rm project-creator-ollama-intel:0.40.11
+          docker buildx prune --all --force
       - name: Build backend with cached layers
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:

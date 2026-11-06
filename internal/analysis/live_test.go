@@ -31,8 +31,9 @@ func TestSummaryReturnsRevisionAndOmitsDetails(t *testing.T) {
 
 func TestAnalysisRevisionTracksVisibleChangesButNotLease(t *testing.T) {
 	db, retriever, _ := analysisDB(t)
-	service := New(db, retriever, nil, "embed-a")
-	defer service.Close()
+	// Keep the queued run idle: this test measures only the SQL updates below,
+	// while New would start a worker that also changes the visible stage.
+	service := &Service{db: db, retriever: retriever, embeddingProfile: "embed-a"}
 	run, err := service.Start(context.Background(), "a", "p")
 	if err != nil {
 		t.Fatal(err)

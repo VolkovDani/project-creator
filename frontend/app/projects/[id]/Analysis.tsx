@@ -8,6 +8,11 @@ import {
   groupFilter,
   groupPairs,
 } from '../../../lib/analysis';
+import {
+  getLayaPools,
+  layaPairErrorMessageKey,
+  parseLayaPreclassification,
+} from '../../../lib/analysisLaya';
 import { acceptSnapshot } from '../../../lib/analysisLive';
 import type { AnalysisSnapshot } from '../../../lib/analysisSnapshot';
 import { analysisRules, validateAnalysisSelection } from '../../../lib/analysisValidation';
@@ -73,6 +78,11 @@ function liveRun(snapshot: AnalysisSnapshot): LiveRun {
   return {
     ...snapshot,
     revision: snapshot.revision || '0',
+    layaPendingPairs: snapshot.layaPendingPairs ?? 0,
+    layaRunningPairs: snapshot.layaRunningPairs ?? 0,
+    layaCompletedPairs: snapshot.layaCompletedPairs ?? 0,
+    layaFailedPairs: snapshot.layaFailedPairs ?? 0,
+    classifierProfile: snapshot.classifierProfile ?? '',
     generatorProvenance: '',
     generatorProfile: '',
     embeddingProfile: '',
@@ -220,6 +230,7 @@ function PairDetails({
   );
   const resource = useResource(load, [`project:${projectId}:analysis:${runId}:pair:${pairId}`]);
   const pair = resource.data;
+  const preclassification = parseLayaPreclassification(pair?.preclassification);
   return (
     <>
       <ResourceState
@@ -231,6 +242,28 @@ function PairDetails({
       />
       {pair && (
         <>
+          {pair.layaStatus && (
+            <p className="muted">
+              {t(locale, 'analysis.laya.status', {
+                status: t(locale, `analysis.laya.status.${pair.layaStatus}`),
+              })}
+              {pair.layaCheckedAt &&
+                ` · ${t(locale, 'analysis.laya.checkedAt', { time: pair.layaCheckedAt })}`}
+            </p>
+          )}
+          {preclassification && (
+            <div>
+              <p>{t(locale, 'analysis.laya.suggestion')}</p>
+              <p>{t(locale, `analysis.laya.decision.${preclassification.decision}`)}</p>
+              <p className="muted">
+                {t(locale, 'analysis.laya.scores', {
+                  related: preclassification.scores.related.toFixed(3),
+                  unrelated: preclassification.scores.unrelated.toFixed(3),
+                  uncertain: preclassification.scores.uncertain.toFixed(3),
+                })}
+              </p>
+            </div>
+          )}
           <SavedSource
             projectId={projectId}
             source={pair.left}
@@ -452,11 +485,12 @@ function PairList({
               <p className="error">
                 {t(
                   locale,
-                  pair.errorCode === 'CANCELLED'
-                    ? 'analysis.pair.cancelled'
-                    : pair.errorCode === 'NOT_PROCESSED'
-                      ? 'analysis.pair.notProcessed'
-                      : 'analysis.pair.failed',
+                  layaPairErrorMessageKey(pair.errorCode) ||
+                    (pair.errorCode === 'CANCELLED'
+                      ? 'analysis.pair.cancelled'
+                      : pair.errorCode === 'NOT_PROCESSED'
+                        ? 'analysis.pair.notProcessed'
+                        : 'analysis.pair.failed'),
                 )}
               </p>
             )}
@@ -471,7 +505,7 @@ function PairList({
                 runId={run.id}
                 projectId={projectId}
                 locale={locale}
-                version={`${pair.status}:${pair.checkedAt}:${pair.errorCode}`}
+                version={`${pair.status}:${pair.checkedAt}:${pair.errorCode}:${pair.layaStatus}:${pair.layaCheckedAt}`}
                 onSource={onSource}
               />
             </Group>
@@ -739,6 +773,12 @@ export default function Analysis({
     !!run && (mode !== run.mode || thresholdValue !== run.similarityThreshold);
   const retryable = !selected && !!run && canRetryPairs(run);
   const candidatesKnown = !!run && run.totalPairs != null;
+  const layaPools = run ? getLayaPools(run) : null;
+  const hasLayaPipeline =
+    !!run &&
+    (!!run.classifierProfile ||
+      run.layaPendingPairs + run.layaRunningPairs + run.layaCompletedPairs + run.layaFailedPairs >
+        0);
   return (
     <section aria-labelledby={heading}>
       <h2 id={heading}>{t(locale, 'analysis.title')}</h2>
@@ -901,6 +941,31 @@ export default function Analysis({
             failed: run.failedPairs,
           })}
         </p>
+      )}
+      {layaPools && hasLayaPipeline && (
+        <section aria-label={t(locale, 'analysis.laya.pools')}>
+          <h3>{t(locale, 'analysis.laya.pools')}</h3>
+          <ul>
+            <li>
+              {t(locale, 'analysis.laya.pool.classifying', { count: layaPools.awaitingLaya })}
+              {' · '}
+              {t(locale, 'analysis.laya.running', { count: layaPools.layaRunning })}
+            </li>
+            <li>
+              {t(locale, 'analysis.laya.pool.awaitingModel', { count: layaPools.awaitingModel })}
+              {' · '}
+              {t(locale, 'analysis.laya.modelRunning', { count: layaPools.modelRunning })}
+            </li>
+            <li>{t(locale, 'analysis.laya.pool.completed', { count: layaPools.completed })}</li>
+          </ul>
+          <p className="muted">
+            {t(locale, 'analysis.laya.failures', {
+              laya: layaPools.layaFailed,
+              model: layaPools.modelFailed,
+            })}
+          </p>
+          <p className="muted">{t(locale, 'analysis.laya.suggestionDisclaimer')}</p>
+        </section>
       )}
       {run && (
         <p>

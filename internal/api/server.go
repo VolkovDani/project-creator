@@ -32,7 +32,7 @@ func New(path string, tokens map[string]string) (*Server, error) {
 func NewWithEmbedder(path string, tokens map[string]string, embedder rag.Embedder) (*Server, error) {
 	return NewWithProviders(path, tokens, embedder, nil)
 }
-func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedder, generator analysis.Generator) (*Server, error) {
+func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedder, generator analysis.Generator, classifiers ...analysis.Classifier) (*Server, error) {
 	if len(tokens) == 0 {
 		return nil, errors.New("at least one workspace token is required")
 	}
@@ -50,10 +50,10 @@ func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedd
 	if embedder != nil {
 		embeddingProfile = embedder.Profile()
 	}
-	analyzer := analysis.New(db, retriever, generator, embeddingProfile)
+	analyzer := analysis.New(db, retriever, generator, embeddingProfile, classifiers...)
 	generatorProfile := ""
 	if generator != nil {
-		generatorProfile = generator.Profile()
+		generatorProfile = analyzer.Profile()
 	}
 	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, RAG: retriever, Analysis: analyzer}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
 	if err != nil {

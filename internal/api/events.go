@@ -26,6 +26,11 @@ type cacheEvent struct {
 	keys []string
 }
 type analysisProgressSnapshot struct {
+	ClassifierProfile     string   `json:"classifierProfile"`
+	LayaPendingPairs      int      `json:"layaPendingPairs"`
+	LayaRunningPairs      int      `json:"layaRunningPairs"`
+	LayaCompletedPairs    int      `json:"layaCompletedPairs"`
+	LayaFailedPairs       int      `json:"layaFailedPairs"`
 	ID                    string   `json:"id"`
 	ProjectID             string   `json:"projectId"`
 	Revision              string   `json:"revision"`
@@ -87,12 +92,12 @@ func readAnalysisProgress(ctx context.Context, tx *sql.Tx, workspace, project st
 	var completed sql.NullTime
 	err := tx.QueryRowContext(ctx, `SELECT r.id,r.project_id,r.revision::text,r.created_at,r.status,r.stage,r.outcome,r.error_code,r.reason_code,r.completed_at,r.mode,r.active_pair_id,r.similarity_threshold,r.processed_pairs,r.total_pairs,r.possible_pairs,r.missing_requirement_ids,
 	count(*) FILTER(WHERE p.status='completed' AND p.verdict='duplicate'),count(*) FILTER(WHERE p.status='completed' AND p.reused_from<>''),count(*) FILTER(WHERE p.status='completed' AND p.reused_from=''),count(*) FILTER(WHERE p.status='completed'),count(*) FILTER(WHERE p.status='pending'),count(*) FILTER(WHERE p.status='running'),count(*) FILTER(WHERE p.status='failed'),
-	count(*) FILTER(WHERE p.status='completed' AND p.verdict='collision'),count(*) FILTER(WHERE p.status='completed' AND p.verdict='compatible'),count(*) FILTER(WHERE p.status='completed' AND p.verdict='insufficient'),
+	count(*) FILTER(WHERE p.status='completed' AND p.verdict='collision'),count(*) FILTER(WHERE p.status='completed' AND p.verdict='compatible'),count(*) FILTER(WHERE p.status='completed' AND p.verdict='insufficient'),r.classifier_profile,count(*) FILTER(WHERE p.laya_status='pending' AND p.status<>'failed'),count(*) FILTER(WHERE p.laya_status='running'),count(*) FILTER(WHERE p.laya_status='completed'),count(*) FILTER(WHERE p.laya_status='failed'),
 	(r.source_signature <> (SELECT md5(coalesce(string_agg(md5(jsonb_build_array(q.id,q.version,q.text)::text),'' ORDER BY q.id),'')) FROM requirements q WHERE q.workspace=r.workspace AND q.project_id=r.project_id) OR ($3::boolean AND (r.generator_profile<>$4 OR (r.mode='related' AND r.embedding_profile<>$5))))
  FROM analysis_runs r LEFT JOIN analysis_pairs p ON p.run_id=r.id AND p.workspace=r.workspace AND p.project_id=r.project_id
  WHERE r.workspace=$1 AND r.project_id=$2 GROUP BY r.id ORDER BY r.seq DESC LIMIT 1`, workspace, project, profileCheck, generatorProfile, embeddingProfile).Scan(
 		&snapshot.ID, &snapshot.ProjectID, &snapshot.Revision, &created, &snapshot.Status, &snapshot.Stage, &snapshot.Outcome, &snapshot.ErrorCode, &snapshot.ReasonCode, &completed, &snapshot.Mode, &snapshot.ActivePairID, &snapshot.SimilarityThreshold, &snapshot.ProcessedPairs, &total, &possible, &missing,
-		&snapshot.DuplicatePairs, &snapshot.ReusedPairs, &snapshot.NewPairs, &snapshot.CompletedPairs, &snapshot.PendingPairs, &snapshot.RunningPairs, &snapshot.FailedPairs, &snapshot.CollisionPairs, &snapshot.CompatiblePairs, &snapshot.InsufficientPairs, &stale)
+		&snapshot.DuplicatePairs, &snapshot.ReusedPairs, &snapshot.NewPairs, &snapshot.CompletedPairs, &snapshot.PendingPairs, &snapshot.RunningPairs, &snapshot.FailedPairs, &snapshot.CollisionPairs, &snapshot.CompatiblePairs, &snapshot.InsufficientPairs, &snapshot.ClassifierProfile, &snapshot.LayaPendingPairs, &snapshot.LayaRunningPairs, &snapshot.LayaCompletedPairs, &snapshot.LayaFailedPairs, &stale)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

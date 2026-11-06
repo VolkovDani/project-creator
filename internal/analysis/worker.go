@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-// One session lock covers the complete job, including retrieval. No SQL
-// transaction is held while a provider runs. Other instances can enqueue/read
-// progress, but cannot issue competing generation requests.
+// The coordinator session lock fences competing run owners. Within its lease,
+// classification and generation run independently; embeddings do not use this lock.
+// No SQL transaction is held during model calls.
 const modelLock = 724183093
 
 func (s *Service) work() {
@@ -209,11 +209,15 @@ func (s *Service) process(lockConnection *sql.Conn, workspace string, r *Run) {
 					return
 				}
 			} else {
-				var collision, insufficient, completed int
-				if tx.QueryRowContext(finishCtx, `SELECT count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed') FROM analysis_pairs WHERE run_id=$1`, r.ID).Scan(&collision, &insufficient, &completed) != nil {
+				var collision, insufficient, completed, failed int
+				if tx.QueryRowContext(finishCtx, `SELECT count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='failed') FROM analysis_pairs WHERE run_id=$1`, r.ID).Scan(&collision, &insufficient, &completed, &failed) != nil {
 					return
 				}
 				r.Status = "completed"
+				if failed > 0 {
+					r.Status = "failed"
+					r.ErrorCode = "PAIR_FAILED"
+				}
 				r.Stage = "finished"
 				r.ActivePairID = ""
 				r.Outcome = "no_collisions_found"
@@ -259,6 +263,14 @@ func (s *Service) process(lockConnection *sql.Conn, workspace string, r *Run) {
 				break
 			}
 		}
+	}
+	if s.classifier != nil {
+		if err := s.processPipeline(ctx, workspace, r); err != nil {
+			finish(errorCode(err))
+		} else {
+			finish("")
+		}
+		return
 	}
 	for {
 		p, err := s.nextPair(ctx, workspace, r)

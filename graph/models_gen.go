@@ -232,22 +232,30 @@ type AnalysisFinding struct {
 	Explanation  string
 }
 type AnalysisPair struct {
-	SelectionReasons []string
-	SimilarityScore  *float64
-	ResultOrigin     string
-	ReusedFrom       graphql.ID
-	CheckedAt        string
-	GeneratorProfile string
-	ID               graphql.ID
-	Position         int32
-	Status           string
-	Left             *AnalysisSource
-	Right            *AnalysisSource
-	Verdict          string
-	Explanation      string
-	ErrorCode        string
+	LayaStatus        string
+	Preclassification *string
+	LayaCheckedAt     *string
+	SelectionReasons  []string
+	SimilarityScore   *float64
+	ResultOrigin      string
+	ReusedFrom        graphql.ID
+	CheckedAt         string
+	GeneratorProfile  string
+	ID                graphql.ID
+	Position          int32
+	Status            string
+	Left              *AnalysisSource
+	Right             *AnalysisSource
+	Verdict           string
+	Explanation       string
+	ErrorCode         string
 }
 type ProjectAnalysis struct {
+	ClassifierProfile     string
+	LayaPendingPairs      int32
+	LayaRunningPairs      int32
+	LayaCompletedPairs    int32
+	LayaFailedPairs       int32
 	Revision              string
 	Mode                  string
 	SimilarityThreshold   float64
@@ -304,6 +312,11 @@ type AnalysisRunMetadata struct {
 	SelectionProfile    string
 }
 type ProjectAnalysisSummary struct {
+	ClassifierProfile     string
+	LayaPendingPairs      int32
+	LayaRunningPairs      int32
+	LayaCompletedPairs    int32
+	LayaFailedPairs       int32
 	Revision              string
 	Mode                  string
 	SimilarityThreshold   float64

@@ -228,7 +228,13 @@ func (s *Service) processQueueItem(ctx context.Context, item queueItem) {
 			code = "EMPTY_SOURCE"
 		} else {
 			embedCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
-			vectors, code, _ = s.embed(embedCtx, chunks)
+			inferenceErr := s.withInference(embedCtx, false, func() error {
+				vectors, code, _ = s.embed(embedCtx, chunks)
+				return nil
+			})
+			if inferenceErr != nil {
+				code = "EMBEDDING_FAILED"
+			}
 			if embedCtx.Err() != nil {
 				code = "EMBEDDING_FAILED"
 			}

@@ -46,7 +46,7 @@ func NewOllama(baseURL, model, expectedDigest string) (*Ollama, error) {
 	}
 	host := u.Hostname()
 	ip := net.ParseIP(host)
-	if host != "localhost" && host != "ollama" && (ip == nil || !ip.IsLoopback()) {
+	if host != "localhost" && host != "ollama" && host != "ollama-embeddings" && host != "ollama-generator" && host != "ollama-laya" && (ip == nil || !ip.IsLoopback()) {
 		return nil, errors.New("Ollama requires a loopback HTTP URL")
 	}
 	if strings.TrimSpace(model) != model || model == "" || len(model) > 200 || strings.ContainsAny(model, "\r\n") || !digestPattern.MatchString(expectedDigest) {

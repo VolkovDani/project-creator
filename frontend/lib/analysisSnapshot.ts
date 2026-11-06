@@ -31,9 +31,21 @@ export function parseAnalysisSnapshot(value: unknown): AnalysisSnapshot {
     'compatiblePairs',
     'insufficientPairs',
   ];
+  const optionalCounts = [
+    'layaPendingPairs',
+    'layaRunningPairs',
+    'layaCompletedPairs',
+    'layaFailedPairs',
+  ];
   if (
     strings.some((key) => typeof record[key] !== 'string') ||
     counts.some((key) => !Number.isSafeInteger(record[key]) || Number(record[key]) < 0) ||
+    optionalCounts.some(
+      (key) =>
+        record[key] !== undefined &&
+        (!Number.isSafeInteger(record[key]) || Number(record[key]) < 0),
+    ) ||
+    (record.classifierProfile !== undefined && typeof record.classifierProfile !== 'string') ||
     ['totalPairs', 'possiblePairs', 'notSelectedPairs'].some(
       (key) =>
         record[key] !== null && (!Number.isSafeInteger(record[key]) || Number(record[key]) < 0),

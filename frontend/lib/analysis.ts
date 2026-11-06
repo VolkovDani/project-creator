@@ -49,6 +49,9 @@ export function groupPairs(run: AnalysisRun): AnalysisGroup[] {
                 resultOrigin: 'model',
                 reusedFrom: '',
                 checkedAt: '',
+                layaStatus: '',
+                preclassification: null,
+                layaCheckedAt: null,
                 generatorProfile: run.generatorProfile,
               },
             ]

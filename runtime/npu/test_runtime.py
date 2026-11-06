@@ -84,6 +84,27 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             npu.validate_request(value, 'a'*64)
 
+    def test_preclassification_is_optional_but_strict_when_present(self):
+        value = request()
+        npu.validate_request(value, 'a'*64)
+        value['pair']['preclassification'] = {'decision': 'related', 'scores': {'related': .8, 'unrelated': .1, 'uncertain': .1}}
+        npu.validate_request(value, 'a'*64)
+        for invalid in [
+                {'decision': 'unknown', 'scores': {'related': .8, 'unrelated': .1, 'uncertain': .1}},
+                {'decision': 'related', 'scores': {'related': .8, 'unrelated': .1}},
+                {'decision': 'related', 'scores': {'related': .8, 'unrelated': .1, 'uncertain': .1}, 'extra': True},
+                {'decision': 'related', 'scores': {'related': 1.2, 'unrelated': -.1, 'uncertain': 0}},
+                {'decision': 'related', 'scores': {'related': float('nan'), 'unrelated': 0, 'uncertain': 0}},
+                {'decision': 'related', 'scores': {'related': .8, 'unrelated': .1, 'uncertain': .2}},
+        ]:
+            with self.subTest(invalid=invalid):
+                value['pair']['preclassification'] = invalid
+                with self.assertRaises(ValueError):
+                    npu.validate_request(value, 'a'*64)
+        value['pair']['preclassification'] = {'decision': 'related', 'scores': {'related': .8, 'unrelated': .1, 'uncertain': .1}, 'confidence': .8}
+        with self.assertRaises(ValueError):
+            npu.validate_request(value, 'a'*64)
+
     def test_output_is_strict_and_references_exact_versions(self):
         pair = request()['pair']
         self.assertEqual(npu.parse_finding(json.dumps(finding()), pair)['verdict'], 'collision')

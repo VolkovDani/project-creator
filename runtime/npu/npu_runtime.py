@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import importlib.metadata
 import json
+import math
 import multiprocessing
 import os
 from pathlib import Path
@@ -157,6 +158,24 @@ def valid_source(source):
             and len(source['text']) <= 2000)
 
 
+def valid_preclassification(value):
+    if not isinstance(value, dict) or set(value) != {'decision', 'scores'}:
+        return False
+    if value['decision'] not in ('related', 'unrelated', 'uncertain'):
+        return False
+    scores = value['scores']
+    labels = ('related', 'unrelated', 'uncertain')
+    if not isinstance(scores, dict) or set(scores) != set(labels):
+        return False
+    total = 0.0
+    for label in labels:
+        score = scores[label]
+        if type(score) not in (int, float) or not math.isfinite(score) or not 0 <= score <= 1:
+            return False
+        total += score
+    return abs(total - 1.0) <= 1e-6
+
+
 def validate_request(value, profile):
     if not isinstance(value, dict) or set(value) != {'profile', 'system', 'pair', 'schema'}:
         raise ValueError('invalid request')
@@ -165,7 +184,11 @@ def validate_request(value, profile):
     if not isinstance(value['system'], str) or not 1 <= len(value['system']) <= 8000 or not isinstance(value['schema'], dict):
         raise ValueError('profile or prompt mismatch')
     pair = value['pair']
-    if not isinstance(pair, dict) or set(pair) != {'left', 'right'} or not all(valid_source(pair[k]) for k in pair) or pair['left']['id'] == pair['right']['id']:
+    if (not isinstance(pair, dict) or not {'left', 'right'} <= pair.keys()
+            or set(pair) - {'left', 'right', 'preclassification'}
+            or not valid_source(pair['left']) or not valid_source(pair['right'])
+            or pair['left']['id'] == pair['right']['id']
+            or ('preclassification' in pair and not valid_preclassification(pair['preclassification']))):
         raise ValueError('invalid source pair')
 
 

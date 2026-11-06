@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/VolkovDani/project-creator/contracts"
@@ -10,7 +11,7 @@ import (
 )
 
 func projectAnalysis(value analysis.Run) *ProjectAnalysis {
-	out := &ProjectAnalysis{Revision: value.Revision, Mode: value.Mode, SimilarityThreshold: value.SimilarityThreshold, SelectionProfile: value.SelectionProfile, DuplicatePairs: int32(value.DuplicatePairs), ReusedPairs: int32(value.ReusedPairs), NewPairs: int32(value.NewPairs), CompletedPairs: int32(value.CompletedPairs), PendingPairs: int32(value.PendingPairs), RunningPairs: int32(value.RunningPairs), FailedPairs: int32(value.FailedPairs), CollisionPairs: int32(value.CollisionPairs), CompatiblePairs: int32(value.CompatiblePairs), InsufficientPairs: int32(value.InsufficientPairs), GeneratorProvenance: value.GeneratorProvenance, Stage: value.Stage, ProcessedPairs: int32(value.ProcessedPairs), ActivePairId: graphql.ID(value.ActivePairID), Pairs: []*AnalysisPair{}, ReasonCode: value.ReasonCode, MissingRequirementIds: []graphql.ID{}, ID: graphql.ID(value.ID), ProjectId: graphql.ID(value.ProjectID), Status: value.Status, Outcome: value.Outcome, ErrorCode: value.ErrorCode, CreatedAt: value.CreatedAt, CompletedAt: value.CompletedAt, Stale: value.Stale, GeneratorProfile: value.GeneratorProfile, EmbeddingProfile: value.EmbeddingProfile, Sources: []*AnalysisSource{}, Findings: []*AnalysisFinding{}}
+	out := &ProjectAnalysis{ClassifierProfile: value.ClassifierProfile, LayaPendingPairs: int32(value.LayaPendingPairs), LayaRunningPairs: int32(value.LayaRunningPairs), LayaCompletedPairs: int32(value.LayaCompletedPairs), LayaFailedPairs: int32(value.LayaFailedPairs), Revision: value.Revision, Mode: value.Mode, SimilarityThreshold: value.SimilarityThreshold, SelectionProfile: value.SelectionProfile, DuplicatePairs: int32(value.DuplicatePairs), ReusedPairs: int32(value.ReusedPairs), NewPairs: int32(value.NewPairs), CompletedPairs: int32(value.CompletedPairs), PendingPairs: int32(value.PendingPairs), RunningPairs: int32(value.RunningPairs), FailedPairs: int32(value.FailedPairs), CollisionPairs: int32(value.CollisionPairs), CompatiblePairs: int32(value.CompatiblePairs), InsufficientPairs: int32(value.InsufficientPairs), GeneratorProvenance: value.GeneratorProvenance, Stage: value.Stage, ProcessedPairs: int32(value.ProcessedPairs), ActivePairId: graphql.ID(value.ActivePairID), Pairs: []*AnalysisPair{}, ReasonCode: value.ReasonCode, MissingRequirementIds: []graphql.ID{}, ID: graphql.ID(value.ID), ProjectId: graphql.ID(value.ProjectID), Status: value.Status, Outcome: value.Outcome, ErrorCode: value.ErrorCode, CreatedAt: value.CreatedAt, CompletedAt: value.CompletedAt, Stale: value.Stale, GeneratorProfile: value.GeneratorProfile, EmbeddingProfile: value.EmbeddingProfile, Sources: []*AnalysisSource{}, Findings: []*AnalysisFinding{}}
 	if value.PossiblePairs != nil {
 		n := int32(*value.PossiblePairs)
 		out.PossiblePairs = &n
@@ -73,7 +74,7 @@ func (r *Resolver) ProjectAnalysisSummary(ctx context.Context, args ProjectAnaly
 		return nil, nil
 	}
 	full := projectAnalysis(*run)
-	return &ProjectAnalysisSummary{
+	return &ProjectAnalysisSummary{ClassifierProfile: full.ClassifierProfile, LayaPendingPairs: full.LayaPendingPairs, LayaRunningPairs: full.LayaRunningPairs, LayaCompletedPairs: full.LayaCompletedPairs, LayaFailedPairs: full.LayaFailedPairs,
 		Revision: full.Revision, Mode: full.Mode, SimilarityThreshold: full.SimilarityThreshold, PossiblePairs: full.PossiblePairs,
 		NotSelectedPairs: full.NotSelectedPairs, DuplicatePairs: full.DuplicatePairs, ReusedPairs: full.ReusedPairs, NewPairs: full.NewPairs,
 		CompletedPairs: full.CompletedPairs, PendingPairs: full.PendingPairs, RunningPairs: full.RunningPairs, FailedPairs: full.FailedPairs,
@@ -141,7 +142,17 @@ func (r *Resolver) RetryProjectAnalysis(ctx context.Context, args RetryProjectAn
 
 func analysisPair(pair analysis.PairResult) *AnalysisPair {
 	reasons := append([]string{}, pair.SelectionReasons...)
-	return &AnalysisPair{SelectionReasons: reasons, SimilarityScore: pair.SimilarityScore, ResultOrigin: pair.ResultOrigin, ID: graphql.ID(pair.ID), Position: int32(pair.Position), Status: pair.Status,
+	var preclassification *string
+	if pair.Preclassification != nil {
+		raw, _ := json.Marshal(pair.Preclassification)
+		value := string(raw)
+		preclassification = &value
+	}
+	var checkedAt *string
+	if pair.LayaCheckedAt != "" {
+		checkedAt = &pair.LayaCheckedAt
+	}
+	return &AnalysisPair{LayaStatus: pair.LayaStatus, Preclassification: preclassification, LayaCheckedAt: checkedAt, SelectionReasons: reasons, SimilarityScore: pair.SimilarityScore, ResultOrigin: pair.ResultOrigin, ID: graphql.ID(pair.ID), Position: int32(pair.Position), Status: pair.Status,
 		Left:    &AnalysisSource{ID: graphql.ID(pair.Left.ID), Version: int32(pair.Left.Version), Text: pair.Left.Text},
 		Right:   &AnalysisSource{ID: graphql.ID(pair.Right.ID), Version: int32(pair.Right.Version), Text: pair.Right.Text},
 		Verdict: pair.Verdict, Explanation: pair.Explanation, ErrorCode: pair.ErrorCode,

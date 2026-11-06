@@ -39,6 +39,10 @@
 8. [Анализ коллизий](https://github.com/VolkovDani/project-creator/issues/8).
 9. [Docker-развёртывание и CI](https://github.com/VolkovDani/project-creator/issues/9).
 
+Предварительная классификация Laya и конвейер двух моделей включаются явно;
+настройка и ограничения длины — в [инструкции Laya](docs/laya-pipeline.md).
+Аппаратная приёмка #48 остаётся открытой.
+
 ## Запуск всего MVP в Docker Compose
 
 Требуются Docker Engine с Compose v2 (команды `docker compose`) либо Docker

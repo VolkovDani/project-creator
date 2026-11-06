@@ -19,6 +19,7 @@ import Group from '../../components/Group';
 import { ListModeSelect, LoadMore } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
+import RequirementSummary, { useRequirementSummaries } from './RequirementSummary';
 import { useRequirementsPage } from './useRequirementsPage';
 
 export default function Requirements({ projectId, locale }: { projectId: string; locale: Locale }) {
@@ -64,6 +65,14 @@ export default function Requirements({ projectId, locale }: { projectId: string;
   });
   const [mutationFailure, setFailure] = useState(false);
   const rows = mode === 'pages' ? paged.rows : infinite.rows;
+  const {
+    summaries,
+    failure: summaryFailure,
+    retryLoad: refreshSummaries,
+  } = useRequirementSummaries(
+    projectId,
+    rows.map((row) => ({ id: row.id, version: row.version })),
+  );
   const page = mode === 'pages' ? paged.page : 0;
   const loading = mode === 'pages' ? paged.loading : infinite.loading;
   const loaded = mode === 'pages' ? paged.loaded : infinite.loaded;
@@ -276,7 +285,16 @@ export default function Requirements({ projectId, locale }: { projectId: string;
           onEndReached={mode === 'infinite' ? more : undefined}
           renderItem={(row) => (
             <article className="card" id={`requirement-${row.id}`} key={row.id} tabIndex={-1}>
-              <p>{row.text}</p>
+              <RequirementSummary
+                projectId={projectId}
+                requirementId={row.id}
+                requirementVersion={row.version}
+                original={row.text}
+                locale={locale}
+                summary={summaries.get(row.id)}
+                loadFailure={summaryFailure}
+                refresh={refreshSummaries}
+              />
               <p className="muted">{t(locale, 'requirements.version', { version: row.version })}</p>
               <button
                 type="button"

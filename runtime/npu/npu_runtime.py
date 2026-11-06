@@ -18,6 +18,30 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler
 
+
+def requirement_text_max_length():
+    """Read the shared source constraint with the same strict contract shape as Go."""
+    path = Path(__file__).resolve().parents[2] / 'contracts' / 'requirement.json'
+    try:
+        value = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, UnicodeError, ValueError) as error:
+        raise RuntimeError('cannot load shared requirement contract') from error
+    if (not isinstance(value, dict) or set(value) != {'version', 'lengthUnit', 'trim', 'fields'}
+            or type(value.get('version')) is not int or value['version'] != 1
+            or value.get('lengthUnit') != 'unicode-code-points'
+            or value.get('trim') != 'ascii-space-tab-lf-cr'
+            or not isinstance(value.get('fields'), dict) or set(value['fields']) != {'text'}):
+        raise RuntimeError('unsupported shared requirement contract')
+    rule = value['fields']['text']
+    if (not isinstance(rule, dict) or set(rule) != {'required', 'maxLength'}
+            or rule.get('required') is not True or type(rule.get('maxLength')) is not int
+            or rule['maxLength'] <= 0):
+        raise RuntimeError('invalid shared requirement text constraint')
+    return rule['maxLength']
+
+
+REQUIREMENT_TEXT_MAX_LENGTH = requirement_text_max_length()
+
 VERSIONS = {'openvino': '2026.4.1', 'openvino-genai': '2026.4.1.0',
             'openvino-tokenizers': '2026.4.1.0', 'numpy': '2.5.4',
             'openvino-telemetry': '2025.2.0'}
@@ -155,7 +179,7 @@ def valid_source(source):
             and '\n' not in source['id'] and '\r' not in source['id']
             and type(source['version']) is int and 0 < source['version'] <= 2147483647
             and isinstance(source['text'], str) and bool(source['text'].strip())
-            and len(source['text']) <= 2000)
+            and len(source['text']) <= REQUIREMENT_TEXT_MAX_LENGTH)
 
 
 def valid_preclassification(value):

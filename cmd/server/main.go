@@ -63,7 +63,11 @@ func main() {
 	if err != nil {
 		log.Fatal("invalid local classifier configuration: ", err)
 	}
-	s, err := api.NewWithProviders(path, map[string]string{token: "default"}, embedder, generator, classifier)
+	summarizer, err := configuredSummarizer(os.Getenv)
+	if err != nil {
+		log.Fatal("invalid local summary configuration: ", err)
+	}
+	s, err := api.NewWithSummaryProviders(path, map[string]string{token: "default"}, embedder, generator, summarizer, classifier)
 	if err != nil {
 		log.Fatal(err)
 	}

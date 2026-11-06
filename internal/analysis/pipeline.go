@@ -41,10 +41,21 @@ func (s *Service) processPipeline(ctx context.Context, workspace string, r *Run)
 				return
 			}
 			callCtx, stop := context.WithTimeout(ctx, s.timeout)
-			result, callErr := s.classifier.Classify(callCtx, Pair{Left: p.Left, Right: p.Right})
+			var result Preclassification
+			var callErr error
+			if scoped, ok := s.classifier.(interface {
+				ClassifyScoped(context.Context, string, string, Pair) (Preclassification, error)
+			}); ok {
+				result, callErr = scoped.ClassifyScoped(callCtx, workspace, r.ProjectID, Pair{Left: p.Left, Right: p.Right})
+			} else {
+				result, callErr = s.classifier.Classify(callCtx, Pair{Left: p.Left, Right: p.Right})
+			}
 			code := ""
 			if callErr != nil {
 				code = "CLASSIFICATION_FAILED"
+				if errors.Is(callErr, ErrSummaryUnavailable) {
+					code = "SUMMARY_UNAVAILABLE"
+				}
 				if errors.Is(callErr, ErrClassificationInputTooLong) {
 					code = "INPUT_TOO_LONG"
 				}

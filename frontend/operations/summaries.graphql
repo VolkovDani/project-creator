@@ -1,0 +1,41 @@
+query RequirementSummariesByIds($projectId: ID!, $requirementIds: [ID!]!) {
+  requirementSummariesByIds(projectId: $projectId, requirementIds: $requirementIds) {
+    requirementId
+    projectId
+    version
+    status
+    text
+    profile
+    provenance
+    createdAt
+    errorCode
+  }
+}
+
+mutation RetryRequirementSummary($projectId: ID!, $requirementId: ID!) {
+  retryRequirementSummary(projectId: $projectId, requirementId: $requirementId) {
+    requirementId
+    projectId
+    version
+    status
+    text
+    profile
+    provenance
+    createdAt
+    errorCode
+  }
+}
+
+mutation CancelRequirementSummary($projectId: ID!, $requirementId: ID!) {
+  cancelRequirementSummary(projectId: $projectId, requirementId: $requirementId) {
+    requirementId
+    projectId
+    version
+    status
+    text
+    profile
+    provenance
+    createdAt
+    errorCode
+  }
+}

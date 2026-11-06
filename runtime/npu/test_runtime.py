@@ -75,12 +75,25 @@ def finding(**overrides):
 
 
 class ContractTests(unittest.TestCase):
+    def test_source_length_matches_shared_requirement_contract(self):
+        value = request()['pair']['left']
+        value['text'] = 'я' * 2001
+        payload = request()
+        payload['pair']['left']['text'] = value['text']
+        npu.validate_request(payload, 'a'*64)
+        contract_path = Path(npu.__file__).resolve().parents[2] / 'contracts' / 'requirement.json'
+        maximum = json.loads(contract_path.read_text(encoding='utf-8'))['fields']['text']['maxLength']
+        payload['pair']['left']['text'] = 'я' * (maximum + 1)
+        with self.assertRaises(ValueError):
+            npu.validate_request(payload, 'a'*64)
+
     def test_bad_profile_scope_and_source_bounds_rejected(self):
         value = request()
         npu.validate_request(value, 'a'*64)
         with self.assertRaises(ValueError):
             npu.validate_request(value, 'b'*64)
-        value['pair']['left']['text'] = 'я'*2001
+        maximum = json.loads((Path(npu.__file__).resolve().parents[2] / 'contracts' / 'requirement.json').read_text(encoding='utf-8'))['fields']['text']['maxLength']
+        value['pair']['left']['text'] = 'я' * (maximum + 1)
         with self.assertRaises(ValueError):
             npu.validate_request(value, 'a'*64)
 

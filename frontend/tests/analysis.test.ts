@@ -281,3 +281,10 @@ test('Laya and model work are shown in separate pools and active counters', () =
     0,
   );
 });
+
+test('Laya summary readiness failure explains preparation and retry', () => {
+  assert.equal(
+    layaPairErrorMessageKey('LAYA_SUMMARY_UNAVAILABLE'),
+    'analysis.pair.error.summaryUnavailable',
+  );
+});

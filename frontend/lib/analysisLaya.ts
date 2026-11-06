@@ -1,5 +1,6 @@
 export type LayaDecision = 'related' | 'unrelated' | 'uncertain';
 export function layaPairErrorMessageKey(errorCode: string): string | null {
+  if (errorCode === 'LAYA_SUMMARY_UNAVAILABLE') return 'analysis.pair.error.summaryUnavailable';
   return errorCode === 'LAYA_INPUT_TOO_LONG' ? 'analysis.pair.error.layaInputTooLong' : null;
 }
 

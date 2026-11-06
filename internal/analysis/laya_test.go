@@ -75,8 +75,8 @@ func TestLayaUsesPinnedLocalSystemOneAndPreservesProvenance(t *testing.T) {
 	if request["keep_alive"] != "5m" {
 		t.Fatalf("keep_alive not pinned: %#v", request["keep_alive"])
 	}
-	state, ok := request["state"].(map[string]any)
-	if !ok || state["left"] == nil || state["right"] == nil {
+	state, ok := request["state"].(string)
+	if !ok || state != pair.Left.Text+"\n"+pair.Right.Text {
 		t.Fatalf("pair not sent as structured state: %#v", request["state"])
 	}
 	questions := request["questions"].(map[string]any)
@@ -92,7 +92,7 @@ func TestLayaUsesPinnedLocalSystemOneAndPreservesProvenance(t *testing.T) {
 	if err := json.Unmarshal([]byte(classifier.Provenance()), &provenance); err != nil {
 		t.Fatal(err)
 	}
-	if provenance["adapter"] != "ollama-systemone-v1" || provenance["model"] != layaModelTag || provenance["digest"] != layaPinnedDigest {
+	if provenance["adapter"] != "ollama-systemone-compact-v2" || provenance["model"] != layaModelTag || provenance["digest"] != layaPinnedDigest {
 		t.Fatalf("provenance does not pin adapter/model/digest: %#v", provenance)
 	}
 	parameters := provenance["parameters"].(map[string]any)
@@ -258,5 +258,57 @@ func TestLayaRequiresNumericScoresConfidenceAndUsage(t *testing.T) {
 				t.Fatal("accepted response outside required numeric schema")
 			}
 		})
+	}
+}
+
+func TestLayaCompactInputFitsTwo350ByteSummariesWithoutSourceMetadata(t *testing.T) {
+	var state string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/tags" {
+			layaTags(w, layaPinnedDigest)
+			return
+		}
+		var in struct {
+			State string `json:"state"`
+		}
+		if e := json.NewDecoder(r.Body).Decode(&in); e != nil {
+			t.Error(e)
+		}
+		state = in.State
+		layaAnswer(w, "related", map[string]float64{"related": .7, "unrelated": .2, "uncertain": .1})
+	}))
+	defer server.Close()
+	l, e := NewLaya(server.URL, layaModelTag, layaPinnedDigest)
+	if e != nil {
+		t.Fatal(e)
+	}
+	p := layaPairFixture()
+	p.Left.Text = strings.Repeat("я", 175)
+	p.Right.Text = strings.Repeat("x", 350)
+	p.Left.ID = strings.Repeat("private-id", 20)
+	if _, e = l.Classify(context.Background(), p); e != nil {
+		t.Fatal(e)
+	}
+	if state != p.Left.Text+"\n"+p.Right.Text {
+		t.Fatal("texts changed or metadata included")
+	}
+}
+
+func TestLayaCountsEscapingBeforeModelCalls(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
+	defer server.Close()
+	l, e := NewLaya(server.URL, layaModelTag, layaPinnedDigest)
+	if e != nil {
+		t.Fatal(e)
+	}
+	p := layaPairFixture()
+	p.Left.Text = strings.Repeat("\"", 350)
+	p.Right.Text = strings.Repeat("я", 175)
+	if _, e = l.Classify(context.Background(), p); !errors.Is(e, ErrClassificationInputTooLong) {
+		t.Fatalf("unaccounted escaping %v", e)
+	}
+	if calls != 0 {
+		t.Fatal("overlong state reached runtime")
 	}
 }

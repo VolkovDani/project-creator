@@ -1,0 +1,33 @@
+[
+  {
+    "name": "english-repetitive-background",
+    "language": "en",
+    "source": "Only the Auditor may export incident reports; the Reader must not export them. Reports are retained for 14 days. Background: incident reports are operational records. This background is descriptive and repeated for clarity. Incident reports are operational records used by teams. This background is descriptive and repeated for clarity. Incident reports are operational records used by teams. This background is descriptive and repeated for clarity. Incident reports are operational records used by teams. This background is descriptive and repeated for clarity. Incident reports are operational records used by teams. This background is descriptive and repeated for clarity. Incident reports are operational records used by teams. This background is descriptive and repeated for clarity.",
+    "facts": ["Only the Auditor", "Reader must not export", "14 days"]
+  },
+  {
+    "name": "russian-repetitive-background",
+    "language": "ru",
+    "source": "Только аудитор может выгружать отчёты; наблюдателю запрещено их выгружать. Отчёты хранятся 14 календарных дней. Справка: отчёты содержат рабочую информацию. Эта справка описывает контекст и повторяется для ясности. Отчёты содержат рабочую информацию для команды. Эта справка описывает контекст и повторяется для ясности. Отчёты содержат рабочую информацию для команды. Эта справка описывает контекст и повторяется для ясности. Отчёты содержат рабочую информацию для команды. Эта справка описывает контекст и повторяется для ясности. Отчёты содержат рабочую информацию для команды. Эта справка описывает контекст и повторяется для ясности. Отчёты содержат рабочую информацию для команды. Эта справка описывает контекст и повторяется для ясности.",
+    "facts": ["Только аудитор", "наблюдателю запрещено", "14 календарных дней"]
+  },
+  {
+    "name": "english-roles-negation-exception-units",
+    "language": "en",
+    "source": "For every workspace, an Owner must retain audit records for exactly 90 days, while a Viewer must never delete or export them. During a legally mandated deletion request, the Owner may delete only the affected user's records after recording the request ID; the Viewer remains forbidden from deleting records. Retention is measured in calendar days, not hours, and applies after account closure as well as during normal operation. The system must not send audit contents to external services.",
+    "facts": ["90 days", "Owner", "Viewer", "never delete", "legally mandated", "request ID", "calendar days", "account closure", "not send", "external services"]
+  },
+  {
+    "name": "russian-roles-negation-exception-units",
+    "language": "ru",
+    "source": "Для каждого проекта администратор обязан хранить резервные копии ровно 30 календарных дней, а наблюдатель не должен удалять или скачивать их. Исключение допускает досрочное удаление только по подтверждённому запросу владельца проекта и только после записи номера запроса в журнал. Срок считается в календарных днях, не в часах, и действует также после архивирования проекта. Копии нельзя передавать внешним сервисам.",
+    "facts": ["30 календарных дней", "администратор", "наблюдатель", "не должен удалять", "подтверждённому запросу владельца", "номер запроса", "после архивирования", "нельзя передавать", "внешним сервисам"]
+  },
+  {
+    "name": "impossible-preserve-identifiers",
+    "language": "en",
+    "source": "The exact ordered recovery sequence is mandatory and every identifier is significant: ",
+    "identifierCount": 90,
+    "facts": []
+  }
+]

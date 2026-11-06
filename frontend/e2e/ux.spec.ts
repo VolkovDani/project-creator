@@ -58,6 +58,22 @@ async function fixture(page: Page, count = 21) {
         return;
       }
       data = { requirementIndexProgress: progress };
+    } else if (query.includes('requirementSummariesByIds(')) {
+      data = {
+        requirementSummariesByIds: rows
+          .filter((row) => variables.requirementIds.includes(row.id))
+          .map((row) => ({
+            requirementId: row.id,
+            projectId: row.projectId,
+            version: row.version,
+            status: 'ready',
+            text: row.text,
+            profile: 'fixture-summary-profile',
+            provenance: 'fixture-summary-origin',
+            createdAt: 'now',
+            errorCode: '',
+          })),
+      };
     } else if (query.includes('requirementsConnection(')) {
       reads++;
       connectionReads.push({ first: Number(variables.first), after: variables.after ?? null });
@@ -155,7 +171,7 @@ async function fixture(page: Page, count = 21) {
       };
     },
     setText: (text: string) => {
-      rows[0] = { ...rows[0], text };
+      rows[0] = { ...rows[0], text, version: rows[0].version + 1 };
     },
     setReady: () => {
       indexes = indexes.map((x) => ({ ...x, status: 'ready' }));
@@ -314,7 +330,12 @@ test('slow SSE refetch and reconnect reset preserve cards, draft, focus and pagi
   expect((await card.boundingBox())?.y).toBe(before?.y);
   api.setText('Обновлённое требование');
   release();
-  await expect(card.getByText('Обновлённое требование', { exact: true })).toBeVisible();
+  await expect(
+    card
+      .getByRole('region', { name: 'Предложение, созданное ИИ', exact: true })
+      .locator(':scope > p')
+      .filter({ hasText: /^Обновлённое требование$/ }),
+  ).toBeVisible();
   await expect.poll(api.connections).toBeGreaterThan(connections);
   const resetReads = api.reads();
   const releaseReset = api.delay();
@@ -347,7 +368,13 @@ test('failed background request keeps stale data and local retry restores freshn
   api.fail(0);
   api.setText('Успешный повтор');
   await page.getByRole('button', { name: 'Повторить', exact: true }).click();
-  await expect(page.getByText('Успешный повтор', { exact: true })).toBeVisible();
+  await expect(
+    page
+      .locator('#requirement-r0')
+      .getByRole('region', { name: 'Предложение, созданное ИИ', exact: true })
+      .locator(':scope > p')
+      .filter({ hasText: /^Успешный повтор$/ }),
+  ).toBeVisible();
   await expect(
     page.getByText('Показаны последние загруженные данные. Они могут быть устаревшими.', {
       exact: false,

@@ -270,7 +270,7 @@ func TestOpenVINORejectsInvalidSourceBeforeRuntime(t *testing.T) {
 		t.Fatal("accepted repeated source")
 	}
 	pair = pairFixture()
-	pair.Left.Text = strings.Repeat("я", 2001)
+	pair.Left.Text = strings.Repeat("я", 10001)
 	if _, err := generator.Compare(context.Background(), pair); err == nil {
 		t.Fatal("accepted oversized source")
 	}

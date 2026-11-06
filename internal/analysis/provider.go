@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/VolkovDani/project-creator/contracts"
 	"io"
 	"net"
 	"net/http"
@@ -174,7 +175,7 @@ func (o *Ollama) verify(ctx context.Context) error {
 	return errors.New("pinned analysis model is not installed locally")
 }
 func validSource(s Source) bool {
-	return s.ID != "" && len(s.ID) <= 200 && utf8.ValidString(s.ID) && !strings.ContainsAny(s.ID, "\r\n") && s.Version > 0 && s.Version <= 2147483647 && utf8.ValidString(s.Text) && strings.TrimSpace(s.Text) != "" && utf8.RuneCountInString(s.Text) <= 2000
+	return s.ID != "" && len(s.ID) <= 200 && utf8.ValidString(s.ID) && !strings.ContainsAny(s.ID, "\r\n") && s.Version > 0 && s.Version <= 2147483647 && utf8.ValidString(s.Text) && strings.TrimSpace(s.Text) != "" && utf8.RuneCountInString(s.Text) <= contracts.RequirementRules()["text"].MaxLength
 }
 func findingSchema() map[string]any {
 	stringType := map[string]any{"type": "string", "minLength": 1, "maxLength": 200}

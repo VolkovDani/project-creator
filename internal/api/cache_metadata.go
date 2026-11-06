@@ -42,6 +42,10 @@ func cacheTags(data any) []string {
 				_, hasGeneratorProfile := x["generatorProfile"].(string)
 				_, hasGeneratorProvenance := x["generatorProvenance"].(string)
 				isAnalysis := x["__typename"] == "ProjectAnalysis" || x["__typename"] == "ProjectAnalysisSummary" || (hasRevision && hasAnalysisMode) || (hasAnalysisMode && hasCreatedAt) || (hasGeneratorProfile && hasGeneratorProvenance)
+				_, hasSummaryProvenance := x["provenance"].(string)
+				if hasSummaryProvenance {
+					tags["project:"+id+":summaries"] = true
+				}
 				if isAnalysis {
 					tags["project:"+id+":analysis"] = true
 				} else {

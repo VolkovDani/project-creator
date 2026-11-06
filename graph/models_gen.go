@@ -86,6 +86,10 @@ type AnalysisPairConnection struct {
 	PageInfo   *PageInfo
 	TotalCount int32
 }
+type RequirementSummariesByIdsArgs struct {
+	ProjectId      graphql.ID
+	RequirementIds []graphql.ID
+}
 type RequirementIndexProgressArgs struct {
 	ProjectId graphql.ID
 }
@@ -161,6 +165,14 @@ type ProjectsArgs struct {
 type ProjectsConnectionArgs struct {
 	First *int32
 	After *string
+}
+type RetryRequirementSummaryArgs struct {
+	ProjectId     graphql.ID
+	RequirementId graphql.ID
+}
+type CancelRequirementSummaryArgs struct {
+	ProjectId     graphql.ID
+	RequirementId graphql.ID
 }
 type ReplaceProjectAnalysisArgs struct {
 	ProjectId  graphql.ID
@@ -346,4 +358,15 @@ type ProjectAnalysisSummary struct {
 	CreatedAt             string
 	CompletedAt           string
 	Stale                 bool
+}
+type RequirementSummary struct {
+	RequirementId graphql.ID
+	ProjectId     graphql.ID
+	Version       int32
+	Status        string
+	Text          string
+	Profile       string
+	Provenance    string
+	CreatedAt     string
+	ErrorCode     string
 }

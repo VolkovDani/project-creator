@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
 
+async function revealOriginal(page: import('@playwright/test').Page) {
+  const disclosure = page.getByText('Полный исходный текст требования', { exact: true }).last();
+  const details = disclosure.locator('xpath=..');
+  if (!(await details.evaluate((element) => (element as HTMLDetailsElement).open)))
+    await disclosure.click();
+}
+
 test('create a project and open it after reload', async ({ page }) => {
   const name = `Проект ${Date.now()}`;
   await page.goto('/projects/new');
@@ -16,8 +23,10 @@ test('create a project and open it after reload', async ({ page }) => {
   await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
   await page.getByLabel('Текст требования').fill('Требование один');
   await page.getByRole('button', { name: 'Добавить требование' }).click();
+  await revealOriginal(page);
   await expect(page.getByText('Требование один', { exact: true })).toBeVisible();
   await page.reload();
+  await revealOriginal(page);
   await expect(page.getByText('Требование один', { exact: true })).toBeVisible();
   const other = await page.context().newPage();
   await other.goto(page.url());
@@ -36,6 +45,7 @@ test('create a project and open it after reload', async ({ page }) => {
   await other.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(other.getByText('Версия 3')).toBeVisible();
   await page.reload();
+  await revealOriginal(page);
   await expect(page.getByText('Мой черновик', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Удалить' }).click();
   await expect(page.getByText('Требований пока нет')).toBeVisible();
@@ -114,12 +124,14 @@ test('two tabs receive project and requirement invalidations without reload', as
   await watcher.getByRole('link', { name: 'Требования', exact: true }).first().click();
   await page.getByLabel('Текст требования').fill('Live requirement');
   await page.getByRole('button', { name: 'Добавить требование' }).click();
+  await revealOriginal(watcher);
   await expect(watcher.getByText('Live requirement', { exact: true })).toBeVisible({
     timeout: 15000,
   });
   await page.getByRole('button', { name: 'Изменить' }).click();
   await page.getByLabel('Текст требования').fill('Changed in another tab');
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await revealOriginal(watcher);
   await expect(watcher.getByText('Changed in another tab', { exact: true })).toBeVisible({
     timeout: 15000,
   });

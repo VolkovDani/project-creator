@@ -198,7 +198,7 @@ func TestComparisonInputAndEndpoints(t *testing.T) {
 		t.Fatal("accepted unpinned model")
 	}
 	p, _ := NewOllama("http://127.0.0.1:1", "qwen2.5:7b", pinnedDigest)
-	for _, modify := range []func(*Pair){func(p *Pair) { p.Right.ID = p.Left.ID }, func(p *Pair) { p.Left.Version = 0 }, func(p *Pair) { p.Left.Text = "" }, func(p *Pair) { p.Left.Text = strings.Repeat("я", 2001) }} {
+	for _, modify := range []func(*Pair){func(p *Pair) { p.Right.ID = p.Left.ID }, func(p *Pair) { p.Left.Version = 0 }, func(p *Pair) { p.Left.Text = "" }, func(p *Pair) { p.Left.Text = strings.Repeat("я", 10001) }} {
 		pair := pairFixture()
 		modify(&pair)
 		if _, err := p.Compare(context.Background(), pair); err == nil || !strings.Contains(err.Error(), "invalid comparison input") {
@@ -240,5 +240,36 @@ func TestRealAnalysisSmoke(t *testing.T) {
 				t.Fatalf("fixture %s: %+v %v", fixture.name, finding, err)
 			}
 		})
+	}
+}
+
+func TestComparisonKeepsFullLongOriginal(t *testing.T) {
+	p := pairFixture()
+	p.Left.Text = strings.Repeat("Обязательство. ", 250)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/tags" {
+			modelTags(w)
+			return
+		}
+		var in struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		json.NewDecoder(r.Body).Decode(&in)
+		var pair Pair
+		json.Unmarshal([]byte(in.Messages[1].Content), &pair)
+		if pair.Left.Text != p.Left.Text {
+			t.Error("full source changed")
+		}
+		chatEnvelope(w, findingJSON())
+	}))
+	defer server.Close()
+	g, e := NewOllama(server.URL, "qwen2.5:7b", pinnedDigest)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = g.Compare(context.Background(), p); e != nil {
+		t.Fatal(e)
 	}
 }

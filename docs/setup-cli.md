@@ -11,6 +11,8 @@
 ./project-creator setup --device amd
 # либо Intel NPU для генерации + CPU для BGE-M3:
 ./project-creator setup --device npu
+# либо Intel NPU для генерации + Intel Arc для Ollama (embeddings):
+./project-creator setup --device npu --ollama-device arc --gpu-id 0
 ```
 
 `setup` — явное разрешение загрузить локальные веса, контейнеры и необходимые
@@ -130,9 +132,18 @@ compiled cache, manifest, история анализов и synthetic diagnosti
 ```
 
 При переходе с NPU управляемый runtime останавливается. Весов NPU это не удаляет.
-Перехода на CPU/Arc/облако при ошибке NPU нет. В первой версии автоматического
-CLI путь NPU использует CPU embeddings; ручной NPU+Arc вариант остаётся в
-`docs/intel-npu.md`.
+Перехода на CPU/Arc/облако при ошибке NPU нет. По умолчанию NPU-профиль
+использует CPU для Ollama и embeddings. Для Intel NPU генерации вместе с Intel
+Arc для Ollama задайте `--ollama-device arc`; `--gpu-id` выбирает Vulkan ID Arc
+из логов Ollama и используется тем же способом, что в обычном Arc-профиле. CLI
+поднимает `compose.intel.yml` перед `compose.npu.yml`, сохраняя NPU runtime
+генератора. Установка сохраняет оба устройства отдельно в приватном
+`.project-creator/state.json`; повторные `up` и `setup --device npu` сохраняют
+выбранный Ollama-профиль. Его смена требует явного `--switch-device`. Старые
+state-файлы без `ollama_device` продолжают означать NPU-генерацию с CPU Ollama.
+Проверка embeddings подтверждает Ollama offload; проверка генератора по-прежнему
+подтверждает профиль NPU. Закреплённые модели, их digests и данные установки
+при переключении сохраняются.
 
 ## GPU и выбор адаптера
 

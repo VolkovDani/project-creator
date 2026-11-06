@@ -14,7 +14,8 @@
     "test:ux": "playwright test --config ux.playwright.config.ts",
     "format": "biome check --write .",
     "format:check": "biome check .",
-    "lint:ci": "biome ci ."
+    "lint:ci": "biome ci .",
+    "hooks:install": "node ../scripts/install-git-hooks.mjs"
   },
   "dependencies": {
     "@graphql-typed-document-node/core": "3.2.0",

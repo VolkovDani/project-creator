@@ -69,7 +69,12 @@ export function groupPairs(run: AnalysisRun): AnalysisGroup[] {
 }
 
 export function canRetryPairs(run: AnalysisRun): boolean {
-  return run.status === 'failed' && !run.stale && (run.failedPairs > 0 || run.totalPairs == null);
+  return (
+    run.status === 'failed' &&
+    run.errorCode !== 'REPLACED' &&
+    !run.stale &&
+    (run.failedPairs > 0 || run.totalPairs == null)
+  );
 }
 
 export function groupCount(run: AnalysisRun, key: AnalysisGroupKey): number {

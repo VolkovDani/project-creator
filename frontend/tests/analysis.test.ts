@@ -140,6 +140,7 @@ test('only a current stopped run with failed pairs can resume failed work', () =
   assert.equal(canRetryPairs(failed), true);
   assert.equal(canRetryPairs({ ...failed, stale: true }), false);
   assert.equal(canRetryPairs({ ...failed, status: 'running' }), false);
+  assert.equal(canRetryPairs({ ...failed, errorCode: 'REPLACED' }), false);
   assert.equal(
     canRetryPairs(run([pair('done', 0, 'completed', 'collision')], { status: 'completed' })),
     false,

@@ -297,3 +297,22 @@ func TestOpenVINODriftAndCancellation(t *testing.T) {
 		t.Fatal("ignored cancellation")
 	}
 }
+
+func TestOpenVINOReportsSafeRuntimeFailureCodes(t *testing.T) {
+	for _, code := range []string{"NPU_UNAVAILABLE", "NPU_RECOVERY_FAILED", "NPU_WORKER_EXIT", "TIMEOUT", "INVALID_OUTPUT", "PROFILE_CHANGED", "private unknown error"} {
+		t.Run(code, func(t *testing.T) {
+			o := npuServer(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(w).Encode(map[string]string{"code": code, "error": "private model text"})
+			})
+			_, got := checkedCompare(context.Background(), o, Pair{Left: Source{ID: "left", Version: 1, Text: "First"}, Right: Source{ID: "right", Version: 1, Text: "Second"}})
+			want := code
+			if code == "private unknown error" {
+				want = "GENERATION_FAILED"
+			}
+			if got != want {
+				t.Fatalf("got %q want %q", got, want)
+			}
+		})
+	}
+}

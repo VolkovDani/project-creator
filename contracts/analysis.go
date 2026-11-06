@@ -13,15 +13,16 @@ import (
 var analysisJSON []byte
 
 type AnalysisConfig struct {
-	Version          int      `json:"version"`
-	Modes            []string `json:"modes"`
-	DefaultMode      string   `json:"defaultMode"`
-	DefaultThreshold float64  `json:"defaultThreshold"`
-	MinThreshold     float64  `json:"minThreshold"`
-	MaxThreshold     float64  `json:"maxThreshold"`
-	PageMin          int      `json:"pageMin"`
-	PageMax          int      `json:"pageMax"`
-	OffsetMin        int      `json:"offsetMin"`
+	Version               int      `json:"version"`
+	Modes                 []string `json:"modes"`
+	ReplacementStrategies []string `json:"replacementStrategies"`
+	DefaultMode           string   `json:"defaultMode"`
+	DefaultThreshold      float64  `json:"defaultThreshold"`
+	MinThreshold          float64  `json:"minThreshold"`
+	MaxThreshold          float64  `json:"maxThreshold"`
+	PageMin               int      `json:"pageMin"`
+	PageMax               int      `json:"pageMax"`
+	OffsetMin             int      `json:"offsetMin"`
 }
 
 type AnalysisSelectionInput struct {
@@ -47,7 +48,7 @@ func AnalysisConstraints() AnalysisConfig {
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		panic("invalid analysis contract: trailing JSON")
 	}
-	if rules.Version != 1 || len(rules.Modes) == 0 || rules.MinThreshold > rules.MaxThreshold || rules.DefaultThreshold < rules.MinThreshold || rules.DefaultThreshold > rules.MaxThreshold || rules.PageMin < 1 || rules.PageMax < rules.PageMin || rules.OffsetMin < 0 {
+	if rules.Version != 1 || len(rules.Modes) == 0 || len(rules.ReplacementStrategies) == 0 || rules.MinThreshold > rules.MaxThreshold || rules.DefaultThreshold < rules.MinThreshold || rules.DefaultThreshold > rules.MaxThreshold || rules.PageMin < 1 || rules.PageMax < rules.PageMin || rules.OffsetMin < 0 {
 		panic("unsupported analysis contract")
 	}
 	found := false
@@ -61,6 +62,13 @@ func AnalysisConstraints() AnalysisConfig {
 	}
 	if !found {
 		panic("invalid default analysis mode")
+	}
+	seen = map[string]bool{}
+	for _, strategy := range rules.ReplacementStrategies {
+		if (strategy != "wait" && strategy != "cancel") || seen[strategy] {
+			panic("unsupported analysis replacement strategy")
+		}
+		seen[strategy] = true
 	}
 	return rules
 }
@@ -93,6 +101,14 @@ func AnalysisSelection(mode *string, threshold *float64) (AnalysisSelectionInput
 func ValidateAnalysisSelection(mode string, threshold float64) bool {
 	_, errors := AnalysisSelection(&mode, &threshold)
 	return len(errors) == 0
+}
+func AnalysisReplacementStrategy(strategy string) []AnalysisFieldError {
+	for _, allowed := range AnalysisConstraints().ReplacementStrategies {
+		if strategy == allowed {
+			return []AnalysisFieldError{}
+		}
+	}
+	return []AnalysisFieldError{{[]string{"strategy"}, "INVALID_CHOICE", "analysis.validation.replacementStrategy", map[string]float64{}}}
 }
 func ValidateAnalysisPage(limit, offset int) bool {
 	rules := AnalysisConstraints()

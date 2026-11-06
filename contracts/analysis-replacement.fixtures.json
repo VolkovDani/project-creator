@@ -1,0 +1,28 @@
+[
+  { "name": "wait", "strategy": "wait", "errors": [] },
+  { "name": "cancel", "strategy": "cancel", "errors": [] },
+  {
+    "name": "unknown strategy",
+    "strategy": "immediate",
+    "errors": [
+      {
+        "path": ["strategy"],
+        "code": "INVALID_CHOICE",
+        "messageKey": "analysis.validation.replacementStrategy",
+        "params": {}
+      }
+    ]
+  },
+  {
+    "name": "empty strategy",
+    "strategy": "",
+    "errors": [
+      {
+        "path": ["strategy"],
+        "code": "INVALID_CHOICE",
+        "messageKey": "analysis.validation.replacementStrategy",
+        "params": {}
+      }
+    ]
+  }
+]

@@ -53,3 +53,26 @@ func TestAnalysisRulesRejectNonFiniteThresholdAndReturnFreshModes(t *testing.T) 
 		t.Fatal("invalid page constraints")
 	}
 }
+
+func TestSharedAnalysisReplacementStrategyFixtures(t *testing.T) {
+	raw, err := os.ReadFile("analysis-replacement.fixtures.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixtures []struct {
+		Name     string
+		Strategy string
+		Errors   []AnalysisFieldError
+	}
+	if err = json.Unmarshal(raw, &fixtures); err != nil {
+		t.Fatal(err)
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.Name, func(t *testing.T) {
+			got := AnalysisReplacementStrategy(fixture.Strategy)
+			if !reflect.DeepEqual(got, fixture.Errors) {
+				t.Fatalf("got %+v want %+v", got, fixture.Errors)
+			}
+		})
+	}
+}

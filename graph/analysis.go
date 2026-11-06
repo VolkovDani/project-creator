@@ -109,6 +109,25 @@ func (r *Resolver) StartProjectAnalysis(ctx context.Context, args StartProjectAn
 	return projectAnalysis(run), nil
 }
 
+// ReplaceProjectAnalysis applies selection changes to the expected active run.
+func (r *Resolver) ReplaceProjectAnalysis(ctx context.Context, args ReplaceProjectAnalysisArgs) (*ProjectAnalysis, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
+	options, err := analysisOptions(args.Mode, args.Threshold)
+	if err != nil {
+		return nil, err
+	}
+	if fields := contracts.AnalysisReplacementStrategy(args.Strategy); len(fields) > 0 {
+		return nil, analysisSelectionError{fields}
+	}
+	run, err := r.Analysis.Replace(ctx, workspace(ctx), string(args.ProjectId), string(args.AnalysisId), options, args.Strategy)
+	if err != nil {
+		return nil, errors.New("analysis replacement unavailable")
+	}
+	return projectAnalysis(run), nil
+}
+
 func (r *Resolver) RetryProjectAnalysis(ctx context.Context, args RetryProjectAnalysisArgs) (*ProjectAnalysis, error) {
 	if err := consume(ctx); err != nil {
 		return nil, err

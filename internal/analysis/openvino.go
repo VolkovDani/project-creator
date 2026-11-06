@@ -43,12 +43,22 @@ func (o *OpenVINO) request(ctx context.Context, method, path string, body []byte
 		return errors.New("invalid NPU request")
 	}
 	request.Header.Set("Content-Type", "application/json")
+	if call, ok := ctx.Value(npuCallKey{}).(npuCall); ok && callIDPattern.MatchString(call.CallID) {
+		request.Header.Set("X-NPU-Call-ID", call.CallID)
+	}
 	response, err := o.client.Do(request)
 	if err != nil {
-		return errors.New("local NPU runtime unavailable or request cancelled")
+		return npuFailure("NPU_UNAVAILABLE")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
+		var failure struct {
+			Code string `json:"code"`
+		}
+		data, readErr := io.ReadAll(io.LimitReader(response.Body, 4097))
+		if readErr == nil && len(data) <= 4096 && json.Unmarshal(data, &failure) == nil && knownNPUFailure(failure.Code) {
+			return npuFailure(failure.Code)
+		}
 		return errors.New("local NPU runtime rejected request; inspect runtime diagnostics")
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponse+1))
@@ -79,12 +89,25 @@ func (o *OpenVINO) verify(ctx context.Context) error {
 
 func (o *OpenVINO) verifyIdentity(profile, device string) error {
 	if profile != o.pinnedProfile || device != "NPU" {
-		return errors.New("NPU runtime profile or execution device differs from pinned configuration")
+		return npuFailure("PROFILE_CHANGED")
 	}
 	return nil
 }
 
 func (o *OpenVINO) Compare(ctx context.Context, pair Pair) (Finding, error) {
+	call, _ := ctx.Value(npuCallKey{}).(npuCall)
+	if !callIDPattern.MatchString(call.CallID) {
+		id, err := identifier()
+		if err != nil {
+			return Finding{}, errors.New("NPU call identifier unavailable")
+		}
+		call.CallID = id
+	}
+	ctx = context.WithValue(ctx, npuCallKey{}, call)
+	path := npuLogPath()
+	writeNPUCall(path, "compare_started", call)
+	defer writeNPUCall(path, "compare_returned", call)
+
 	if !validSource(pair.Left) || !validSource(pair.Right) || pair.Left.ID == pair.Right.ID {
 		return Finding{}, errors.New("invalid comparison input")
 	}
@@ -134,4 +157,17 @@ func (o *OpenVINO) Compare(ctx context.Context, pair Pair) (Finding, error) {
 		return Finding{}, ctx.Err()
 	}
 	return finding, nil
+}
+
+// npuFailure carries only a closed set of transport diagnostics. Raw runtime
+// errors may include input details and must never become API error codes.
+type npuFailure string
+
+func (e npuFailure) Error() string { return string(e) }
+func knownNPUFailure(code string) bool {
+	switch code {
+	case "NPU_UNAVAILABLE", "NPU_RECOVERY_FAILED", "NPU_WORKER_EXIT", "TIMEOUT", "INVALID_OUTPUT", "PROFILE_CHANGED":
+		return true
+	}
+	return false
 }

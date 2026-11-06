@@ -135,6 +135,7 @@ async function fixture(
   initial: unknown = null,
   onStart?: () => unknown,
   onCancel?: () => Promise<unknown>,
+  onReplace?: (variables: Record<string, unknown>) => unknown,
 ) {
   let latest = initial as ReturnType<typeof complete> | null,
     calls = 0;
@@ -144,7 +145,10 @@ async function fixture(
   await page.route('**/api/graphql', async (route) => {
     const { query, variables } = route.request().postDataJSON();
     let data: unknown;
-    if (query.includes('startProjectAnalysis(')) {
+    if (query.includes('replaceProjectAnalysis(')) {
+      latest = (onReplace ? onReplace(variables) : complete()) as ReturnType<typeof complete>;
+      data = { replaceProjectAnalysis: latest };
+    } else if (query.includes('startProjectAnalysis(')) {
       calls++;
       latest = (onStart ? onStart() : complete()) as ReturnType<typeof complete>;
       data = { startProjectAnalysis: latest };
@@ -1065,6 +1069,73 @@ test('selection defaults to related with configurable threshold and all pairs is
   await area.getByRole('button', { name: 'Начать новый анализ', exact: true }).click();
   await expect.poll(() => starts.length).toBe(2);
   expect(starts[1]).toEqual({ projectId: 'demo', mode: 'all', threshold: 0.78 });
+});
+
+test('replacing a running analysis requires an explicit wait or cancel strategy', async ({
+  page,
+}) => {
+  const current = complete({ id: 'running-1', status: 'running', stage: 'comparing' });
+  let replacementVariables: Record<string, unknown> | undefined;
+  const calls = await fixture(page, current, undefined, undefined, (variables) => {
+    replacementVariables = variables;
+    return complete({
+      id: 'running-1',
+      status: 'running',
+      stage: 'waiting_current_pair',
+      mode: 'all',
+    });
+  });
+  const replacements: Record<string, unknown>[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/graphql')) {
+      const payload = request.postDataJSON();
+      if (payload.query.includes('replaceProjectAnalysis(')) replacements.push(payload.variables);
+    }
+  });
+  await page.goto('/projects/demo/analysis');
+  const area = analysisRegion(page);
+  await area.getByRole('combobox', { name: 'Режим анализа' }).selectOption('all');
+  expect(calls()).toBe(0);
+  await expect(
+    area.getByRole('button', { name: 'Начать новый анализ', exact: true }),
+  ).toBeDisabled();
+  await area.getByRole('button', { name: 'Заменить параметры анализа' }).click();
+  await expect.poll(() => replacements.length).toBe(1);
+  await expect.poll(() => replacementVariables).toEqual(replacements[0]);
+  await expect(
+    area.getByRole('status').filter({ hasText: 'Дожидаемся завершения текущей пары' }),
+  ).toBeVisible();
+  expect(replacements[0]).toEqual({
+    projectId: 'demo',
+    analysisId: 'running-1',
+    mode: 'all',
+    threshold: 0.65,
+    strategy: 'wait',
+  });
+});
+
+test('replacing an analysis can explicitly cancel the active inference', async ({ page }) => {
+  const current = complete({ id: 'running-cancel', status: 'running', stage: 'comparing' });
+  let replacementVariables: Record<string, unknown> | undefined;
+  await fixture(page, current, undefined, undefined, (variables) => {
+    replacementVariables = variables;
+    return complete({
+      id: 'running-cancel',
+      status: 'failed',
+      errorCode: 'REPLACED',
+      failedPairs: 1,
+      pairs: [candidate('failed', 0, 'failed')],
+    });
+  });
+  await page.goto('/projects/demo/analysis');
+  const area = analysisRegion(page);
+  await area.getByRole('combobox', { name: 'Режим анализа' }).selectOption('all');
+  await area.getByRole('radio', { name: 'Сразу отменить текущий вызов модели' }).check();
+  await area.getByRole('button', { name: 'Заменить параметры анализа' }).click();
+  await expect.poll(() => replacementVariables?.strategy).toBe('cancel');
+  await expect(area.getByText('Этот анализ заменён новым запуском.')).toBeVisible();
+  await expect(area.getByText(/Проверьте доступность локальной модели/)).toHaveCount(0);
+  await expect(area.getByRole('button', { name: 'Повторить ошибки' })).toHaveCount(0);
 });
 
 test('duplicate group distinguishes deterministic equality from model suggestions and shows unselected coverage', async ({

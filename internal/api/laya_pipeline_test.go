@@ -20,7 +20,8 @@ func (apiClassifier) Classify(context.Context, analysis.Pair) (analysis.Preclass
 
 func TestGraphQLLayaPipelineSnapshotAndSourceIsolation(t *testing.T) {
 	generator := &cancelAPIGenerator{entered: make(chan struct{})}
-	s, err := NewWithProviders(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"}, nil, generator, apiClassifier{})
+	summarizer := &apiSummaryGenerator{text: func(source analysis.Source) string { return "derived: " + source.Text }}
+	s, err := NewWithSummaryProviders(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"}, nil, generator, summarizer, apiClassifier{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,6 +29,9 @@ func TestGraphQLLayaPipelineSnapshotAndSourceIsolation(t *testing.T) {
 	if _, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now');INSERT INTO requirements VALUES('r1','a','p','First obligation',1,'now','now'),('r2','a','p','Second obligation',1,'now','now')`); err != nil {
 		t.Fatal(err)
 	}
+	waitAPISummary(t, s, "token-a", "p", "r1", "ready")
+	waitAPISummary(t, s, "token-a", "p", "r2", "ready")
+	classifierProfile := s.summaries.Classifier(apiClassifier{}).Profile()
 	request := func(token, query string) map[string]any {
 		t.Helper()
 		raw, _ := json.Marshal(map[string]string{"query": query})
@@ -58,7 +62,7 @@ func TestGraphQLLayaPipelineSnapshotAndSourceIsolation(t *testing.T) {
 	}
 	data := out["data"].(map[string]any)
 	summary := data["projectAnalysisSummary"].(map[string]any)
-	if summary["classifierProfile"] != "api-classifier-v1" || summary["layaCompletedPairs"] != float64(1) || summary["runningPairs"] != float64(1) {
+	if summary["classifierProfile"] != classifierProfile || summary["layaCompletedPairs"] != float64(1) || summary["runningPairs"] != float64(1) {
 		t.Fatal(summary)
 	}
 	pair := data["analysisPairs"].([]any)[0].(map[string]any)
@@ -72,7 +76,7 @@ func TestGraphQLLayaPipelineSnapshotAndSourceIsolation(t *testing.T) {
 	}
 	snapshot, err := readAnalysisProgress(context.Background(), tx, "a", "p", s.analysis.Profile(), "")
 	tx.Rollback()
-	if err != nil || snapshot.Stale || snapshot.LayaCompletedPairs != 1 || snapshot.ClassifierProfile != "api-classifier-v1" {
+	if err != nil || snapshot.Stale || snapshot.LayaCompletedPairs != 1 || snapshot.ClassifierProfile != classifierProfile {
 		t.Fatalf("SSE lost stage/profile: %+v %v", snapshot, err)
 	}
 	if foreign := request("token-b", query); foreign["errors"] == nil {

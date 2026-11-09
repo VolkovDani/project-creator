@@ -68,3 +68,22 @@ func (g *optionalFinalGenerator) Compare(_ context.Context, p analysis.Pair) (an
 	g.bad.Store(p.Preclassification != nil || strings.Contains(p.Left.Text, "Полезная выжимка") || strings.Contains(p.Right.Text, "Полезная выжимка"))
 	return analysis.Finding{LeftID: p.Left.ID, RightID: p.Right.ID, LeftVersion: p.Left.Version, RightVersion: p.Right.Version, Verdict: "compatible", Explanation: "Full originals compared without Laya"}, nil
 }
+
+func TestUnconfiguredSummariesNeverSendOriginalsToLaya(t *testing.T) {
+	s := New(nil, nil)
+	next := &captureClassifier{}
+	wrapped, ok := s.Classifier(next).(*Classifier)
+	if !ok {
+		t.Fatal("unconfigured summaries bypassed the summary-only boundary")
+	}
+	if wrapped.Provenance() == "" {
+		t.Fatal("missing unconfigured-stage provenance")
+	}
+	_, err := wrapped.ClassifyScoped(context.Background(), "a", "p", analysis.Pair{})
+	if err != analysis.ErrSummaryUnavailable || next.called.Load() != 0 {
+		t.Fatalf("unconfigured stage reached Laya: err=%v calls=%d", err, next.called.Load())
+	}
+	if s.Classifier(nil) != nil {
+		t.Fatal("disabled Laya should stay disabled")
+	}
+}

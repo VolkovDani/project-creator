@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+
 	"github.com/VolkovDani/project-creator/contracts"
 
 	"github.com/VolkovDani/project-creator/internal/analysis"
@@ -20,7 +21,7 @@ type Classifier struct {
 }
 
 func (s *Service) Classifier(next analysis.Classifier) analysis.Classifier {
-	if next == nil || s.generator == nil {
+	if next == nil {
 		return next
 	}
 	sum := sha256.Sum256([]byte("summary-input-v2:" + s.Profile() + ":" + next.Profile()))
@@ -32,13 +33,20 @@ func (c *Classifier) Provenance() string {
 	if p, ok := c.next.(interface{ Provenance() string }); ok {
 		classifier = p.Provenance()
 	}
-	raw, _ := json.Marshal(map[string]string{"adapter": "summary-input-v2", "summary": c.s.generator.Provenance(), "classifier": classifier})
+	summary := "not_configured"
+	if c.s.generator != nil {
+		summary = c.s.generator.Provenance()
+	}
+	raw, _ := json.Marshal(map[string]string{"adapter": "summary-input-v2", "summary": summary, "classifier": classifier})
 	return string(raw)
 }
 func (c *Classifier) Classify(ctx context.Context, p analysis.Pair) (analysis.Preclassification, error) {
 	return analysis.Preclassification{}, errors.New("classification scope required")
 }
 func (c *Classifier) ClassifyScoped(ctx context.Context, w, project string, p analysis.Pair) (analysis.Preclassification, error) {
+	if c.s.generator == nil {
+		return analysis.Preclassification{}, analysis.ErrSummaryUnavailable
+	}
 	rows, e := c.s.ByIDs(ctx, w, project, []string{p.Left.ID, p.Right.ID})
 	if e != nil {
 		return analysis.Preclassification{}, analysis.ErrSummaryUnavailable

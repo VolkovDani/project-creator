@@ -46,7 +46,7 @@ type Options struct {
 	Threshold float64
 }
 
-const selectionVersion = "related-v1:cosine-max-chunk:two-shared-terms:exact-fields-v1"
+const selectionVersion = "related-v2:cosine-max-chunk:threshold-required:exact-fields-v1"
 
 type Run struct {
 	ClassifierProfile                                                                                                                                  string

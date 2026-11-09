@@ -9,8 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 )
 
 const preparationBatch = 128
@@ -19,29 +17,6 @@ const exactOrigin = "exact_text_v1"
 func normalizedText(s string) string { return strings.Join(strings.Fields(s), " ") }
 func exactDuplicate(p Pair) bool {
 	return normalizedText(p.Left.Text) != "" && normalizedText(p.Left.Text) == normalizedText(p.Right.Text)
-}
-func significantTerms(text string) map[string]bool {
-	stop := map[string]bool{"must": true, "shall": true, "should": true, "with": true, "from": true, "that": true, "this": true, "then": true, "only": true, "every": true, "requirement": true, "system": true, "система": true, "должна": true, "должен": true, "должны": true, "только": true, "каждый": true, "требование": true, "пользователь": true}
-	out := map[string]bool{}
-	for _, v := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) }) {
-		if utf8.RuneCountInString(v) >= 4 && !stop[v] {
-			out[v] = true
-		}
-	}
-	return out
-}
-func sharedTerms(p Pair) bool {
-	left, right := significantTerms(p.Left.Text), significantTerms(p.Right.Text)
-	n := 0
-	for v := range left {
-		if right[v] {
-			n++
-			if n >= 2 {
-				return true
-			}
-		}
-	}
-	return false
 }
 func cacheKey(profile string, p Pair) string {
 	// JSON boundaries preserve IDs, versions and texts as one canonical identity.
@@ -63,9 +38,6 @@ func selection(p Pair, mode string, threshold float64, score *float64) []string 
 	if mode == "related" {
 		if score != nil && *score >= threshold {
 			reasons = append(reasons, "semantic_similarity")
-		}
-		if sharedTerms(p) {
-			reasons = append(reasons, "shared_terms")
 		}
 	}
 	return reasons

@@ -112,7 +112,7 @@ func TestRelatedQueueFixedRUENCoverageBeyondTopSix(t *testing.T) {
 	}
 }
 
-func TestRelatedQueueSignificantTermsUnionWithSemanticCandidates(t *testing.T) {
+func TestRelatedQueueSharedTermsCannotBypassThreshold(t *testing.T) {
 	db, retriever, _ := analysisDB(t)
 	selectionFixtures(t, db, retriever, []string{
 		"Invoice retention lasts thirty days.",
@@ -128,8 +128,8 @@ func TestRelatedQueueSignificantTermsUnionWithSemanticCandidates(t *testing.T) {
 	service := testService(t, db, retriever, generator, "embed-a")
 	run := relatedRun(t, service, 0.65)
 	pairs, err := service.Pairs(context.Background(), "a", "p", run.ID, 100, 0, "", "")
-	if err != nil || run.TotalPairs == nil || *run.TotalPairs != 1 || len(pairs) != 1 || generator.calls.Load() != 1 || !hasSelectionReason(pairs[0], "shared_terms") || hasSelectionReason(pairs[0], "semantic_similarity") {
-		t.Fatalf("significant whole terms did not contribute independently: run=%+v pairs=%+v err=%v", run, pairs, err)
+	if err != nil || run.TotalPairs == nil || *run.TotalPairs != 0 || run.NotSelectedPairs == nil || *run.NotSelectedPairs != 3 || len(pairs) != 0 || generator.calls.Load() != 0 {
+		t.Fatalf("shared terms bypassed semantic threshold: run=%+v pairs=%+v err=%v", run, pairs, err)
 	}
 }
 

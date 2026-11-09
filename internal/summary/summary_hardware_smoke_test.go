@@ -3,6 +3,7 @@ package summary
 import (
 	"context"
 	"encoding/json"
+	"github.com/VolkovDani/project-creator/contracts"
 	"os"
 	"regexp"
 	"strings"
@@ -71,7 +72,7 @@ func (g *fullSourceNPUGenerator) Compare(ctx context.Context, pair analysis.Pair
 	g.checked.Add(1)
 	left, leftOK := g.expected[pair.Left.ID]
 	right, rightOK := g.expected[pair.Right.ID]
-	if !leftOK || !rightOK || pair.Left != left || pair.Right != right || pair.Preclassification == nil {
+	if !leftOK || !rightOK || pair.Left != left || pair.Right != right {
 		g.bad.Store(true)
 	}
 	return g.next.Compare(ctx, pair)
@@ -145,7 +146,7 @@ func TestRealSummaryLayaNPUFullSourcePipeline(t *testing.T) {
 			}
 			state := rows[0]
 			if state.Status == "ready" {
-				if len(state.Text) == 0 || len(state.Text) > 350 || !utf8.ValidString(state.Text) {
+				if !contracts.ValidSummary(state.Text) || state.ByteLength != len(state.Text) || state.LayaEligible != contracts.SummaryLayaEligible(state.Text) {
 					t.Fatalf("invalid generated summary %s: %d UTF-8 bytes", fixture.id, len(state.Text))
 				}
 				states[fixture.id] = state

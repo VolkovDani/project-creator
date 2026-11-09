@@ -11,11 +11,29 @@ test('shared summary validation fixtures', () => {
     readFileSync(new URL('../../contracts/summary.fixtures.json', import.meta.url), 'utf8'),
   );
   for (const fixture of fixtures)
-    assert.equal(validateSummary(fixture.text, contract).valid, fixture.valid, fixture.name);
+    assert.deepEqual(
+      validateSummary(fixture.text, contract),
+      {
+        valid: fixture.valid,
+        layaEligible: fixture.layaEligible,
+        byteLength: new TextEncoder().encode(fixture.text).length,
+      },
+      fixture.name,
+    );
 });
 
-test('summary validation rejects malformed UTF-16 and counts encoded bytes', () => {
-  const contract = { version: 1, lengthUnit: 'utf8-bytes', maxBytes: 350, required: true };
+test('summary validation preserves long previews while limiting only Laya eligibility', () => {
+  const contract = { version: 2, lengthUnit: 'utf8-bytes', layaMaxBytes: 350, required: true };
+  assert.deepEqual(validateSummary('я'.repeat(175), contract), {
+    valid: true,
+    layaEligible: true,
+    byteLength: 350,
+  });
+  assert.deepEqual(validateSummary('я'.repeat(176), contract), {
+    valid: true,
+    layaEligible: false,
+    byteLength: 352,
+  });
   assert.equal(validateSummary('\ud800', contract).valid, false);
-  assert.equal(validateSummary('я'.repeat(175), contract).byteLength, 350);
+  assert.equal(validateSummary('preview\0text', contract).valid, false);
 });

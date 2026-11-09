@@ -12,8 +12,9 @@ func TestSummarySharedFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	var cases []struct {
-		Name, Text string
-		Valid      bool
+		Name, Text   string
+		Valid        bool
+		LayaEligible bool
 	}
 	if err = json.Unmarshal(raw, &cases); err != nil {
 		t.Fatal(err)
@@ -23,9 +24,15 @@ func TestSummarySharedFixtures(t *testing.T) {
 			if got := ValidSummary(c.Text); got != c.Valid {
 				t.Fatalf("valid=%v want=%v", got, c.Valid)
 			}
+			if got := SummaryLayaEligible(c.Text); got != c.LayaEligible {
+				t.Fatalf("layaEligible=%v want=%v", got, c.LayaEligible)
+			}
 		})
 	}
 	if ValidSummary(string([]byte{0xff})) {
 		t.Fatal("invalid UTF8 accepted")
+	}
+	if SummaryLayaEligible(string([]byte{0xff})) {
+		t.Fatal("invalid UTF8 is Laya eligible")
 	}
 }

@@ -228,7 +228,7 @@ func TestGraphQLProgressSurvivesRequestAndRetriesOnlyFailedPairs(t *testing.T) {
 		t.Fatalf("first result not exposed while second is running: %v", progress)
 	}
 	firstID := progress["pairs"].([]any)[0].(map[string]any)["id"]
-	compact := authorized(`{projectAnalysisSummary(projectId:"p",analysisId:"` + id + `"){classifierProfile layaPendingPairs layaRunningPairs layaCompletedPairs layaFailedPairs revision mode similarityThreshold possiblePairs notSelectedPairs duplicatePairs reusedPairs newPairs completedPairs pendingPairs runningPairs failedPairs collisionPairs compatiblePairs insufficientPairs stage totalPairs processedPairs activePairId reasonCode missingRequirementIds id projectId status outcome errorCode createdAt completedAt stale}}`)
+	compact := authorized(`{projectAnalysisSummary(projectId:"p",analysisId:"` + id + `"){classifierProfile layaPendingPairs layaRunningPairs layaCompletedPairs layaFailedPairs layaSkippedPairs revision mode similarityThreshold possiblePairs notSelectedPairs duplicatePairs reusedPairs newPairs completedPairs pendingPairs runningPairs failedPairs collisionPairs compatiblePairs insufficientPairs stage totalPairs processedPairs activePairId reasonCode missingRequirementIds id projectId status outcome errorCode createdAt completedAt stale}}`)
 	if compact["errors"] != nil {
 		t.Fatalf("compact analysis summary failed: %v", compact)
 	}

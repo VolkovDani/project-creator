@@ -5,9 +5,11 @@ type LayaSnapshot = {
   layaRunningPairs: number;
   layaCompletedPairs: number;
   layaFailedPairs: number;
+  layaSkippedPairs: number;
   classifierProfile: string;
 };
 type SnapshotOverrides = Partial<LayaSnapshot> & {
+  pendingPairs?: number;
   runningPairs?: number;
   failedPairs?: number;
   completedPairs?: number;
@@ -48,6 +50,7 @@ function snapshot(revision = '1', processedPairs = 0, laya: SnapshotOverrides = 
     layaRunningPairs: 0,
     layaCompletedPairs: 0,
     layaFailedPairs: 0,
+    layaSkippedPairs: 0,
     classifierProfile: '',
     ...laya,
   };
@@ -106,6 +109,7 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
     similarityScore: null,
     generatorProfile: 'g',
     layaStatus: '',
+    layaErrorCode: '',
     preclassification: null as string | null,
     layaCheckedAt: null as string | null,
     left: { id: 'a', version: 1, text: 'Saved left source' },
@@ -160,8 +164,8 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
     set(value: ReturnType<typeof snapshot>) {
       current = value;
     },
-    setPair(value: typeof pair) {
-      pair = value;
+    setPair(value: Omit<typeof pair, 'layaErrorCode'> & { layaErrorCode?: string }) {
+      pair = { ...value, layaErrorCode: value.layaErrorCode ?? '' };
     },
   };
 }
@@ -243,7 +247,7 @@ test('Laya classification pools advance over SSE while final verdict groups rema
   );
   await expect(page.getByText('Ещё не классифицировано: 2')).toBeVisible();
   await expect(
-    page.getByText('Классифицировано, ожидает или проходит проверку моделью сравнения: 4'),
+    page.getByText('Классифицировано, ожидает или проходит проверку моделью сравнения: 20'),
   ).toBeVisible();
   await expect(page.getByText('Активно в Laya: 1')).toBeVisible();
   await expect(page.getByText('Активно в модели сравнения: 2')).toBeVisible();
@@ -283,7 +287,7 @@ test('Laya classification pools advance over SSE while final verdict groups rema
       runningPairs: 1,
     }),
   );
-  await expect(page.getByText('Завершено обоими этапами: 1')).toBeVisible();
+  await expect(page.getByText('Проверено моделью сравнения: 1')).toBeVisible();
   const group = page.getByRole('group', { name: 'Возможные противоречия: 1', exact: true });
   await expect(group).toBeVisible();
   await group.locator(':scope > summary').click();
@@ -294,35 +298,49 @@ test('Laya classification pools advance over SSE while final verdict groups rema
   await expect(details.getByText(/не вероятность правильности/)).toBeVisible();
   await expect(page.getByText('Возможная коллизия в паре')).toBeVisible();
 });
-test('oversized Laya input explains the local classifier budget on the failed pair', async ({
+test('oversized previews skip Laya while the comparison model completes the pair', async ({
   page,
 }) => {
   const live = await fixture(page);
-  live.set(snapshot('2', 1, { failedPairs: 1, completedPairs: 0, collisionPairs: 0 }));
+  live.set(
+    snapshot('2', 1, {
+      failedPairs: 0,
+      completedPairs: 1,
+      collisionPairs: 1,
+      layaSkippedPairs: 1,
+    }),
+  );
   live.setPair({
     id: 'pair-1',
     position: 0,
-    status: 'failed',
-    verdict: '',
-    explanation: '',
-    errorCode: 'LAYA_INPUT_TOO_LONG',
+    status: 'completed',
+    verdict: 'collision',
+    explanation: 'Model completed using original source texts.',
+    errorCode: '',
     checkedAt: '',
     resultOrigin: '',
     reusedFrom: '',
     selectionReasons: [],
     similarityScore: null,
     generatorProfile: 'g',
-    layaStatus: '',
+    layaStatus: 'skipped',
+    layaErrorCode: 'LAYA_INPUT_TOO_LONG',
     preclassification: null,
     layaCheckedAt: null,
     left: { id: 'a', version: 1, text: 'Saved left source' },
     right: { id: 'b', version: 1, text: 'Saved right source' },
   });
   await page.goto('/projects/demo/analysis');
-  const group = page.getByRole('group', { name: 'Ошибки обработки: 1', exact: true });
+  await expect(page.getByText(/Пропущено Laya.*1/)).toBeVisible();
+  const group = page.getByRole('group', { name: 'Возможные противоречия: 1', exact: true });
   await expect(group).toBeVisible();
   await group.locator(':scope > summary').click();
-  await expect(group.getByText(/превышает лимит локального классификатора/i)).toBeVisible();
+  const pairCard = group.getByRole('article', { name: 'Пара 1', exact: true });
+  await expect(pairCard.getByText('Возможная коллизия в паре')).toBeVisible();
+  const details = pairCard.getByRole('group', { name: 'Тексты и объяснение' });
+  await details.locator(':scope > summary').click();
+  await expect(details.getByText(/Laya пропустила эту пару.*350 байт UTF-8/)).toBeVisible();
+  await expect(details.getByText(/сравнительная модель|модель сравнения проверит/i)).toBeVisible();
 });
 test('reset recovers a missed terminal snapshot without hiding the current result', async ({
   page,

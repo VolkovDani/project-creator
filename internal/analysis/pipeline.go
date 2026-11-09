@@ -17,7 +17,7 @@ func (s *Service) comparisonProvenance() string {
 	if p, ok := s.classifier.(interface{ Provenance() string }); ok {
 		classifier = p.Provenance()
 	}
-	raw, _ := jsonMarshal(map[string]string{"adapter": "laya-llm-pipeline-v1", "generator": GeneratorProvenance(s.generator), "classifier": classifier})
+	raw, _ := jsonMarshal(map[string]any{"adapter": "laya-llm-pipeline-v2", "generator": GeneratorProvenance(s.generator), "classifier": classifier, "fallbackPolicy": "final-llm-on-laya-failure-with-full-originals-v1"})
 	return raw
 }
 
@@ -64,6 +64,10 @@ func (s *Service) processPipeline(ctx context.Context, workspace string, r *Run)
 				code = errorCode(callCtx.Err())
 			}
 			stop()
+			if ctx.Err() != nil {
+				results <- ctx.Err()
+				return
+			}
 			if code == "" && !validPreclassification(result) {
 				code = "INVALID_OUTPUT"
 			}
@@ -177,12 +181,12 @@ func (s *Service) claimPipelinePair(ctx context.Context, workspace string, r *Ru
 	if replacement {
 		return nil, errors.New("REPLACED")
 	}
-	stage := "completed"
+	eligibility := `laya_status IN ('completed','failed','skipped')`
 	if laya {
-		stage = "pending"
+		eligibility = `laya_status='pending'`
 	}
 	var raw []byte
-	err = tx.QueryRowContext(ctx, `SELECT `+pairJSON+` FROM analysis_pairs p WHERE run_id=$1 AND workspace=$2 AND project_id=$3 AND status='pending' AND laya_status=$4 ORDER BY position LIMIT 1 FOR UPDATE`, r.ID, workspace, r.ProjectID, stage).Scan(&raw)
+	err = tx.QueryRowContext(ctx, `SELECT `+pairJSON+` FROM analysis_pairs p WHERE run_id=$1 AND workspace=$2 AND project_id=$3 AND status='pending' AND `+eligibility+` ORDER BY position LIMIT 1 FOR UPDATE`, r.ID, workspace, r.ProjectID).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -196,6 +200,8 @@ func (s *Service) claimPipelinePair(ctx context.Context, workspace string, r *Ru
 	query := `UPDATE analysis_pairs SET status='running',error_code='' WHERE id=$1`
 	if laya {
 		query = `UPDATE analysis_pairs SET laya_status='running',error_code='' WHERE id=$1`
+	} else {
+		query = `UPDATE analysis_pairs SET status='running',error_code='' WHERE id=$1 AND laya_status IN ('completed','failed','skipped')`
 	}
 	if _, err = tx.ExecContext(ctx, query, p.ID); err != nil {
 		return nil, errStorage
@@ -228,10 +234,14 @@ func (s *Service) saveClassification(ctx context.Context, workspace string, r *R
 	defer tx.Rollback()
 	var update sql.Result
 	if code != "" {
-		update, err = tx.ExecContext(ctx, `UPDATE analysis_pairs SET laya_status='failed',status='failed',error_code=$2 WHERE id=$1 AND run_id=$3 AND laya_status='running' AND status='pending'`, p.ID, "LAYA_"+code, r.ID)
+		status := "failed"
+		if code == "INPUT_TOO_LONG" || code == "SUMMARY_UNAVAILABLE" {
+			status = "skipped"
+		}
+		update, err = tx.ExecContext(ctx, `UPDATE analysis_pairs SET laya_status=$2,laya_error_code=$3,laya_checked_at=clock_timestamp() WHERE id=$1 AND run_id=$4 AND laya_status='running' AND status='pending'`, p.ID, status, "LAYA_"+code, r.ID)
 	} else {
 		raw, _ := jsonMarshal(result)
-		update, err = tx.ExecContext(ctx, `UPDATE analysis_pairs SET laya_status='completed',laya_result=$2::jsonb,laya_checked_at=clock_timestamp() WHERE id=$1 AND run_id=$3 AND laya_status='running' AND status='pending'`, p.ID, raw, r.ID)
+		update, err = tx.ExecContext(ctx, `UPDATE analysis_pairs SET laya_status='completed',laya_error_code='',laya_result=$2::jsonb,laya_checked_at=clock_timestamp() WHERE id=$1 AND run_id=$3 AND laya_status='running' AND status='pending'`, p.ID, raw, r.ID)
 	}
 	if err != nil {
 		return errStorage
@@ -239,7 +249,7 @@ func (s *Service) saveClassification(ctx context.Context, workspace string, r *R
 	if n, err := update.RowsAffected(); err != nil || n != 1 {
 		return errOwnership
 	}
-	if err = touchPipeline(ctx, tx, r, code != ""); err != nil {
+	if err = touchPipeline(ctx, tx, r, false); err != nil {
 		return err
 	}
 	if tx.Commit() != nil {
@@ -257,8 +267,12 @@ func (s *Service) savePipelineFinding(ctx context.Context, workspace string, r *
 	if code != "" {
 		status = "failed"
 	}
-	raw, _ := jsonMarshal(p.Preclassification)
-	updated, err := tx.ExecContext(ctx, `UPDATE analysis_pairs SET status=$2,verdict=$3,explanation=$4,error_code=$5,checked_at=CASE WHEN $2='completed' THEN clock_timestamp() ELSE NULL END,result_origin=$8 WHERE id=$1 AND run_id=$6 AND status='running' AND laya_status='completed' AND laya_result=$7::jsonb`, p.ID, status, f.Verdict, f.Explanation, code, r.ID, raw, origin)
+	var raw any
+	if p.Preclassification != nil {
+		encoded, _ := jsonMarshal(p.Preclassification)
+		raw = string(encoded)
+	}
+	updated, err := tx.ExecContext(ctx, `UPDATE analysis_pairs SET status=$2,verdict=$3,explanation=$4,error_code=$5,checked_at=CASE WHEN $2='completed' THEN clock_timestamp() ELSE NULL END,result_origin=$8 WHERE id=$1 AND run_id=$6 AND status='running' AND laya_status IN ('completed','failed','skipped') AND laya_result IS NOT DISTINCT FROM $7::jsonb`, p.ID, status, f.Verdict, f.Explanation, code, r.ID, raw, origin)
 	if err != nil {
 		return errStorage
 	}

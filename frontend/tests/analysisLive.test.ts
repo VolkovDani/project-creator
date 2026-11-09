@@ -104,6 +104,35 @@ test('legacy SSE snapshots without Laya fields remain valid while malformed Laya
     similarityThreshold: 0.65,
     missingRequirementIds: [],
   };
-  assert.equal(parseAnalysisSnapshot(legacy), legacy);
+  assert.equal(parseAnalysisSnapshot(legacy).layaSkippedPairs, 0);
   assert.throws(() => parseAnalysisSnapshot({ ...legacy, layaRunningPairs: -1 }));
+});
+
+test('legacy SSE snapshots default skipped Laya count to zero and validate it', () => {
+  const legacy = {
+    ...snapshot(),
+    possiblePairs: null,
+    notSelectedPairs: null,
+    outcome: '',
+    errorCode: '',
+    reasonCode: '',
+    completedAt: '',
+    mode: 'related',
+    activePairId: '',
+    duplicatePairs: 0,
+    reusedPairs: 0,
+    newPairs: 0,
+    completedPairs: 0,
+    pendingPairs: 0,
+    runningPairs: 0,
+    failedPairs: 0,
+    collisionPairs: 0,
+    compatiblePairs: 0,
+    insufficientPairs: 0,
+    stale: false,
+    similarityThreshold: 0.65,
+    missingRequirementIds: [],
+  };
+  assert.equal(parseAnalysisSnapshot(legacy).layaSkippedPairs, 0);
+  assert.throws(() => parseAnalysisSnapshot({ ...legacy, layaSkippedPairs: -1 }));
 });

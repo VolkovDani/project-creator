@@ -251,6 +251,14 @@ function PairDetails({
                 ` · ${t(locale, 'analysis.laya.checkedAt', { time: pair.layaCheckedAt })}`}
             </p>
           )}
+          {pair.layaErrorCode && (
+            <p role="status" className="muted">
+              {t(
+                locale,
+                layaPairErrorMessageKey(pair.layaErrorCode) || 'analysis.pair.layaSkippedGeneric',
+              )}
+            </p>
+          )}
           {preclassification && (
             <div>
               <p>{t(locale, 'analysis.laya.suggestion')}</p>
@@ -777,7 +785,11 @@ export default function Analysis({
   const hasLayaPipeline =
     !!run &&
     (!!run.classifierProfile ||
-      run.layaPendingPairs + run.layaRunningPairs + run.layaCompletedPairs + run.layaFailedPairs >
+      run.layaPendingPairs +
+        run.layaRunningPairs +
+        run.layaCompletedPairs +
+        run.layaFailedPairs +
+        run.layaSkippedPairs >
         0);
   return (
     <section aria-labelledby={heading}>
@@ -957,6 +969,7 @@ export default function Analysis({
               {t(locale, 'analysis.laya.modelRunning', { count: layaPools.modelRunning })}
             </li>
             <li>{t(locale, 'analysis.laya.pool.completed', { count: layaPools.completed })}</li>
+            <li>{t(locale, 'analysis.laya.pool.skipped', { count: layaPools.layaSkipped })}</li>
           </ul>
           <p className="muted">
             {t(locale, 'analysis.laya.failures', {

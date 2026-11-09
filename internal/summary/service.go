@@ -20,6 +20,8 @@ type Generator interface {
 	Summarize(context.Context, analysis.Source) (string, error)
 }
 type State struct {
+	LayaEligible                                            bool
+	ByteLength                                              int
 	RequirementID, ProjectID                                string
 	Version                                                 int
 	Status, Text, Profile, Provenance, CreatedAt, ErrorCode string
@@ -118,6 +120,8 @@ func (s *Service) ByIDs(ctx context.Context, w, p string, ids []string) ([]State
 		if v.Status != "ready" {
 			v.Text = ""
 		}
+		v.ByteLength = len(v.Text)
+		v.LayaEligible = v.Status == "ready" && contracts.SummaryLayaEligible(v.Text)
 		out = append(out, v)
 	}
 	if rows.Err() != nil || len(out) != len(ids) {

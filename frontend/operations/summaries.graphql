@@ -9,6 +9,8 @@ query RequirementSummariesByIds($projectId: ID!, $requirementIds: [ID!]!) {
     provenance
     createdAt
     errorCode
+    byteLength
+    layaEligible
   }
 }
 
@@ -23,6 +25,8 @@ mutation RetryRequirementSummary($projectId: ID!, $requirementId: ID!) {
     provenance
     createdAt
     errorCode
+    byteLength
+    layaEligible
   }
 }
 
@@ -37,5 +41,7 @@ mutation CancelRequirementSummary($projectId: ID!, $requirementId: ID!) {
     provenance
     createdAt
     errorCode
+    byteLength
+    layaEligible
   }
 }

@@ -1,7 +1,12 @@
 export type LayaDecision = 'related' | 'unrelated' | 'uncertain';
 export function layaPairErrorMessageKey(errorCode: string): string | null {
-  if (errorCode === 'LAYA_SUMMARY_UNAVAILABLE') return 'analysis.pair.error.summaryUnavailable';
-  return errorCode === 'LAYA_INPUT_TOO_LONG' ? 'analysis.pair.error.layaInputTooLong' : null;
+  return errorCode === 'LAYA_INPUT_TOO_LONG'
+    ? 'analysis.pair.layaSkippedTooLong'
+    : errorCode === 'LAYA_SUMMARY_MISSING'
+      ? 'analysis.pair.layaPreviewMissing'
+      : errorCode === 'LAYA_SUMMARY_UNAVAILABLE'
+        ? 'analysis.pair.layaPreviewMissing'
+        : null;
 }
 
 export type LayaPreclassification = {
@@ -54,24 +59,32 @@ export type LayaPoolCounts = {
   layaRunningPairs: number;
   layaCompletedPairs: number;
   layaFailedPairs: number;
+  layaSkippedPairs?: number;
+  pendingPairs?: number;
   completedPairs: number;
   runningPairs: number;
   failedPairs: number;
 };
 
 export function getLayaPools(counts: LayaPoolCounts) {
+  const awaitingLaya = counts.layaPendingPairs + counts.layaRunningPairs;
+  const legacyAwaitingModel = Math.max(
+    0,
+    counts.layaCompletedPairs -
+      counts.completedPairs -
+      (counts.failedPairs - counts.layaFailedPairs),
+  );
   return {
-    awaitingLaya: counts.layaPendingPairs + counts.layaRunningPairs,
-    awaitingModel: Math.max(
-      0,
-      counts.layaCompletedPairs -
-        counts.completedPairs -
-        (counts.failedPairs - counts.layaFailedPairs),
-    ),
+    awaitingLaya,
+    awaitingModel:
+      counts.pendingPairs === undefined
+        ? legacyAwaitingModel
+        : Math.max(0, counts.pendingPairs - awaitingLaya) + counts.runningPairs,
     completed: counts.completedPairs,
     layaRunning: counts.layaRunningPairs,
     modelRunning: counts.runningPairs,
     layaFailed: counts.layaFailedPairs,
-    modelFailed: Math.max(0, counts.failedPairs - counts.layaFailedPairs),
+    layaSkipped: counts.layaSkippedPairs ?? 0,
+    modelFailed: counts.failedPairs,
   };
 }

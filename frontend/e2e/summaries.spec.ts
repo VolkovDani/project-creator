@@ -13,7 +13,12 @@ const suggestion = 'Краткое предложение по требован�
 
 async function fixture(
   page: Page,
-  options?: { failSummaryReads?: boolean; summaryVersion?: number; initialStatus?: string },
+  options?: {
+    failSummaryReads?: boolean;
+    summaryVersion?: number;
+    initialStatus?: string;
+    longPreview?: boolean;
+  },
 ) {
   let status = options?.initialStatus ?? 'ready';
   let sourceVersion = 3;
@@ -23,12 +28,20 @@ async function fixture(
   let retries = 0;
   let cancellations = 0;
   let summaryReads = 0;
+  const summaryText = () =>
+    options?.longPreview
+      ? 'я'.repeat(176)
+      : summaryVersion === 3
+        ? suggestion
+        : `${suggestion} v${summaryVersion}`;
   const summary = () => ({
     requirementId: 'req-1',
     projectId: project.id,
     version: summaryVersion,
     status,
-    text: summaryVersion === 3 ? suggestion : `${suggestion} v${summaryVersion}`,
+    text: summaryText(),
+    byteLength: new TextEncoder().encode(summaryText()).length,
+    layaEligible: new TextEncoder().encode(summaryText()).length <= 350,
     profile: 'local-test-profile',
     provenance: 'local-test-generator',
     createdAt: '2026-11-06T12:00:00Z',
@@ -184,4 +197,15 @@ test('saving a new source version refetches its summary without another SSE even
   await expect.poll(api.summaryReads).toBeGreaterThan(before);
   await expect(card.getByText(`${suggestion} v4`, { exact: true })).toBeVisible();
   await expect(card.getByText('Обновлённая версия требования.', { exact: true })).toBeHidden();
+});
+
+test('a ready preview over the Laya limit remains visible with an eligibility notice', async ({
+  page,
+}) => {
+  await fixture(page, { longPreview: true });
+  await page.goto('/projects/summary-project/requirements');
+  const card = page.locator('#requirement-req-1');
+  await expect(card.getByText('я'.repeat(176), { exact: true })).toBeVisible();
+  await expect(card.getByText(/Предпросмотр занимает 352 байт UTF-8/)).toBeVisible();
+  await expect(card.getByText(original, { exact: true })).toBeHidden();
 });

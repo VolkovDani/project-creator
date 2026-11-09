@@ -391,7 +391,7 @@ func (s *Service) Retry(ctx context.Context, workspace, project, id string) (Run
 	if r.FailedPairs == 0 && r.TotalPairs != nil {
 		return Run{}, ErrRetryUnavailable
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE analysis_pairs SET status='pending',error_code='',laya_status=CASE WHEN laya_status IN ('running','failed') THEN 'pending' ELSE laya_status END WHERE run_id=$1 AND status='failed'`, id); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE analysis_pairs SET status='pending',error_code='',laya_status=CASE WHEN laya_status='running' OR (laya_status='failed' AND laya_error_code='') THEN 'pending' ELSE laya_status END,laya_error_code=CASE WHEN laya_status='running' OR (laya_status='failed' AND laya_error_code='') THEN '' ELSE laya_error_code END WHERE run_id=$1 AND status='failed'`, id); err != nil {
 		return Run{}, errStorage
 	}
 	r.Status = "running"

@@ -33,7 +33,7 @@ func TestSummaryOllamaValidatesAndPreservesProvenance(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 				t.Error(err)
 			}
-			json.NewEncoder(w).Encode(map[string]any{"done": true, "done_reason": "stop", "message": map[string]any{"role": "assistant", "content": `{"summary":"Пользователь обязан сохранить \"да\"\nпри любой роли 👩‍🔬.","unsummarizable":false}`}})
+			json.NewEncoder(w).Encode(map[string]any{"done": true, "done_reason": "stop", "message": map[string]any{"role": "assistant", "content": `{"summary":"Пользователь обязан сохранить \"да\"\nпри любой роли 👩‍🔬."}`}})
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
@@ -59,7 +59,7 @@ func TestSummaryOllamaValidatesAndPreservesProvenance(t *testing.T) {
 		t.Fatal("prompt omits numeric summary byte budget")
 	}
 	prompt := messages[0].(map[string]any)["content"].(string)
-	if !strings.Contains(prompt, "Remove repeated wording") || !strings.Contains(prompt, "Cyrillic text often uses two bytes") || !strings.Contains(prompt, "before refusing") {
+	if !strings.Contains(prompt, "Remove repeated wording") || !strings.Contains(prompt, "soft target") || !strings.Contains(prompt, "longer faithful preview") {
 		t.Fatalf("prompt omits concise byte-aware strategy: %s", prompt)
 	}
 	if !strings.Contains(prompt, "Preserve exclusivity words such as only and только") || !strings.Contains(prompt, "Preserve negative obligations as explicit negative verbs") || !strings.Contains(prompt, "topic fragment") {
@@ -74,17 +74,17 @@ func TestSummaryOllamaValidatesAndPreservesProvenance(t *testing.T) {
 	}
 }
 
-func TestSummaryOllamaInvalidOutputRetryAndImpossible(t *testing.T) {
+func TestSummaryOllamaInvalidOutputRetryAndLongPreview(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		contents []string
 		wantErr  error
 		calls    int
 	}{
-		{"retry-overlong", []string{`{"summary":"` + strings.Repeat("x", 351) + `","unsummarizable":false}`, `{"summary":"short","unsummarizable":false}`}, nil, 2},
-		{"impossible", []string{`{"summary":"","unsummarizable":true}`}, ErrSummaryImpossible, 1},
-		{"retry-invalid", []string{`{"summary":"short","unsummarizable":"yes"}`, `{"summary":"short","unsummarizable":false,"extra":1}`}, ErrInvalidSummary, 2},
-		{"too-long", []string{`{"summary":"` + strings.Repeat("x", 351) + `","unsummarizable":false}`, `{"summary":"` + strings.Repeat("y", 351) + `","unsummarizable":false}`}, ErrInvalidSummary, 2},
+		{"long-valid", []string{`{"summary":"` + strings.Repeat("x", 351) + `"}`}, nil, 1},
+		{"empty-invalid", []string{`{"summary":""}`}, ErrInvalidSummary, 2},
+		{"retry-invalid", []string{`{"summary":"short","unsummarizable":"yes"}`, `{"summary":"short","extra":1}`}, ErrInvalidSummary, 2},
+		{"invalid-shape", []string{`{"summary":null}`}, ErrInvalidSummary, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
@@ -130,7 +130,7 @@ func TestSummaryOllamaInvalidOutputRetryAndImpossible(t *testing.T) {
 				if err != tc.wantErr {
 					t.Fatalf("err=%v want=%v", err, tc.wantErr)
 				}
-			} else if err != nil || got != "short" {
+			} else if err != nil || (tc.name == "long-valid" && got != strings.Repeat("x", 351)) {
 				t.Fatalf("got=%q err=%v", got, err)
 			}
 		})
@@ -145,7 +145,7 @@ func TestSummaryOllamaDoesNotRetryWhenCorrectionExceedsContextBudget(t *testing.
 			return
 		}
 		calls++
-		content := `{"summary":"` + strings.Repeat("x", 40000) + `","unsummarizable":false}`
+		content := `{"summary":"` + strings.Repeat("x", 40000) + `","extra":true}`
 		json.NewEncoder(w).Encode(map[string]any{"done": true, "done_reason": "stop", "message": map[string]any{"role": "assistant", "content": content}})
 	}))
 	defer server.Close()
@@ -173,7 +173,7 @@ func TestSummaryOllamaRejectsInvalidSourceIncompleteResponseAndDigestDrift(t *te
 					summaryTags(w, d)
 					return
 				}
-				json.NewEncoder(w).Encode(map[string]any{"done": scenario != "incomplete", "done_reason": "stop", "message": map[string]any{"role": "assistant", "content": `{"summary":"short","unsummarizable":false}`}})
+				json.NewEncoder(w).Encode(map[string]any{"done": scenario != "incomplete", "done_reason": "stop", "message": map[string]any{"role": "assistant", "content": `{"summary":"short"}`}})
 			}))
 			defer server.Close()
 			g, err := NewSummaryOllama(server.URL, summaryModel, summaryDigest)
@@ -206,7 +206,7 @@ func TestSummaryOllamaRejectsEscapedInputBeforeRuntimeButAllowsLongText(t *testi
 			summaryTags(w, summaryDigest)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"done": true, "done_reason": "stop", "message": map[string]any{"role": "assistant", "content": `{"summary":"short","unsummarizable":false}`}})
+		json.NewEncoder(w).Encode(map[string]any{"done": true, "done_reason": "stop", "message": map[string]any{"role": "assistant", "content": `{"summary":"short"}`}})
 	}))
 	defer server.Close()
 	g, err := NewSummaryOllama(server.URL, summaryModel, summaryDigest)
@@ -227,60 +227,65 @@ func TestValidateSummaryUsesSharedContract(t *testing.T) {
 	if ValidateSummary(strings.Repeat("x", contracts.SummaryMaxBytes())) != nil {
 		t.Fatal("contract maximum rejected")
 	}
-	if ValidateSummary(strings.Repeat("x", contracts.SummaryMaxBytes()+1)) != ErrInvalidSummary {
-		t.Fatal("over-limit summary accepted")
+	if ValidateSummary(strings.Repeat("x", contracts.SummaryMaxBytes()+1)) != nil {
+		t.Fatal("long preview was rejected")
 	}
 }
 
-func TestSummarySchemaDraftsBeforeRefusalFlag(t *testing.T) {
-	raw, err := json.Marshal(summarySchema())
-	if err != nil {
-		t.Fatal(err)
+func TestSummarySchemaAllowsFaithfulLongPreviewWithoutRefusalFlag(t *testing.T) {
+	if got, e := decodeSummary(`{"summary":"A faithful preview"}`); e != nil || got != "A faithful preview" {
+		t.Fatalf("preview=%q err=%v", got, e)
 	}
-	text := string(raw)
-	summaryAt, flagAt := strings.Index(text, "summary"), strings.Index(text, "unsummarizable")
-	if summaryAt < 0 || flagAt < 0 || summaryAt > flagAt {
-		t.Fatalf("schema must draft summary before unsummarizable flag: %s", text)
-	}
-	if _, err = decodeSummary(`{"summary":"","unsummarizable":true}`); err != ErrSummaryImpossible {
-		t.Fatalf("refusal err=%v", err)
-	}
-	if _, err = decodeSummary(`{"summary":"faithful","unsummarizable":false}`); err != nil {
-		t.Fatalf("valid summary err=%v", err)
-	}
-	for _, raw := range []string{`{"summary":"contradiction","unsummarizable":true}`, `{"summary":"","unsummarizable":false}`} {
-		if _, err = decodeSummary(raw); err != ErrInvalidSummary {
-			t.Errorf("accepted contradictory output %s: %v", raw, err)
-		}
+	if _, e := decodeSummary(`{"summary":"x","unsummarizable":false}`); e != ErrInvalidSummary {
+		t.Fatal("obsolete response flag was accepted")
 	}
 }
 
-func TestSummaryOllamaRespectsCancellation(t *testing.T) {
-	started := make(chan struct{})
-	finish := make(chan struct{})
+func TestSummaryOllamaPreservesLongPreviewWithoutRetry(t *testing.T) {
+	calls := 0
+	want := strings.Repeat("Существенное условие. ", 30)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/tags" {
 			summaryTags(w, summaryDigest)
 			return
 		}
-		close(started)
-		select {
-		case <-r.Context().Done():
-		case <-finish:
-		}
+		calls++
+		raw, _ := json.Marshal(map[string]string{"summary": want})
+		json.NewEncoder(w).Encode(map[string]any{"done": true, "done_reason": "stop", "message": map[string]any{"role": "assistant", "content": string(raw)}})
 	}))
 	defer server.Close()
-	g, err := NewSummaryOllama(server.URL, summaryModel, summaryDigest)
-	if err != nil {
-		t.Fatal(err)
+	g, e := NewSummaryOllama(server.URL, summaryModel, summaryDigest)
+	if e != nil {
+		t.Fatal(e)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { _, callErr := g.Summarize(ctx, summarySource("A must be preserved.")); done <- callErr }()
-	<-started
-	cancel()
-	if err = <-done; err == nil {
-		t.Fatal("cancelled call succeeded")
+	got, e := g.Summarize(context.Background(), summarySource("Full original"))
+	if e != nil || got != want || calls != 1 {
+		t.Fatalf("long preview lost: bytes=%d calls=%d err=%v", len(got), calls, e)
 	}
-	close(finish)
+}
+
+func TestSummaryRetriesWhenNumbersOrIdentifiersAreOmitted(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/tags" {
+			summaryTags(w, summaryDigest)
+			return
+		}
+		calls++
+		text := "Retain the report."
+		if calls == 2 {
+			text = "Retain REQ-0042 for 90 days."
+		}
+		raw, _ := json.Marshal(map[string]string{"summary": text})
+		json.NewEncoder(w).Encode(map[string]any{"done": true, "done_reason": "stop", "message": map[string]any{"role": "assistant", "content": string(raw)}})
+	}))
+	defer server.Close()
+	g, e := NewSummaryOllama(server.URL, summaryModel, summaryDigest)
+	if e != nil {
+		t.Fatal(e)
+	}
+	got, e := g.Summarize(context.Background(), summarySource("Retain REQ-0042 for 90 days."))
+	if e != nil || calls != 2 || got != "Retain REQ-0042 for 90 days." {
+		t.Fatalf("source facts lost: text=%q calls=%d err=%v", got, calls, e)
+	}
 }

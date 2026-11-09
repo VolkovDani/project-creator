@@ -36,6 +36,7 @@ export function parseAnalysisSnapshot(value: unknown): AnalysisSnapshot {
     'layaRunningPairs',
     'layaCompletedPairs',
     'layaFailedPairs',
+    'layaSkippedPairs',
   ];
   if (
     strings.some((key) => typeof record[key] !== 'string') ||
@@ -57,5 +58,5 @@ export function parseAnalysisSnapshot(value: unknown): AnalysisSnapshot {
     !/^\d+$/.test(String(record.revision))
   )
     throw Error('invalid analysis snapshot');
-  return value as AnalysisSnapshot;
+  return { ...value, layaSkippedPairs: record.layaSkippedPairs ?? 0 } as AnalysisSnapshot;
 }

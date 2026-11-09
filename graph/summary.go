@@ -9,7 +9,7 @@ import (
 )
 
 func summaryState(v summary.State) *RequirementSummary {
-	return &RequirementSummary{RequirementId: graphql.ID(v.RequirementID), ProjectId: graphql.ID(v.ProjectID), Version: int32(v.Version), Status: v.Status, Text: v.Text, Profile: v.Profile, Provenance: v.Provenance, CreatedAt: v.CreatedAt, ErrorCode: v.ErrorCode}
+	return &RequirementSummary{ByteLength: int32(v.ByteLength), LayaEligible: v.LayaEligible, RequirementId: graphql.ID(v.RequirementID), ProjectId: graphql.ID(v.ProjectID), Version: int32(v.Version), Status: v.Status, Text: v.Text, Profile: v.Profile, Provenance: v.Provenance, CreatedAt: v.CreatedAt, ErrorCode: v.ErrorCode}
 }
 func (r *Resolver) RequirementSummariesByIds(ctx context.Context, args RequirementSummariesByIdsArgs) ([]*RequirementSummary, error) {
 	if e := consume(ctx); e != nil {

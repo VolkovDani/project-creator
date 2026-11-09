@@ -244,6 +244,7 @@ type AnalysisFinding struct {
 	Explanation  string
 }
 type AnalysisPair struct {
+	LayaErrorCode     string
 	LayaStatus        string
 	Preclassification *string
 	LayaCheckedAt     *string
@@ -268,6 +269,7 @@ type ProjectAnalysis struct {
 	LayaRunningPairs      int32
 	LayaCompletedPairs    int32
 	LayaFailedPairs       int32
+	LayaSkippedPairs      int32
 	Revision              string
 	Mode                  string
 	SimilarityThreshold   float64
@@ -329,6 +331,7 @@ type ProjectAnalysisSummary struct {
 	LayaRunningPairs      int32
 	LayaCompletedPairs    int32
 	LayaFailedPairs       int32
+	LayaSkippedPairs      int32
 	Revision              string
 	Mode                  string
 	SimilarityThreshold   float64
@@ -360,6 +363,8 @@ type ProjectAnalysisSummary struct {
 	Stale                 bool
 }
 type RequirementSummary struct {
+	ByteLength    int32
+	LayaEligible  bool
 	RequirementId graphql.ID
 	ProjectId     graphql.ID
 	Version       int32

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/VolkovDani/project-creator/contracts"
 
 	"github.com/VolkovDani/project-creator/internal/analysis"
 )
@@ -22,7 +23,7 @@ func (s *Service) Classifier(next analysis.Classifier) analysis.Classifier {
 	if next == nil || s.generator == nil {
 		return next
 	}
-	sum := sha256.Sum256([]byte("summary-input-v1:" + s.Profile() + ":" + next.Profile()))
+	sum := sha256.Sum256([]byte("summary-input-v2:" + s.Profile() + ":" + next.Profile()))
 	return &Classifier{s: s, next: next, profile: hex.EncodeToString(sum[:])}
 }
 func (c *Classifier) Profile() string { return c.profile }
@@ -31,7 +32,7 @@ func (c *Classifier) Provenance() string {
 	if p, ok := c.next.(interface{ Provenance() string }); ok {
 		classifier = p.Provenance()
 	}
-	raw, _ := json.Marshal(map[string]string{"adapter": "summary-input-v1", "summary": c.s.generator.Provenance(), "classifier": classifier})
+	raw, _ := json.Marshal(map[string]string{"adapter": "summary-input-v2", "summary": c.s.generator.Provenance(), "classifier": classifier})
 	return string(raw)
 }
 func (c *Classifier) Classify(ctx context.Context, p analysis.Pair) (analysis.Preclassification, error) {
@@ -46,6 +47,9 @@ func (c *Classifier) ClassifyScoped(ctx context.Context, w, project string, p an
 		v := rows[i]
 		if v.Status != "ready" || v.Version != source.Version {
 			return analysis.Preclassification{}, analysis.ErrSummaryUnavailable
+		}
+		if !contracts.SummaryLayaEligible(v.Text) {
+			return analysis.Preclassification{}, analysis.ErrClassificationInputTooLong
 		}
 		var text string
 		// Verify the original snapshot before releasing the derived text to the model.

@@ -30,6 +30,7 @@ const pair = (id: string, position: number, status: string, verdict = ''): Analy
   reusedFrom: '',
   checkedAt: '',
   layaStatus: '',
+  layaErrorCode: '',
   preclassification: null,
   layaCheckedAt: null,
   generatorProfile: 'g',
@@ -54,6 +55,7 @@ const run = (pairs: AnalysisPairView[], overrides: Partial<AnalysisRun> = {}): A
   layaRunningPairs: 0,
   layaCompletedPairs: 0,
   layaFailedPairs: 0,
+  layaSkippedPairs: 0,
   classifierProfile: '',
   generatorProvenance: '{}',
   id: 'run',
@@ -240,9 +242,10 @@ test('Laya preclassification is parsed as a suggestion with three distinct decis
 });
 
 test('oversized Laya input maps to a dedicated localized pair error', () => {
+  assert.equal(layaPairErrorMessageKey('LAYA_INPUT_TOO_LONG'), 'analysis.pair.layaSkippedTooLong');
   assert.equal(
-    layaPairErrorMessageKey('LAYA_INPUT_TOO_LONG'),
-    'analysis.pair.error.layaInputTooLong',
+    layaPairErrorMessageKey('LAYA_SUMMARY_UNAVAILABLE'),
+    'analysis.pair.layaPreviewMissing',
   );
   assert.equal(layaPairErrorMessageKey('OTHER_ERROR'), null);
 });
@@ -265,7 +268,8 @@ test('Laya and model work are shown in separate pools and active counters', () =
       layaRunning: 2,
       modelRunning: 2,
       layaFailed: 1,
-      modelFailed: 2,
+      layaSkipped: 0,
+      modelFailed: 3,
     },
   );
   assert.equal(
@@ -282,9 +286,51 @@ test('Laya and model work are shown in separate pools and active counters', () =
   );
 });
 
+test('oversized previews skip Laya without withholding model work or inflating failures', () => {
+  assert.deepEqual(
+    getLayaPools({
+      layaPendingPairs: 1,
+      layaRunningPairs: 1,
+      layaCompletedPairs: 3,
+      layaFailedPairs: 0,
+      layaSkippedPairs: 2,
+      pendingPairs: 4,
+      completedPairs: 2,
+      runningPairs: 2,
+      failedPairs: 1,
+    }),
+    {
+      awaitingLaya: 2,
+      awaitingModel: 4,
+      completed: 2,
+      layaRunning: 1,
+      modelRunning: 2,
+      layaFailed: 0,
+      layaSkipped: 2,
+      modelFailed: 1,
+    },
+  );
+});
+
+test('model failures remain visible when Laya has more warnings than failed pairs', () => {
+  assert.equal(
+    getLayaPools({
+      layaPendingPairs: 0,
+      layaRunningPairs: 0,
+      layaCompletedPairs: 2,
+      layaFailedPairs: 2,
+      pendingPairs: 0,
+      completedPairs: 2,
+      runningPairs: 0,
+      failedPairs: 1,
+    }).modelFailed,
+    1,
+  );
+});
+
 test('Laya summary readiness failure explains preparation and retry', () => {
   assert.equal(
     layaPairErrorMessageKey('LAYA_SUMMARY_UNAVAILABLE'),
-    'analysis.pair.error.summaryUnavailable',
+    'analysis.pair.layaPreviewMissing',
   );
 });

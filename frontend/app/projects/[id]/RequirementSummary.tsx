@@ -140,6 +140,11 @@ export default function RequirementSummary({
           {t(locale, loadFailure ? 'summary.loadError' : `summary.status.${status}`)}
         </p>
       )}
+      {hasText && displayedSummary && !displayedSummary.layaEligible && (
+        <p role="status" className="muted">
+          {t(locale, 'summary.longPreview', { bytes: displayedSummary.byteLength })}
+        </p>
+      )}
       {(summary?.errorCode || actionFailure) && (
         <p role="alert" className="error">
           {t(locale, actionFailure ? 'summary.actionError' : 'summary.error', {

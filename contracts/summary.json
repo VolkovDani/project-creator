@@ -1,1 +1,6 @@
-{"version":1,"lengthUnit":"utf8-bytes","maxBytes":350,"required":true}
+{
+  "version": 2,
+  "lengthUnit": "utf8-bytes",
+  "layaMaxBytes": 350,
+  "required": true
+}

@@ -151,7 +151,7 @@ func TestPipelineWaitReplacementPreservesInFlightLLM(t *testing.T) {
 	}
 }
 
-func TestPipelineLayaFailureBlocksOnlyItsPair(t *testing.T) {
+func TestPipelineLayaFailureStillRunsFinalLLMOnFullSource(t *testing.T) {
 	db, _, _ := analysisDB(t)
 	replaceQueueRequirements(t, db, 3)
 	var fail atomic.Bool
@@ -168,8 +168,14 @@ func TestPipelineLayaFailureBlocksOnlyItsPair(t *testing.T) {
 	})
 	generator := generatorFunc(func(_ context.Context, p Pair) (Finding, error) {
 		generated.Add(1)
-		if p.Preclassification.Decision != "unrelated" {
-			t.Error("suggestion changed")
+		if p.Left.Text == "" || p.Right.Text == "" {
+			t.Error("final model did not receive full original sources")
+		}
+		if (p.Left.ID == "requirement-0001" && p.Right.ID == "requirement-0002") && p.Preclassification != nil {
+			t.Error("failed Laya call was replaced with fabricated scores")
+		}
+		if p.Preclassification != nil && p.Preclassification.Decision != "unrelated" {
+			t.Error("successful Laya suggestion changed")
 		}
 		return findingFor(p), nil
 	})
@@ -180,16 +186,90 @@ func TestPipelineLayaFailureBlocksOnlyItsPair(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := waitForRun(t, s, "a", "p", initial.ID)
-	if done.CompletedPairs != 2 || done.LayaFailedPairs != 1 || generated.Load() != 2 {
-		t.Fatalf("Laya failure blocked other pairs or unrelated was filtered: %+v", done)
+	if done.CompletedPairs != 3 || done.LayaFailedPairs != 1 || generated.Load() != 3 || classified.Load() != 3 {
+		t.Fatalf("Laya failure should remain visible while final LLM handles every pair: %+v classified=%d generated=%d", done, classified.Load(), generated.Load())
 	}
-	fail.Store(false)
+	if done.Pairs[0].LayaStatus != "failed" || done.Pairs[0].LayaErrorCode != "LAYA_CLASSIFICATION_FAILED" || done.Pairs[0].Preclassification != nil {
+		t.Fatalf("Laya failure diagnostics/scores were not preserved correctly: %+v", done.Pairs[0])
+	}
+}
+
+func TestPipelineSkipsUnavailableLayaButRunsEveryFinalPair(t *testing.T) {
+	db, _, _ := analysisDB(t)
+	replaceQueueRequirements(t, db, 3)
+	var generated atomic.Int32
+	classifier := classifierFunc(func(_ context.Context, p Pair) (Preclassification, error) {
+		switch {
+		case p.Left.ID == "requirement-0001" && p.Right.ID == "requirement-0002":
+			return Preclassification{}, ErrClassificationInputTooLong
+		case p.Left.ID == "requirement-0001" && p.Right.ID == "requirement-0003":
+			return Preclassification{}, ErrSummaryUnavailable
+		default:
+			return Preclassification{}, errors.New("local provider failed")
+		}
+	})
+	generator := generatorFunc(func(_ context.Context, p Pair) (Finding, error) {
+		generated.Add(1)
+		if p.Preclassification != nil || p.Left.Text == "" || p.Right.Text == "" {
+			t.Error("fallback must pass full originals without invented classifier output")
+		}
+		return findingFor(p), nil
+	})
+	s := New(db, nil, generator, "", classifier)
+	t.Cleanup(s.Close)
+	initial, err := s.Start(context.Background(), "a", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := waitForRun(t, s, "a", "p", initial.ID)
+	if done.Status != "completed" || done.CompletedPairs != 3 || done.LayaSkippedPairs != 2 || done.LayaFailedPairs != 1 || generated.Load() != 3 {
+		t.Fatalf("Laya unavailability blocked final analysis: %+v generated=%d", done, generated.Load())
+	}
+	want := map[string]string{"requirement-0001:requirement-0002": "LAYA_INPUT_TOO_LONG", "requirement-0001:requirement-0003": "LAYA_SUMMARY_UNAVAILABLE", "requirement-0002:requirement-0003": "LAYA_CLASSIFICATION_FAILED"}
+	for _, pair := range done.Pairs {
+		key := pair.Left.ID + ":" + pair.Right.ID
+		if pair.LayaErrorCode != want[key] || pair.Preclassification != nil {
+			t.Fatalf("fallback diagnostics or scores incorrect for %s: %+v", key, pair)
+		}
+		if key == "requirement-0001:requirement-0002" || key == "requirement-0001:requirement-0003" {
+			if pair.LayaStatus != "skipped" {
+				t.Fatalf("expected skipped Laya stage for %s: %+v", key, pair)
+			}
+		} else if pair.LayaStatus != "failed" {
+			t.Fatalf("expected failed Laya stage for %s: %+v", key, pair)
+		}
+	}
+}
+
+func TestPipelineRetryAfterFinalFailureRetainsLayaFailure(t *testing.T) {
+	db, _, _ := analysisDB(t)
+	classifierCalls, generatorCalls := atomic.Int32{}, atomic.Int32{}
+	classifier := classifierFunc(func(context.Context, Pair) (Preclassification, error) {
+		classifierCalls.Add(1)
+		return Preclassification{}, ErrSummaryUnavailable
+	})
+	generator := generatorFunc(func(_ context.Context, p Pair) (Finding, error) {
+		if generatorCalls.Add(1) == 1 {
+			return Finding{}, errors.New("final model failed once")
+		}
+		return findingFor(p), nil
+	})
+	s := New(db, nil, generator, "", classifier)
+	t.Cleanup(s.Close)
+	initial, err := s.Start(context.Background(), "a", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := waitForRun(t, s, "a", "p", initial.ID)
+	if failed.FailedPairs != 1 || failed.Pairs[0].LayaStatus != "skipped" {
+		t.Fatalf("expected final-model failure with retained Laya fallback: %+v", failed)
+	}
 	if _, err = s.Retry(context.Background(), "a", "p", initial.ID); err != nil {
 		t.Fatal(err)
 	}
-	done = waitForRun(t, s, "a", "p", initial.ID)
-	if done.CompletedPairs != 3 || classified.Load() != 4 || generated.Load() != 3 {
-		t.Fatalf("unexpected retry work: %+v classified=%d generated=%d", done, classified.Load(), generated.Load())
+	done := waitForRun(t, s, "a", "p", initial.ID)
+	if done.CompletedPairs != 1 || classifierCalls.Load() != 1 || generatorCalls.Load() != 2 || done.Pairs[0].LayaStatus != "skipped" || done.Pairs[0].LayaErrorCode != "LAYA_SUMMARY_UNAVAILABLE" {
+		t.Fatalf("retry repeated or lost Laya fallback state: %+v classify=%d generate=%d", done, classifierCalls.Load(), generatorCalls.Load())
 	}
 }
 

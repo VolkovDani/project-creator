@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/VolkovDani/project-creator/contracts"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -45,7 +47,11 @@ func summaryQualitySource(tc summaryQualityCase) string {
 func summaryContainsFacts(summary string, facts []string) []string {
 	missing := []string{}
 	for _, fact := range facts {
-		if !strings.Contains(strings.ToLower(summary), strings.ToLower(fact)) {
+		found := strings.Contains(strings.ToLower(summary), strings.ToLower(fact))
+		if strings.HasPrefix(fact, "re:") {
+			found, _ = regexp.MatchString(strings.TrimPrefix(fact, "re:"), strings.ToLower(summary))
+		}
+		if !found {
 			missing = append(missing, fact)
 		}
 	}
@@ -82,15 +88,23 @@ func TestSummaryQualitySmoke(t *testing.T) {
 				t.Fatalf("fixture source is not longer than 350 bytes: %d", len(source))
 			}
 			got, callErr := g.Summarize(context.Background(), Source{ID: tc.Name, Version: 1, Text: source})
-			t.Logf("model=%s profile=%s input_bytes=%d summary_bytes=%d input=%q summary=%q", model, g.Profile(), len(source), len(got), source, got)
-			if tc.IdentifierCount > 0 {
-				if callErr != ErrSummaryImpossible {
-					t.Fatalf("expected impossible-to-compress refusal, got summary=%q err=%v", got, callErr)
-				}
-				return
-			}
+			t.Logf("model=%s profile=%s input_bytes=%d summary_bytes=%d laya_eligible=%v input=%q summary=%q", model, g.Profile(), len(source), len(got), contracts.SummaryLayaEligible(got), source, got)
 			if callErr != nil {
 				t.Fatal(callErr)
+			}
+			if tc.IdentifierCount > 0 {
+				position := 0
+				for i := 1; i <= tc.IdentifierCount; i++ {
+					id := fmt.Sprintf("SEQ-%04d", i)
+					at := strings.Index(got[position:], id)
+					if at < 0 {
+						t.Fatalf("required ordered identifier omitted: %s", id)
+					}
+					position += at + len(id)
+				}
+				if contracts.SummaryLayaEligible(got) {
+					t.Fatal("90 required identifiers unexpectedly fit Laya budget")
+				}
 			}
 			if missing := summaryContainsFacts(got, tc.Facts); len(missing) > 0 {
 				t.Errorf("summary omitted expected critical facts %q", missing)

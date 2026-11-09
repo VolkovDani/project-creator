@@ -50,6 +50,7 @@ export function groupPairs(run: AnalysisRun): AnalysisGroup[] {
                 reusedFrom: '',
                 checkedAt: '',
                 layaStatus: '',
+                layaErrorCode: '',
                 preclassification: null,
                 layaCheckedAt: null,
                 generatorProfile: run.generatorProfile,

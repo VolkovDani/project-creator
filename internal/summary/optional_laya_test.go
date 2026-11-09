@@ -87,3 +87,20 @@ func TestUnconfiguredSummariesNeverSendOriginalsToLaya(t *testing.T) {
 		t.Fatal("disabled Laya should stay disabled")
 	}
 }
+
+type validatingSummaryGenerator struct{ fakeGenerator }
+
+func (*validatingSummaryGenerator) ValidateSummary(string) error { return analysis.ErrInvalidSummary }
+
+func TestSummaryPublicationRespectsProviderValidation(t *testing.T) {
+	db := testDB(t)
+	s := New(db, &validatingSummaryGenerator{fakeGenerator{text: "Unsupported output"}})
+	defer s.Close()
+	if err := s.Start([]string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	state := waitState(t, s, "a", "p", "r", "failed")
+	if state.ErrorCode != "INVALID_OUTPUT" || state.Text != "" {
+		t.Fatal("invalid provider output published")
+	}
+}

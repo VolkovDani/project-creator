@@ -13,3 +13,23 @@ func TestSummaryRequiresExplicitLocalPinnedConfiguration(t *testing.T) {
 		t.Fatal("unconfigured summaries must not call models")
 	}
 }
+
+func TestSummaryLanguagesAreExplicitAndValidated(t *testing.T) {
+	cfg := map[string]string{
+		"PROJECT_CREATOR_SUMMARY_MODEL":     "local-summary-test",
+		"PROJECT_CREATOR_SUMMARY_DIGEST":    "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+		"PROJECT_CREATOR_SUMMARY_LANGUAGES": "en,de",
+	}
+	g, err := configuredSummarizer(func(k string) string { return cfg[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator, ok := g.(interface{ ValidateSummary(string) error })
+	if !ok || validator.ValidateSummary("Prüfung 42 €") != nil || validator.ValidateSummary("Проверка") == nil {
+		t.Fatal("language configuration not applied")
+	}
+	cfg["PROJECT_CREATOR_SUMMARY_LANGUAGES"] = "ru,not-a-supported-language"
+	if _, err := configuredSummarizer(func(k string) string { return cfg[k] }); err == nil {
+		t.Fatal("invalid language configuration silently accepted")
+	}
+}

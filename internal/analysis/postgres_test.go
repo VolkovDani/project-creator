@@ -162,6 +162,8 @@ func TestAnalysisAuthorizationAndPendingIndex(t *testing.T) {
 	if err != nil || run.Status != "completed" || run.Outcome != "possible_collision" || gen.calls.Load() != 1 || embed.calls.Load() != 0 {
 		t.Fatalf("all-mode unindexed: %+v %v", run, err)
 	}
+	// Reconfiguration replaces the old worker; two profiles must not reap each other.
+	s.Close()
 	run, err = testService(t, db, retriever, nil, "").startAndWait(t, context.Background(), "a", "p")
 	if err != nil || run.Status != "failed" || run.ErrorCode != "NOT_CONFIGURED" {
 		t.Fatalf("disabled: %+v %v", run, err)

@@ -21,20 +21,24 @@ var errStorage = errors.New("analysis storage unavailable")
 var errOwnership = errors.New("analysis worker no longer owns attempt")
 
 type PairResult struct {
-	ID               string   `json:"id"`
-	Position         int      `json:"position"`
-	Status           string   `json:"status"`
-	Left             Source   `json:"left"`
-	Right            Source   `json:"right"`
-	Verdict          string   `json:"verdict"`
-	Explanation      string   `json:"explanation"`
-	ErrorCode        string   `json:"errorCode"`
-	ReusedFrom       string   `json:"reusedFrom"`
-	CheckedAt        string   `json:"checkedAt"`
-	GeneratorProfile string   `json:"generatorProfile"`
-	SelectionReasons []string `json:"selectionReasons"`
-	SimilarityScore  *float64 `json:"similarityScore"`
-	ResultOrigin     string   `json:"resultOrigin"`
+	LayaStatus        string             `json:"layaStatus"`
+	LayaErrorCode     string             `json:"layaErrorCode"`
+	Preclassification *Preclassification `json:"preclassification"`
+	LayaCheckedAt     string             `json:"layaCheckedAt"`
+	ID                string             `json:"id"`
+	Position          int                `json:"position"`
+	Status            string             `json:"status"`
+	Left              Source             `json:"left"`
+	Right             Source             `json:"right"`
+	Verdict           string             `json:"verdict"`
+	Explanation       string             `json:"explanation"`
+	ErrorCode         string             `json:"errorCode"`
+	ReusedFrom        string             `json:"reusedFrom"`
+	CheckedAt         string             `json:"checkedAt"`
+	GeneratorProfile  string             `json:"generatorProfile"`
+	SelectionReasons  []string           `json:"selectionReasons"`
+	SimilarityScore   *float64           `json:"similarityScore"`
+	ResultOrigin      string             `json:"resultOrigin"`
 }
 
 type Options struct {
@@ -45,6 +49,8 @@ type Options struct {
 const selectionVersion = "related-v1:cosine-max-chunk:two-shared-terms:exact-fields-v1"
 
 type Run struct {
+	ClassifierProfile                                                                                                                                  string
+	LayaPendingPairs, LayaRunningPairs, LayaCompletedPairs, LayaFailedPairs, LayaSkippedPairs                                                          int
 	ReasonCode                                                                                                                                         string
 	MissingRequirementIDs                                                                                                                              []string
 	ID, ProjectID, Status, Outcome, ErrorCode, CreatedAt, CompletedAt, GeneratorProfile, GeneratorProvenance, EmbeddingProfile                         string
@@ -74,6 +80,7 @@ type Service struct {
 	db               *sql.DB
 	retriever        *rag.Service
 	generator        Generator
+	classifier       Classifier
 	embeddingProfile string
 	// Budgets apply to preparation and each individual pair, never to the batch.
 	timeout            time.Duration
@@ -88,10 +95,13 @@ type Service struct {
 	workers            map[string]context.CancelFunc
 }
 
-func New(db *sql.DB, retriever *rag.Service, generator Generator, embeddingProfile string) *Service {
+func New(db *sql.DB, retriever *rag.Service, generator Generator, embeddingProfile string, classifiers ...Classifier) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{db: db, retriever: retriever, generator: generator, embeddingProfile: embeddingProfile,
 		timeout: 120 * time.Second, preparationTimeout: 180 * time.Second, heartbeatInterval: 5 * time.Second, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), workers: make(map[string]context.CancelFunc)}
+	if len(classifiers) > 0 {
+		s.classifier = classifiers[0]
+	}
 	go s.work()
 	return s
 }
@@ -105,6 +115,10 @@ func (s *Service) notify() {
 func (s *Service) generatorProfile() string {
 	if s.generator == nil {
 		return ""
+	}
+	if s.classifier != nil {
+		_, profile := encodeGenerationProvenance(generationProvenance{Adapter: "laya-llm-pipeline-v2", RuntimeProfile: s.generator.Profile(), Parameters: map[string]any{"classifierProfile": s.classifier.Profile(), "fallbackPolicy": "final-llm-on-laya-failure-with-full-originals-v1"}})
+		return profile
 	}
 	return s.generator.Profile()
 }
@@ -150,19 +164,19 @@ func sourceSignature(ctx context.Context, q queryer, workspace, project string) 
 
 // Compatibility collections are bounded pages, never the complete queue. All
 // counters below cover the run, independently of those pages.
-const pairJSON = `jsonb_build_object('id',p.id,'position',p.position,'status',p.status,'left',p.left_source,'right',p.right_source,'verdict',p.verdict,'explanation',p.explanation,'errorCode',p.error_code,'reusedFrom',p.reused_from,'checkedAt',coalesce(to_char(p.checked_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),''),'generatorProfile',p.generator_profile,'selectionReasons',p.selection_reasons,'similarityScore',p.similarity_score,'resultOrigin',p.result_origin)`
+const pairJSON = `jsonb_build_object('id',p.id,'position',p.position,'status',p.status,'left',p.left_source,'right',p.right_source,'verdict',p.verdict,'explanation',p.explanation,'errorCode',p.error_code,'reusedFrom',p.reused_from,'checkedAt',coalesce(to_char(p.checked_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),''),'generatorProfile',p.generator_profile,'selectionReasons',p.selection_reasons,'similarityScore',p.similarity_score,'resultOrigin',p.result_origin,'layaStatus',p.laya_status,'layaErrorCode',p.laya_error_code,'preclassification',p.laya_result,'layaCheckedAt',coalesce(to_char(p.laya_checked_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),''))`
 const runColumns = `id,project_id,status,outcome,error_code,generator_profile,embedding_profile,source_signature,
  coalesce((SELECT jsonb_agg(source ORDER BY requirement_id) FROM (SELECT source,requirement_id FROM analysis_sources WHERE run_id=analysis_runs.id ORDER BY requirement_id LIMIT 100) s),'[]'::jsonb),
  coalesce((SELECT jsonb_agg(jsonb_build_object('leftId',p.left_source->>'id','rightId',p.right_source->>'id','leftVersion',p.left_source->'version','rightVersion',p.right_source->'version','verdict',p.verdict,'explanation',p.explanation) ORDER BY p.position) FROM (SELECT * FROM analysis_pairs WHERE run_id=analysis_runs.id AND status='completed' ORDER BY position LIMIT 100) p),'[]'::jsonb),
  created_at,completed_at,reason_code,missing_requirement_ids,stage,total_pairs,processed_pairs,active_pair_id,
  coalesce((SELECT jsonb_agg(` + pairJSON + ` ORDER BY p.position) FROM (SELECT * FROM analysis_pairs WHERE run_id=analysis_runs.id ORDER BY position LIMIT 100) p),'[]'::jsonb),
  incomplete,worker_id,generator_provenance,mode,similarity_threshold,selection_profile,possible_pairs,pair_cursor_left,pair_cursor_right,full_queue,
- (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text`
+ (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs,count(*) FILTER(WHERE laya_status='pending' AND status<>'failed'),count(*) FILTER(WHERE laya_status='running'),count(*) FILTER(WHERE laya_status='completed'),count(*) FILTER(WHERE laya_status='failed'),count(*) FILTER(WHERE laya_status='skipped')) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text,classifier_profile`
 
 const compactRunColumns = `id,project_id,status,outcome,error_code,generator_profile,embedding_profile,source_signature,
  '[]'::jsonb,'[]'::jsonb,created_at,completed_at,reason_code,missing_requirement_ids,stage,total_pairs,processed_pairs,active_pair_id,
  '[]'::jsonb,incomplete,worker_id,''::text,mode,similarity_threshold,''::text,possible_pairs,pair_cursor_left,pair_cursor_right,full_queue,
- (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text`
+ (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs,count(*) FILTER(WHERE laya_status='pending' AND status<>'failed'),count(*) FILTER(WHERE laya_status='running'),count(*) FILTER(WHERE laya_status='completed'),count(*) FILTER(WHERE laya_status='failed'),count(*) FILTER(WHERE laya_status='skipped')) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text,classifier_profile`
 
 func scanRun(row *sql.Row) (*Run, error) {
 	r := &Run{Sources: []Source{}, Findings: []Finding{}, Pairs: []PairResult{}, MissingRequirementIDs: []string{}}
@@ -170,15 +184,16 @@ func scanRun(row *sql.Row) (*Run, error) {
 	var created time.Time
 	var completed sql.NullTime
 	var total, possible sql.NullInt64
-	err := row.Scan(&r.ID, &r.ProjectID, &r.Status, &r.Outcome, &r.ErrorCode, &r.GeneratorProfile, &r.EmbeddingProfile, &r.signature, &sources, &findings, &created, &completed, &r.ReasonCode, &missing, &r.Stage, &total, &r.ProcessedPairs, &r.ActivePairID, &pairs, &r.incomplete, &r.workerID, &r.GeneratorProvenance, &r.Mode, &r.SimilarityThreshold, &r.SelectionProfile, &possible, &r.cursorLeft, &r.cursorRight, &r.fullQueue, &counts, &r.Revision)
+	err := row.Scan(&r.ID, &r.ProjectID, &r.Status, &r.Outcome, &r.ErrorCode, &r.GeneratorProfile, &r.EmbeddingProfile, &r.signature, &sources, &findings, &created, &completed, &r.ReasonCode, &missing, &r.Stage, &total, &r.ProcessedPairs, &r.ActivePairID, &pairs, &r.incomplete, &r.workerID, &r.GeneratorProvenance, &r.Mode, &r.SimilarityThreshold, &r.SelectionProfile, &possible, &r.cursorLeft, &r.cursorRight, &r.fullQueue, &counts, &r.Revision, &r.ClassifierProfile)
 	if err != nil {
 		return nil, err
 	}
 	var c []int
-	if json.Unmarshal(sources, &r.Sources) != nil || json.Unmarshal(findings, &r.Findings) != nil || json.Unmarshal(missing, &r.MissingRequirementIDs) != nil || json.Unmarshal(pairs, &r.Pairs) != nil || json.Unmarshal(counts, &c) != nil || len(c) != 11 {
+	if json.Unmarshal(sources, &r.Sources) != nil || json.Unmarshal(findings, &r.Findings) != nil || json.Unmarshal(missing, &r.MissingRequirementIDs) != nil || json.Unmarshal(pairs, &r.Pairs) != nil || json.Unmarshal(counts, &c) != nil || len(c) != 16 {
 		return nil, errStorage
 	}
 	r.ReusedPairs, r.NewPairs, r.CompletedPairs, r.PendingPairs, r.RunningPairs, r.FailedPairs, r.CollisionPairs, r.CompatiblePairs, r.InsufficientPairs, r.DuplicatePairs, r.ProcessedPairs = c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10]
+	r.LayaPendingPairs, r.LayaRunningPairs, r.LayaCompletedPairs, r.LayaFailedPairs, r.LayaSkippedPairs = c[11], c[12], c[13], c[14], c[15]
 	if total.Valid {
 		n := int(total.Int64)
 		r.TotalPairs = &n
@@ -243,6 +258,9 @@ func outcome(findings []Finding, incomplete bool) string {
 // Even a replacement provider that ignores cancellation cannot publish a late
 // successful response after the analysis deadline.
 func checkedCompare(ctx context.Context, generator Generator, pair Pair) (Finding, string) {
+	if generator == nil || generator.Profile() == "" {
+		return Finding{}, "NOT_CONFIGURED"
+	}
 	finding, err := generator.Compare(ctx, pair)
 	if ctx.Err() != nil {
 		return Finding{}, "TIMEOUT"

@@ -76,6 +76,20 @@ class ConfigTests(unittest.TestCase):
         config.save()
         self.assertEqual(cli.Config(self.root).state['models'], config.state['models'])
 
+    def test_legacy_npu_state_defaults_ollama_device_to_cpu(self):
+        config = cli.Config(self.root)
+        config.ensure('npu')
+        self.assertEqual(config.state.get('ollama_device', 'cpu'), 'cpu')
+
+    def test_npu_can_persist_arc_ollama_device_and_requires_explicit_switch(self):
+        config = cli.Config(self.root)
+        config.ensure('npu', ollama_device='arc')
+        self.assertEqual(config.state['device'], 'npu')
+        self.assertEqual(config.state['ollama_device'], 'arc')
+        with self.assertRaisesRegex(cli.Failure, 'DEVICE_CHANGE'):
+            config.ensure('npu', ollama_device='cpu')
+        config.ensure('npu', ollama_device='cpu', switch=True)
+
 
 class FakeRunner:
     def __init__(self):
@@ -114,6 +128,25 @@ class InstallTests(unittest.TestCase):
         self.assertNotIn('evil.yml', cmd)
         self.assertNotIn('COMPOSE_FILE', self.runner.envs[-1])
         self.assertNotIn('PROJECT_CREATOR_TOKEN', self.runner.envs[-1])
+
+    def test_npu_arc_compose_includes_intel_then_npu_overrides(self):
+        self.app.config.ensure('npu', ollama_device='arc', switch=True)
+        self.app.compose('config')
+        command = self.runner.calls[-1]
+        files = [command[i + 1] for i, value in enumerate(command[:-1]) if value == '-f']
+        self.assertEqual(files, [str(self.root / name) for name in ('compose.yml', 'compose.intel.yml', 'compose.npu.yml')])
+
+    def test_invalid_saved_ollama_device_is_rejected_without_cpu_fallback(self):
+        self.app.config.state.update(device='npu', ollama_device='invalid')
+        with self.assertRaisesRegex(cli.Failure, 'CONFIG_STATE'):
+            self.app.compose('config')
+
+    def test_embedding_execution_checks_saved_ollama_device_for_npu_arc(self):
+        self.app.config.ensure('npu', ollama_device='arc', switch=True)
+        self.app.config.values.update({'PROJECT_CREATOR_EMBEDDING_MODEL': 'bge-m3:567m', 'PROJECT_CREATOR_EMBEDDING_DIGEST': 'sha256:'+'a'*64})
+        self.app.ollama = lambda path, body=None: {'models': [{'name': 'bge-m3:567m', 'digest': 'sha256:'+'a'*64, 'size_vram': 10, 'size': 100}]} if path == '/api/ps' else {}
+        self.app.check_execution('EMBEDDING')
+        self.assertEqual(self.app.config.state['execution']['EMBEDDING']['device'], 'arc')
 
     def test_pull_pins_digest_and_license_and_reuses_cache(self):
         digest = 'sha256:'+'a'*64

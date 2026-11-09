@@ -86,6 +86,10 @@ type AnalysisPairConnection struct {
 	PageInfo   *PageInfo
 	TotalCount int32
 }
+type RequirementSummariesByIdsArgs struct {
+	ProjectId      graphql.ID
+	RequirementIds []graphql.ID
+}
 type RequirementIndexProgressArgs struct {
 	ProjectId graphql.ID
 }
@@ -162,6 +166,14 @@ type ProjectsConnectionArgs struct {
 	First *int32
 	After *string
 }
+type RetryRequirementSummaryArgs struct {
+	ProjectId     graphql.ID
+	RequirementId graphql.ID
+}
+type CancelRequirementSummaryArgs struct {
+	ProjectId     graphql.ID
+	RequirementId graphql.ID
+}
 type ReplaceProjectAnalysisArgs struct {
 	ProjectId  graphql.ID
 	AnalysisId graphql.ID
@@ -232,22 +244,32 @@ type AnalysisFinding struct {
 	Explanation  string
 }
 type AnalysisPair struct {
-	SelectionReasons []string
-	SimilarityScore  *float64
-	ResultOrigin     string
-	ReusedFrom       graphql.ID
-	CheckedAt        string
-	GeneratorProfile string
-	ID               graphql.ID
-	Position         int32
-	Status           string
-	Left             *AnalysisSource
-	Right            *AnalysisSource
-	Verdict          string
-	Explanation      string
-	ErrorCode        string
+	LayaErrorCode     string
+	LayaStatus        string
+	Preclassification *string
+	LayaCheckedAt     *string
+	SelectionReasons  []string
+	SimilarityScore   *float64
+	ResultOrigin      string
+	ReusedFrom        graphql.ID
+	CheckedAt         string
+	GeneratorProfile  string
+	ID                graphql.ID
+	Position          int32
+	Status            string
+	Left              *AnalysisSource
+	Right             *AnalysisSource
+	Verdict           string
+	Explanation       string
+	ErrorCode         string
 }
 type ProjectAnalysis struct {
+	ClassifierProfile     string
+	LayaPendingPairs      int32
+	LayaRunningPairs      int32
+	LayaCompletedPairs    int32
+	LayaFailedPairs       int32
+	LayaSkippedPairs      int32
 	Revision              string
 	Mode                  string
 	SimilarityThreshold   float64
@@ -304,6 +326,12 @@ type AnalysisRunMetadata struct {
 	SelectionProfile    string
 }
 type ProjectAnalysisSummary struct {
+	ClassifierProfile     string
+	LayaPendingPairs      int32
+	LayaRunningPairs      int32
+	LayaCompletedPairs    int32
+	LayaFailedPairs       int32
+	LayaSkippedPairs      int32
 	Revision              string
 	Mode                  string
 	SimilarityThreshold   float64
@@ -333,4 +361,17 @@ type ProjectAnalysisSummary struct {
 	CreatedAt             string
 	CompletedAt           string
 	Stale                 bool
+}
+type RequirementSummary struct {
+	ByteLength    int32
+	LayaEligible  bool
+	RequirementId graphql.ID
+	ProjectId     graphql.ID
+	Version       int32
+	Status        string
+	Text          string
+	Profile       string
+	Provenance    string
+	CreatedAt     string
+	ErrorCode     string
 }

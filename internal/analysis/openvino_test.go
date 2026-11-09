@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -206,17 +207,19 @@ func TestOpenVINOInputOrderDoesNotChangeModelPair(t *testing.T) {
 			Verdict: "compatible", Explanation: "Условия стоимости заказа не пересекаются."}
 		json.NewEncoder(w).Encode(map[string]any{"profile": pinnedDigest, "device": "NPU", "finding": finding})
 	})
-	for _, pair := range []Pair{{Left: first, Right: second}, {Left: second, Right: first}} {
+	preclassification := &Preclassification{Decision: "related", Scores: map[string]float64{"related": .8, "unrelated": .1, "uncertain": .1}}
+	for _, pair := range []Pair{{Left: first, Right: second, Preclassification: preclassification}, {Left: second, Right: first, Preclassification: preclassification}} {
 		finding, err := generator.Compare(context.Background(), pair)
 		if err != nil || !validFinding(pair, finding) || finding.Verdict != "compatible" {
 			t.Fatalf("original references not restored: finding=%+v err=%v", finding, err)
 		}
 	}
 	want := Pair{
-		Left:  Source{ID: "left", Version: 1, Text: second.Text},
-		Right: Source{ID: "right", Version: 1, Text: first.Text},
+		Left:              Source{ID: "left", Version: 1, Text: second.Text},
+		Right:             Source{ID: "right", Version: 1, Text: first.Text},
+		Preclassification: preclassification,
 	}
-	if len(received) != 2 || received[0] != want || received[1] != want {
+	if len(received) != 2 || !reflect.DeepEqual(received[0], want) || !reflect.DeepEqual(received[1], want) {
 		t.Fatalf("input order changed the model pair: got=%+v want=%+v", received, want)
 	}
 }
@@ -267,7 +270,7 @@ func TestOpenVINORejectsInvalidSourceBeforeRuntime(t *testing.T) {
 		t.Fatal("accepted repeated source")
 	}
 	pair = pairFixture()
-	pair.Left.Text = strings.Repeat("я", 2001)
+	pair.Left.Text = strings.Repeat("я", 10001)
 	if _, err := generator.Compare(context.Background(), pair); err == nil {
 		t.Fatal("accepted oversized source")
 	}

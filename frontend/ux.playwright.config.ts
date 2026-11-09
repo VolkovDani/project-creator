@@ -3,7 +3,13 @@ import { defineConfig } from '@playwright/test';
 // Deterministic browser regressions: every API/model response is intercepted.
 export default defineConfig({
   testDir: './e2e',
-  testMatch: ['ux.spec.ts', 'analysis.spec.ts', 'analysis-live.spec.ts', 'rag.spec.ts'],
+  testMatch: [
+    'ux.spec.ts',
+    'analysis.spec.ts',
+    'analysis-live.spec.ts',
+    'rag.spec.ts',
+    'summaries.spec.ts',
+  ],
   timeout: 30000,
   workers: 1,
   use: {

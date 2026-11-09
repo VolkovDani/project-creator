@@ -128,12 +128,16 @@ func TestFullQueueReuseAllVerdictsAndProfileIsolation(t *testing.T) {
 			if err != nil || original.Status != "completed" || calls.Load() != 1 {
 				t.Fatalf("first comparison: %+v %v calls=%d", original, err, calls.Load())
 			}
+			// A profile rollout replaces its worker; differently configured workers
+			// must not concurrently reap each other's unclaimed runs.
+			service.Close()
 			// Embeddings are provenance of preparation, not identity of comparison.
 			changedEmbedding := testService(t, db, nil, generator, "embedding-new")
 			reused, err := changedEmbedding.startAndWait(t, context.Background(), "a", "p")
 			if err != nil || reused.Status != "completed" || calls.Load() != 1 {
 				t.Fatalf("embedding drift invalidated exact comparison: %+v %v calls=%d", reused, err, calls.Load())
 			}
+			changedEmbedding.Close()
 			profile := &fakeGenerator{profile: "different-immutable-profile"}
 			changedModel := testService(t, db, nil, profile, "embedding-new")
 			fresh, err := changedModel.startAndWait(t, context.Background(), "a", "p")

@@ -17,6 +17,7 @@ import (
 var ErrNotFound = errors.New("project or requirement not found")
 var ErrInvalid = errors.New("invalid search or pagination")
 var ErrNotConfigured = errors.New("local embedding provider not configured")
+var ErrBusy = errors.New("embedding service is busy")
 var errStorage = errors.New("index storage unavailable")
 
 type State struct {
@@ -30,14 +31,93 @@ type Hit struct {
 	Score                                      float64
 }
 type Service struct {
-	db          *sql.DB
-	embedder    Embedder
-	queueMu     sync.Mutex
-	queueCancel context.CancelFunc
-	queueDone   chan struct{}
+	db                   *sql.DB
+	embedder             Embedder
+	inferenceMu          sync.Mutex
+	inferenceChanged     chan struct{}
+	inferenceActive      bool
+	inferenceInteractive int
+	inferenceBackground  int
+	interactiveBurst     int
+	queueMu              sync.Mutex
+	queueCancel          context.CancelFunc
+	queueDone            chan struct{}
 }
 
-func New(db *sql.DB, embedder Embedder) *Service { return &Service{db: db, embedder: embedder} }
+func New(db *sql.DB, embedder Embedder) *Service {
+	return &Service{db: db, embedder: embedder, inferenceChanged: make(chan struct{})}
+}
+
+const maxInteractiveWaiters = 8
+const maxInteractiveBurst = 4
+
+// withInference is process-local admission control: Search embedding gets
+// bounded priority over indexing, with a background turn after four searches.
+// PostgreSQL leases still fence writes across backend instances; their shared
+// model runtime does not gain cross-instance search priority from this gate.
+func (s *Service) withInference(ctx context.Context, interactive bool, fn func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.inferenceMu.Lock()
+	if interactive {
+		if s.inferenceInteractive >= maxInteractiveWaiters {
+			s.inferenceMu.Unlock()
+			return ErrBusy
+		}
+		s.inferenceInteractive++
+	} else {
+		s.inferenceBackground++
+	}
+	s.inferenceMu.Unlock()
+	defer func() {
+		s.inferenceMu.Lock()
+		if interactive {
+			s.inferenceInteractive--
+		} else {
+			s.inferenceBackground--
+		}
+		close(s.inferenceChanged)
+		s.inferenceChanged = make(chan struct{})
+		s.inferenceMu.Unlock()
+	}()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		s.inferenceMu.Lock()
+		backgroundTurn := s.inferenceBackground > 0 && s.interactiveBurst >= maxInteractiveBurst
+		ready := false
+		if interactive {
+			ready = s.inferenceActive == false && (s.inferenceBackground == 0 || s.interactiveBurst < maxInteractiveBurst)
+		} else {
+			ready = s.inferenceActive == false && (s.inferenceInteractive == 0 || backgroundTurn)
+		}
+		if ready {
+			s.inferenceActive = true
+			if interactive {
+				s.interactiveBurst++
+			} else {
+				s.interactiveBurst = 0
+			}
+			s.inferenceMu.Unlock()
+			err := fn()
+			s.inferenceMu.Lock()
+			s.inferenceActive = false
+			close(s.inferenceChanged)
+			s.inferenceChanged = make(chan struct{})
+			s.inferenceMu.Unlock()
+			return err
+		}
+		changed := s.inferenceChanged
+		s.inferenceMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-changed:
+		}
+	}
+}
 func (s *Service) authorize(ctx context.Context, workspace, project string) error {
 	var exists bool
 	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM projects WHERE workspace=$1 AND id=$2)`, workspace, project).Scan(&exists); err != nil {
@@ -257,7 +337,13 @@ func (s *Service) indexLocked(ctx context.Context, workspace, project, requireme
 	} else if !current {
 		code = "SOURCE_CHANGED"
 	} else {
-		embeddings, code, _ = s.embed(embedCtx, chunks)
+		inferenceErr := s.withInference(embedCtx, false, func() error {
+			embeddings, code, _ = s.embed(embedCtx, chunks)
+			return nil
+		})
+		if inferenceErr != nil {
+			code = "EMBEDDING_FAILED"
+		}
 		if embedCtx.Err() != nil {
 			code = "EMBEDDING_FAILED"
 		}
@@ -401,7 +487,12 @@ func (s *Service) Search(ctx context.Context, workspace, project, text string, l
 	}
 	embedCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	vectors, err := s.embedder.Embed(embedCtx, []string{text})
+	var vectors [][]float32
+	err := s.withInference(embedCtx, true, func() error {
+		var embedErr error
+		vectors, embedErr = s.embedder.Embed(embedCtx, []string{text})
+		return embedErr
+	})
 	if err != nil || len(vectors) != 1 {
 		return nil, errors.New("search embedding unavailable")
 	}

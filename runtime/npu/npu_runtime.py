@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import importlib.metadata
 import json
+import math
 import multiprocessing
 import os
 from pathlib import Path
@@ -16,6 +17,30 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler
+
+
+def requirement_text_max_length():
+    """Read the shared source constraint with the same strict contract shape as Go."""
+    path = Path(__file__).resolve().parents[2] / 'contracts' / 'requirement.json'
+    try:
+        value = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, UnicodeError, ValueError) as error:
+        raise RuntimeError('cannot load shared requirement contract') from error
+    if (not isinstance(value, dict) or set(value) != {'version', 'lengthUnit', 'trim', 'fields'}
+            or type(value.get('version')) is not int or value['version'] != 1
+            or value.get('lengthUnit') != 'unicode-code-points'
+            or value.get('trim') != 'ascii-space-tab-lf-cr'
+            or not isinstance(value.get('fields'), dict) or set(value['fields']) != {'text'}):
+        raise RuntimeError('unsupported shared requirement contract')
+    rule = value['fields']['text']
+    if (not isinstance(rule, dict) or set(rule) != {'required', 'maxLength'}
+            or rule.get('required') is not True or type(rule.get('maxLength')) is not int
+            or rule['maxLength'] <= 0):
+        raise RuntimeError('invalid shared requirement text constraint')
+    return rule['maxLength']
+
+
+REQUIREMENT_TEXT_MAX_LENGTH = requirement_text_max_length()
 
 VERSIONS = {'openvino': '2026.4.1', 'openvino-genai': '2026.4.1.0',
             'openvino-tokenizers': '2026.4.1.0', 'numpy': '2.5.4',
@@ -154,7 +179,25 @@ def valid_source(source):
             and '\n' not in source['id'] and '\r' not in source['id']
             and type(source['version']) is int and 0 < source['version'] <= 2147483647
             and isinstance(source['text'], str) and bool(source['text'].strip())
-            and len(source['text']) <= 2000)
+            and len(source['text']) <= REQUIREMENT_TEXT_MAX_LENGTH)
+
+
+def valid_preclassification(value):
+    if not isinstance(value, dict) or set(value) != {'decision', 'scores'}:
+        return False
+    if value['decision'] not in ('related', 'unrelated', 'uncertain'):
+        return False
+    scores = value['scores']
+    labels = ('related', 'unrelated', 'uncertain')
+    if not isinstance(scores, dict) or set(scores) != set(labels):
+        return False
+    total = 0.0
+    for label in labels:
+        score = scores[label]
+        if type(score) not in (int, float) or not math.isfinite(score) or not 0 <= score <= 1:
+            return False
+        total += score
+    return abs(total - 1.0) <= 1e-6
 
 
 def validate_request(value, profile):
@@ -165,7 +208,11 @@ def validate_request(value, profile):
     if not isinstance(value['system'], str) or not 1 <= len(value['system']) <= 8000 or not isinstance(value['schema'], dict):
         raise ValueError('profile or prompt mismatch')
     pair = value['pair']
-    if not isinstance(pair, dict) or set(pair) != {'left', 'right'} or not all(valid_source(pair[k]) for k in pair) or pair['left']['id'] == pair['right']['id']:
+    if (not isinstance(pair, dict) or not {'left', 'right'} <= pair.keys()
+            or set(pair) - {'left', 'right', 'preclassification'}
+            or not valid_source(pair['left']) or not valid_source(pair['right'])
+            or pair['left']['id'] == pair['right']['id']
+            or ('preclassification' in pair and not valid_preclassification(pair['preclassification']))):
         raise ValueError('invalid source pair')
 
 

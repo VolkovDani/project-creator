@@ -118,8 +118,9 @@ func (o *OpenVINO) Compare(ctx context.Context, pair Pair) (Finding, error) {
 	// Keep their per-request mapping in the adapter so incidental identifiers do
 	// not influence the model's verdict. Source texts remain byte-for-byte intact.
 	aliases := Pair{
-		Left:  Source{ID: "left", Version: 1, Text: pair.Left.Text},
-		Right: Source{ID: "right", Version: 1, Text: pair.Right.Text},
+		Left:              Source{ID: "left", Version: 1, Text: pair.Left.Text},
+		Right:             Source{ID: "right", Version: 1, Text: pair.Right.Text},
+		Preclassification: pair.Preclassification,
 	}
 	// Contradiction is symmetric. Canonical text order keeps the same comparison
 	// independent of the caller's source order while preserving every source byte.

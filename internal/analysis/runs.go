@@ -133,7 +133,13 @@ func (s *Service) Cancel(ctx context.Context, workspace, project, id string) (Ru
 		return Run{}, errStorage
 	}
 	if r.Status == "running" {
-		if _, err = tx.ExecContext(ctx, `UPDATE analysis_pairs SET status='failed',error_code='CANCELLED' WHERE run_id=$1 AND status IN ('pending','running')`, id); err != nil {
+		pipelineProcessed := 0
+		if r.ClassifierProfile != "" {
+			if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM analysis_pairs WHERE run_id=$1 AND (status IN ('completed','failed','running') OR laya_status='running')`, id).Scan(&pipelineProcessed); err != nil {
+				return Run{}, errStorage
+			}
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE analysis_pairs SET laya_status=CASE WHEN laya_status IN ('pending','running') THEN 'failed' ELSE laya_status END,status='failed',error_code='CANCELLED' WHERE run_id=$1 AND status IN ('pending','running')`, id); err != nil {
 			return Run{}, errStorage
 		}
 		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM analysis_pairs WHERE run_id=$1 AND status='completed'`, id).Scan(&r.ProcessedPairs); err != nil {
@@ -141,6 +147,9 @@ func (s *Service) Cancel(ctx context.Context, workspace, project, id string) (Ru
 		}
 		if r.ActivePairID != "" {
 			r.ProcessedPairs++
+		}
+		if r.ClassifierProfile != "" {
+			r.ProcessedPairs = pipelineProcessed
 		}
 		r.Status = "failed"
 		r.ErrorCode = "CANCELLED"
@@ -307,7 +316,10 @@ func (s *Service) startWithOptions(ctx context.Context, workspace, project strin
 	r.Stage = "checking_index"
 	r.signature = signature
 	r.GeneratorProfile = s.generatorProfile()
-	r.GeneratorProvenance = GeneratorProvenance(s.generator)
+	r.GeneratorProvenance = s.comparisonProvenance()
+	if s.classifier != nil {
+		r.ClassifierProfile = s.classifier.Profile()
+	}
 	r.EmbeddingProfile = s.embeddingProfile
 	r.Mode = opts.Mode
 	r.SimilarityThreshold = opts.Threshold
@@ -319,7 +331,7 @@ func (s *Service) startWithOptions(ctx context.Context, workspace, project strin
 	}{selectionVersion, r.Mode, r.SimilarityThreshold, r.EmbeddingProfile})
 	r.fullQueue = true
 	var created time.Time
-	err = tx.QueryRowContext(ctx, `INSERT INTO analysis_runs(id,workspace,project_id,status,generator_profile,generator_provenance,embedding_profile,source_signature,sources,lease_until,stage,mode,similarity_threshold,selection_profile,full_queue) VALUES($1,$2,$3,'running',$4,$5,$6,$7,'[]','infinity','checking_index',$8,$9,$10,true) RETURNING created_at`, id, workspace, project, r.GeneratorProfile, r.GeneratorProvenance, r.EmbeddingProfile, signature, r.Mode, r.SimilarityThreshold, r.SelectionProfile).Scan(&created)
+	err = tx.QueryRowContext(ctx, `INSERT INTO analysis_runs(id,workspace,project_id,status,generator_profile,generator_provenance,embedding_profile,source_signature,sources,lease_until,stage,mode,similarity_threshold,selection_profile,full_queue,classifier_profile) VALUES($1,$2,$3,'running',$4,$5,$6,$7,'[]','infinity','checking_index',$8,$9,$10,true,$11) RETURNING created_at`, id, workspace, project, r.GeneratorProfile, r.GeneratorProvenance, r.EmbeddingProfile, signature, r.Mode, r.SimilarityThreshold, r.SelectionProfile, r.ClassifierProfile).Scan(&created)
 	if err != nil {
 		return empty, errStorage
 	}
@@ -379,7 +391,7 @@ func (s *Service) Retry(ctx context.Context, workspace, project, id string) (Run
 	if r.FailedPairs == 0 && r.TotalPairs != nil {
 		return Run{}, ErrRetryUnavailable
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE analysis_pairs SET status='pending',error_code='' WHERE run_id=$1 AND status='failed'`, id); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE analysis_pairs SET status='pending',error_code='',laya_status=CASE WHEN laya_status='running' OR (laya_status='failed' AND laya_error_code='') THEN 'pending' ELSE laya_status END,laya_error_code=CASE WHEN laya_status='running' OR (laya_status='failed' AND laya_error_code='') THEN '' ELSE laya_error_code END WHERE run_id=$1 AND status='failed'`, id); err != nil {
 		return Run{}, errStorage
 	}
 	r.Status = "running"
@@ -439,7 +451,7 @@ func interruptRun(ctx context.Context, tx *sql.Tx, workspace string, r *Run, cod
 	if err := fenceRun(ctx, tx, workspace, r, fenced); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE analysis_pairs SET error_code=CASE WHEN status='running' THEN $2 ELSE 'NOT_PROCESSED' END,status='failed' WHERE run_id=$1 AND status IN ('running','pending')`, r.ID, code)
+	_, err := tx.ExecContext(ctx, `UPDATE analysis_pairs SET laya_status=CASE WHEN laya_status IN ('pending','running') THEN 'failed' ELSE laya_status END,error_code=CASE WHEN status='running' OR laya_status='running' THEN $2 ELSE 'NOT_PROCESSED' END,status='failed' WHERE run_id=$1 AND status IN ('running','pending')`, r.ID, code)
 	if err != nil {
 		return errStorage
 	}

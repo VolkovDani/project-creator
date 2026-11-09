@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AnalysisChannel, acceptSnapshot } from '../lib/analysisLive.ts';
+import { parseAnalysisSnapshot } from '../lib/analysisSnapshot.ts';
 
 const snapshot = (id = 'run', revision = '1', createdAt = '2026-11-05T00:00:00Z') => ({
   id,
@@ -76,4 +77,62 @@ test('newer pair progress cannot undo known source staleness from another reques
   channel.flush();
   assert.equal(received.at(-1)?.stale, true);
   assert.equal(received.at(-1)?.revision, '6');
+});
+
+test('legacy SSE snapshots without Laya fields remain valid while malformed Laya counts are rejected', () => {
+  const legacy = {
+    ...snapshot(),
+    possiblePairs: null,
+    notSelectedPairs: null,
+    outcome: '',
+    errorCode: '',
+    reasonCode: '',
+    completedAt: '',
+    mode: 'related',
+    activePairId: '',
+    duplicatePairs: 0,
+    reusedPairs: 0,
+    newPairs: 0,
+    completedPairs: 0,
+    pendingPairs: 0,
+    runningPairs: 0,
+    failedPairs: 0,
+    collisionPairs: 0,
+    compatiblePairs: 0,
+    insufficientPairs: 0,
+    stale: false,
+    similarityThreshold: 0.65,
+    missingRequirementIds: [],
+  };
+  assert.equal(parseAnalysisSnapshot(legacy).layaSkippedPairs, 0);
+  assert.throws(() => parseAnalysisSnapshot({ ...legacy, layaRunningPairs: -1 }));
+});
+
+test('legacy SSE snapshots default skipped Laya count to zero and validate it', () => {
+  const legacy = {
+    ...snapshot(),
+    possiblePairs: null,
+    notSelectedPairs: null,
+    outcome: '',
+    errorCode: '',
+    reasonCode: '',
+    completedAt: '',
+    mode: 'related',
+    activePairId: '',
+    duplicatePairs: 0,
+    reusedPairs: 0,
+    newPairs: 0,
+    completedPairs: 0,
+    pendingPairs: 0,
+    runningPairs: 0,
+    failedPairs: 0,
+    collisionPairs: 0,
+    compatiblePairs: 0,
+    insufficientPairs: 0,
+    stale: false,
+    similarityThreshold: 0.65,
+    missingRequirementIds: [],
+  };
+  assert.equal(parseAnalysisSnapshot(legacy).layaSkippedPairs, 0);
+  assert.throws(() => parseAnalysisSnapshot({ ...legacy, layaSkippedPairs: -1 }));
 });

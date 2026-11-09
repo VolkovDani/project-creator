@@ -86,3 +86,13 @@ func TestEventRouteRequiresAuthorization(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 }
+
+func TestSummaryResultsHaveSummaryInvalidationTag(t *testing.T) {
+	tags := cacheTags(map[string]any{"requirementSummariesByIds": []any{map[string]any{"projectId": "p", "requirementId": "r", "provenance": "model", "status": "ready"}}})
+	for _, v := range tags {
+		if v == "project:p:summaries" {
+			return
+		}
+	}
+	t.Fatalf("missing summary tag %v", tags)
+}

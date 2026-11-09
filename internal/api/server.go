@@ -10,6 +10,7 @@ import (
 	"github.com/VolkovDani/project-creator/internal/analysis"
 	"github.com/VolkovDani/project-creator/internal/rag"
 	"github.com/VolkovDani/project-creator/internal/storage"
+	"github.com/VolkovDani/project-creator/internal/summary"
 	graphql "github.com/graph-gophers/graphql-go"
 	"github.com/graph-gophers/graphql-go/relay"
 	"io"
@@ -19,10 +20,11 @@ import (
 )
 
 type Server struct {
-	db       *sql.DB
-	h        http.Handler
-	analysis *analysis.Service
-	indexing *rag.Service
+	summaries *summary.Service
+	db        *sql.DB
+	h         http.Handler
+	analysis  *analysis.Service
+	indexing  *rag.Service
 }
 
 func New(path string, tokens map[string]string) (*Server, error) {
@@ -32,7 +34,10 @@ func New(path string, tokens map[string]string) (*Server, error) {
 func NewWithEmbedder(path string, tokens map[string]string, embedder rag.Embedder) (*Server, error) {
 	return NewWithProviders(path, tokens, embedder, nil)
 }
-func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedder, generator analysis.Generator) (*Server, error) {
+func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedder, generator analysis.Generator, classifiers ...analysis.Classifier) (*Server, error) {
+	return NewWithSummaryProviders(path, tokens, embedder, generator, nil, classifiers...)
+}
+func NewWithSummaryProviders(path string, tokens map[string]string, embedder rag.Embedder, generator analysis.Generator, summarizer summary.Generator, classifiers ...analysis.Classifier) (*Server, error) {
 	if len(tokens) == 0 {
 		return nil, errors.New("at least one workspace token is required")
 	}
@@ -45,44 +50,55 @@ func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedd
 	if err != nil {
 		return nil, err
 	}
+	summaries := summary.New(db, summarizer)
+	workspaces := make([]string, 0, len(tokens))
+	seen := map[string]bool{}
+	for _, w := range tokens {
+		if !seen[w] {
+			workspaces = append(workspaces, w)
+			seen[w] = true
+		}
+	}
+	sort.Strings(workspaces)
+	if err = summaries.Start(workspaces); err != nil {
+		db.Close()
+		return nil, errors.New("summary queue startup unavailable")
+	}
+	if len(classifiers) > 0 {
+		classifiers = []analysis.Classifier{summaries.Classifier(classifiers[0])}
+	}
 	retriever := rag.New(db, embedder)
 	embeddingProfile := ""
 	if embedder != nil {
 		embeddingProfile = embedder.Profile()
 	}
-	analyzer := analysis.New(db, retriever, generator, embeddingProfile)
+	analyzer := analysis.New(db, retriever, generator, embeddingProfile, classifiers...)
 	generatorProfile := ""
 	if generator != nil {
-		generatorProfile = generator.Profile()
+		generatorProfile = analyzer.Profile()
 	}
-	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, RAG: retriever, Analysis: analyzer}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
+	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, RAG: retriever, Analysis: analyzer, Summaries: summaries}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
 	if err != nil {
 		analyzer.Close()
+		summaries.Close()
 		db.Close()
 		return nil, err
 	}
-	workspaces := make([]string, 0, len(tokens))
-	seen := map[string]bool{}
-	for _, ws := range tokens {
-		if !seen[ws] {
-			workspaces = append(workspaces, ws)
-			seen[ws] = true
-		}
-	}
-	sort.Strings(workspaces)
 	if err = retriever.StartQueue(workspaces); err != nil {
 		analyzer.Close()
+		summaries.Close()
 		db.Close()
 		return nil, errors.New("index queue startup unavailable")
 	}
 	if err = announceStartup(db, tokens); err != nil {
 		retriever.Close()
 		analyzer.Close()
+		summaries.Close()
 		db.Close()
 		return nil, errors.New("startup cache invalidation unavailable")
 	}
 	h := &relay.Handler{Schema: schema}
-	return &Server{db: db, analysis: analyzer, indexing: retriever, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return &Server{db: db, analysis: analyzer, indexing: retriever, summaries: summaries, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/graphql" && r.URL.Path != "/events" {
 			http.NotFound(w, r)
 			return
@@ -137,6 +153,7 @@ func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedd
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.h.ServeHTTP(w, r) }
 func (s *Server) Close() error {
+	s.summaries.Close()
 	s.analysis.Close()
 	s.indexing.Close()
 	return s.db.Close()

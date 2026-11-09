@@ -31,9 +31,22 @@ export function parseAnalysisSnapshot(value: unknown): AnalysisSnapshot {
     'compatiblePairs',
     'insufficientPairs',
   ];
+  const optionalCounts = [
+    'layaPendingPairs',
+    'layaRunningPairs',
+    'layaCompletedPairs',
+    'layaFailedPairs',
+    'layaSkippedPairs',
+  ];
   if (
     strings.some((key) => typeof record[key] !== 'string') ||
     counts.some((key) => !Number.isSafeInteger(record[key]) || Number(record[key]) < 0) ||
+    optionalCounts.some(
+      (key) =>
+        record[key] !== undefined &&
+        (!Number.isSafeInteger(record[key]) || Number(record[key]) < 0),
+    ) ||
+    (record.classifierProfile !== undefined && typeof record.classifierProfile !== 'string') ||
     ['totalPairs', 'possiblePairs', 'notSelectedPairs'].some(
       (key) =>
         record[key] !== null && (!Number.isSafeInteger(record[key]) || Number(record[key]) < 0),
@@ -45,5 +58,5 @@ export function parseAnalysisSnapshot(value: unknown): AnalysisSnapshot {
     !/^\d+$/.test(String(record.revision))
   )
     throw Error('invalid analysis snapshot');
-  return value as AnalysisSnapshot;
+  return { ...value, layaSkippedPairs: record.layaSkippedPairs ?? 0 } as AnalysisSnapshot;
 }

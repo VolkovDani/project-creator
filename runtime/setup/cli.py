@@ -31,7 +31,8 @@ MESSAGES = {
         'up': 'Start an installation already prepared by setup; no model downloads.',
         'down': 'Stop containers and the managed NPU runtime; preserve all data and weights.',
         'doctor': 'Check prerequisites and an existing installation; no downloads or changes.',
-        'device': 'Explicit execution device (NPU uses CPU embeddings).',
+        'device': 'Explicit generator device (NPU uses CPU embeddings by default; --ollama-device can select Arc).',
+        'ollama_device': 'Ollama device for embeddings; use with --device npu.',
         'project': 'Keep the existing Compose project name; only sets the name on first setup.',
         'switch': 'Explicitly change execution device; keep existing data and pinned weights.',
         'locale': 'Diagnostic language.',
@@ -61,7 +62,8 @@ MESSAGES = {
         'up': 'Запустить подготовленную установку без скачивания моделей.',
         'down': 'Остановить контейнеры и управляемый NPU runtime, сохранить данные и веса.',
         'doctor': 'Проверить окружение и текущую установку без скачивания и изменений.',
-        'device': 'Явное устройство выполнения (для NPU embeddings работают на CPU).',
+        'device': 'Явное устройство генератора (для NPU embeddings по умолчанию работают на CPU; --ollama-device может выбрать Arc).',
+        'ollama_device': 'Устройство Ollama для embeddings; используется вместе с --device npu.',
         'project': 'Сохранить имя существующего Compose-проекта; задаётся только при первой установке.',
         'switch': 'Явно изменить устройство, сохранить данные и закреплённые веса.',
         'locale': 'Язык диагностики.',
@@ -227,10 +229,13 @@ class Config:
         atomic(path, content)
         self.values = future
 
-    def ensure(self, device, project=None, switch=False, gpu_id=None):
+    def ensure(self, device, project=None, switch=False, gpu_id=None, ollama_device=None):
         if device not in gpu.DEVICES:
             raise Failure('CONFIG_STATE', 'Unknown device; use setup --help.')
-        if gpu_id is not None and (device not in gpu.GPU_DEVICES or not re.fullmatch(r'(?:[0-9]+|GPU-[a-fA-F0-9-]+)', gpu_id)):
+        ollama_device = ollama_device or (self.state.get('ollama_device') if device == 'npu' else device) or ('cpu' if device == 'npu' else device)
+        if ollama_device not in ('cpu', 'arc', 'nvidia', 'amd') or (device != 'npu' and ollama_device != device):
+            raise Failure('CONFIG_STATE', 'Ollama device must match the generator device except for NPU installations.')
+        if gpu_id is not None and (ollama_device not in gpu.GPU_DEVICES or not re.fullmatch(r'(?:[0-9]+|GPU-[a-fA-F0-9-]+)', gpu_id)):
             raise Failure('GPU_SELECTION', 'Use a single GPU UUID/index with a GPU device.')
         prior = self.state.get('device')
         if prior and prior != device and not switch:
@@ -240,8 +245,11 @@ class Config:
             raise Failure('CONFIG_PROJECT', 'Use a lowercase Compose project name starting with a letter or digit.')
         if self.state.get('project') and self.state['project'] != desired:
             raise Failure('PROJECT_CHANGE', 'Project name differs from the saved installation; preserve the original volumes.')
-        selected = gpu_id if gpu_id is not None else (self.state.get('gpu_id') if prior == device else None)
-        if gpu_id is not None and prior == device and self.state.get('gpu_id') != gpu_id and self.state.get('gpu_id') is not None and not switch:
+        previous_ollama = self.state.get('ollama_device', 'cpu' if prior == 'npu' else prior)
+        selected = gpu_id if gpu_id is not None else (self.state.get('gpu_id') if prior == device and previous_ollama == ollama_device else None)
+        if prior == device and previous_ollama != ollama_device and not switch:
+            raise Failure('DEVICE_CHANGE', 'Changing the Ollama device requires --switch-device.')
+        if gpu_id is not None and prior == device and previous_ollama == ollama_device and self.state.get('gpu_id') != gpu_id and self.state.get('gpu_id') is not None and not switch:
             raise Failure('DEVICE_CHANGE', 'Changing the selected GPU requires --switch-device.')
         updates = {'PROJECT_CREATOR_GPU_ID': selected or ''}
         if device == 'arc' and gpu_id is not None:
@@ -263,7 +271,7 @@ class Config:
         if 'COMPOSE_PROJECT_NAME' not in self.values:
             updates['COMPOSE_PROJECT_NAME'] = desired
         self.update_env(updates)
-        self.state.update(version=1, device=device, project=desired, gpu_id=selected)
+        self.state.update(version=1, device=device, ollama_device=ollama_device, project=desired, gpu_id=selected)
         self.state.pop('execution', None)
         self.save()
         return dict(self.values)
@@ -380,23 +388,28 @@ class Installer:
         device = self.config.state.get('device')
         if device not in gpu.DEVICES:
             raise Failure('CONFIG_STATE', 'Unknown saved device; restore installation state.')
-        if device in gpu.OVERRIDES:
-            command += ['-f', str(self.root / gpu.OVERRIDES[device])]
+        ollama_device = self.config.state.get('ollama_device', 'cpu') if device == 'npu' else device
+        if device == 'npu' and ollama_device not in ('cpu', 'arc'):
+            raise Failure('CONFIG_STATE', 'Unknown saved Ollama device; restore state or explicitly switch devices.')
+        if ollama_device in gpu.OVERRIDES:
+            command += ['-f', str(self.root / gpu.OVERRIDES[ollama_device])]
+        if device == 'npu':
+            command += ['-f', str(self.root / gpu.OVERRIDES['npu'])]
         environment = self.environment()
         # Saved selections are authoritative even if .env or the shell drifted.
-        selected = self.gpu_id(device)
-        if device in ('nvidia', 'amd'):
+        selected = self.gpu_id(ollama_device)
+        if ollama_device in ('nvidia', 'amd'):
             if selected is not None and not re.fullmatch(r'(?:[0-9]+|GPU-[a-fA-F0-9-]+)', selected):
                 raise Failure('GPU_SELECTION', 'Invalid saved GPU selector; restore state or explicitly switch devices.')
-            environment['PROJECT_CREATOR_GPU_ID'] = selected or ('0' if device == 'nvidia' else '')
-        elif device == 'arc':
+            environment['PROJECT_CREATOR_GPU_ID'] = selected or ('0' if ollama_device == 'nvidia' else '')
+        elif ollama_device == 'arc':
             if selected is not None and not re.fullmatch(r'[0-9]+', selected):
                 raise Failure('GPU_SELECTION', 'Arc requires one numeric Vulkan index; explicitly switch to CPU if desired.')
             environment['GGML_VK_VISIBLE_DEVICES'] = selected or ''
         return self.runner.run(command + list(args), capture=capture, timeout=timeout, env=environment, code=code)
 
     def gpu_id(self, device):
-        if self.config.state.get('device') == device and self.config.state.get('gpu_id') is not None:
+        if self.config.state.get('ollama_device', self.config.state.get('device')) == device and self.config.state.get('gpu_id') is not None:
             return self.config.state['gpu_id']
         if device == 'arc':
             return self.config.values.get('GGML_VK_VISIBLE_DEVICES') or None
@@ -759,12 +772,13 @@ class Installer:
                 or type(loaded.get('size_vram')) is not int or loaded['size_vram'] < 0):
             raise Failure('DEVICE_EXECUTION', f'Loaded {role.lower()} model/digest is not confirmed by Ollama.')
         uses_gpu = loaded['size_vram'] > 0
-        if uses_gpu != (device in gpu.GPU_DEVICES):
-            raise Failure('DEVICE_EXECUTION', f'{role} is not executing on the explicitly selected {device} path. Inspect Ollama logs; no fallback accepted.')
-        record = dict(device=device, requested_gpu=self.gpu_id(device), size_vram=loaded['size_vram'], size=loaded.get('size'))
+        execution_device = self.config.state.get('ollama_device', 'cpu') if device == 'npu' else device
+        if uses_gpu != (execution_device in gpu.GPU_DEVICES):
+            raise Failure('DEVICE_EXECUTION', f'{role} is not executing on the explicitly selected {execution_device} path. Inspect Ollama logs; no fallback accepted.')
+        record = dict(device=execution_device, requested_gpu=self.gpu_id(execution_device), size_vram=loaded['size_vram'], size=loaded.get('size'))
         self.config.state.setdefault('execution', {})[role] = record
-        if device in gpu.GPU_DEVICES:
-            self.say('execution', role=role, device=device, id=record['requested_gpu'] or 'auto', vram=record['size_vram'], size=record['size'])
+        if execution_device in gpu.GPU_DEVICES:
+            self.say('execution', role=role, device=execution_device, id=record['requested_gpu'] or 'auto', vram=record['size_vram'], size=record['size'])
 
     def graphql(self, query, variables=None):
         request = urllib.request.Request(self.url+'/api/graphql', data=json.dumps({'query': query, 'variables': variables or {}}).encode(), headers={'Content-Type': 'application/json'})
@@ -868,6 +882,9 @@ class Installer:
         self.config.state.pop('execution', None)
         self.config.save()
         self.prerequisites(device)
+        ollama_device = self.config.state.get('ollama_device', 'cpu') if device == 'npu' else device
+        if device == 'npu' and ollama_device != 'cpu':
+            self.prerequisites(ollama_device)
         if device == 'npu':
             self.step('runtime')
             self.start_npu()
@@ -887,13 +904,18 @@ class Installer:
             raise Failure('UI', 'Frontend is unavailable; inspect docker compose logs.') from None
         self.graphql('{projects(limit:1,offset:0){id}}')
 
-    def setup(self, device, project=None, switch=False, gpu_id=None):
-        if gpu_id is not None and device not in gpu.GPU_DEVICES:
+    def setup(self, device, project=None, switch=False, gpu_id=None, ollama_device=None):
+        ollama_device = ollama_device or (self.config.state.get('ollama_device') if device == 'npu' else device) or ('cpu' if device == 'npu' else device)
+        if device != 'npu' and ollama_device != device:
+            raise Failure('CONFIG_STATE', '--ollama-device is only available with --device npu.')
+        if gpu_id is not None and ollama_device not in gpu.GPU_DEVICES:
             raise Failure('GPU_SELECTION', '--gpu-id requires arc, nvidia or amd.')
         selected = self.prerequisites(device, gpu_id=gpu_id)
+        if device == 'npu' and ollama_device != 'cpu':
+            selected = self.prerequisites(ollama_device, gpu_id=gpu_id)
         self.step('config')
         previous_device = self.config.state.get('device')
-        self.config.ensure(device, project=project, switch=switch, gpu_id=selected)
+        self.config.ensure(device, project=project, switch=switch, gpu_id=selected, ollama_device=ollama_device)
         self.config.state['verified'] = False
         self.config.save()
         if previous_device == 'npu' and device != 'npu':
@@ -929,6 +951,9 @@ class Installer:
             raise Failure('DEVICE_CHANGE', 'Doctor cannot reinterpret a saved installation as another device; switch with setup.')
         device = device or self.config.state.get('device') or 'cpu'
         self.prerequisites(device)
+        ollama_device = self.config.state.get('ollama_device', 'cpu') if device == 'npu' else device
+        if device == 'npu' and ollama_device != 'cpu':
+            self.prerequisites(ollama_device)
         if self.config.state:
             self.compose('config', '--quiet', capture=True)
             self.check_ui()
@@ -941,7 +966,7 @@ class Installer:
                 actual = next((item.get('digest') for item in self.ollama('/api/tags').get('models', []) if item.get('name') == model), None)
                 if not normalized_digest(pin) or normalized_digest(pin) != normalized_digest(actual):
                     raise Failure('MODEL_DRIFT', f'{role} model is missing or differs from the pinned digest; repeat setup with the same device.')
-                if device in gpu.GPU_DEVICES:
+                if ollama_device in gpu.GPU_DEVICES:
                     if any(item.get('name') == model for item in self.ollama('/api/ps').get('models', [])):
                         self.check_execution(role)
                     else:
@@ -977,6 +1002,7 @@ def main(root=None, argv=None):
             command.add_argument('--project-name', help=messages['project'])
             command.add_argument('--switch-device', action='store_true', help=messages['switch'])
             command.add_argument('--gpu-id', help=messages['gpu_id'])
+            command.add_argument('--ollama-device', choices=('cpu', 'arc'), help=messages['ollama_device'])
     args = parser.parse_args(argv)
     try:
         app = Installer(root, lang=args.lang)
@@ -985,7 +1011,7 @@ def main(root=None, argv=None):
         else:
             with locked(root):
                 if args.command == 'setup':
-                    app.setup(args.device, project=args.project_name, switch=args.switch_device, gpu_id=args.gpu_id)
+                    app.setup(args.device, project=args.project_name, switch=args.switch_device, gpu_id=args.gpu_id, ollama_device=args.ollama_device)
                 else:
                     getattr(app, args.command)()
         return 0

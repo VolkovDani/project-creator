@@ -42,7 +42,10 @@ func main() {
 	model := os.Getenv("PROJECT_CREATOR_EMBEDDING_MODEL")
 	digest := os.Getenv("PROJECT_CREATOR_EMBEDDING_DIGEST")
 	if model != "" || digest != "" {
-		base := os.Getenv("PROJECT_CREATOR_OLLAMA_URL")
+		base := os.Getenv("PROJECT_CREATOR_EMBEDDING_URL")
+		if base == "" {
+			base = os.Getenv("PROJECT_CREATOR_OLLAMA_URL")
+		}
 		if base == "" {
 			base = "http://127.0.0.1:11434"
 		}
@@ -56,7 +59,15 @@ func main() {
 	if err != nil {
 		log.Fatal("invalid local analysis configuration: ", err)
 	}
-	s, err := api.NewWithProviders(path, map[string]string{token: "default"}, embedder, generator)
+	classifier, err := configuredClassifier(os.Getenv)
+	if err != nil {
+		log.Fatal("invalid local classifier configuration: ", err)
+	}
+	summarizer, err := configuredSummarizer(os.Getenv)
+	if err != nil {
+		log.Fatal("invalid local summary configuration: ", err)
+	}
+	s, err := api.NewWithSummaryProviders(path, map[string]string{token: "default"}, embedder, generator, summarizer, classifier)
 	if err != nil {
 		log.Fatal(err)
 	}

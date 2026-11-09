@@ -50,7 +50,10 @@ jobs:
       - name: Deterministic NPU protocol and model profile tests (no weights or device)
         run: python3 -m unittest discover -s runtime/npu -v
       - run: node --test scripts/*.test.mjs
-      - run: go test ./...
+      # Integration packages share a database-wide model advisory lock even
+      # though their tables use separate schemas. Parallel packages can starve
+      # each other's fake generators and trigger model-start timeouts.
+      - run: go test -p 1 ./...
       - run: go vet ./...
       - run: |
           go run ./cmd/codegen

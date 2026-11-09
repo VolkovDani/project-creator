@@ -8,6 +8,11 @@ const containers = workflow.split('\n  containers:\n')[1];
 const steps = containers.split(/\n(?=      - )/);
 const builds = steps.filter((step) => /uses: docker\/build-push-action@/.test(step));
 
+test('Go packages sharing the database model lock run sequentially', () => {
+  const checks = workflow.split('\n  checks:\n')[1].split('\n  containers:\n')[0];
+  assert.match(checks, /run: go test -p 1 \.\/\.\.\./);
+});
+
 test('Docker CI caches three independent image builds with pinned official actions', () => {
   assert.match(containers, /uses: docker\/setup-buildx-action@[a-f0-9]{40}/);
   assert.equal(builds.length, 3);

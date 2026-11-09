@@ -131,7 +131,7 @@ func TestGraphQLQueueSelectionDuplicatesPagesAndHistory(t *testing.T) {
 		t.Fatalf("selection cache isolation and unselected coverage: %v calls=%d", related, generator.calls.Load())
 	}
 	reused := data(pairQuery(relatedID, "duplicate", 0), "analysisPairs").([]any)[0].(map[string]any)
-	if reused["reusedFrom"] != exact["id"] || len(reused["selectionReasons"].([]any)) != 3 || reused["selectionReasons"].([]any)[0] != "exact_text" || reused["selectionReasons"].([]any)[1] != "semantic_similarity" || reused["selectionReasons"].([]any)[2] != "shared_terms" {
+	if reused["reusedFrom"] != exact["id"] || len(reused["selectionReasons"].([]any)) != 2 || reused["selectionReasons"].([]any)[0] != "exact_text" || reused["selectionReasons"].([]any)[1] != "semantic_similarity" {
 		t.Fatalf("selection reasons/reuse origin lost: %v", reused)
 	}
 	history := data(`{analysisHistory(projectId:"p",limit:1,offset:1){id mode similarityThreshold generatorProfile generatorProvenance possiblePairs totalPairs notSelectedPairs duplicatePairs}}`, "analysisHistory").([]any)

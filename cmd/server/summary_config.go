@@ -17,5 +17,5 @@ func configuredSummarizer(getenv func(string) string) (summary.Generator, error)
 	if base == "" {
 		base = "http://127.0.0.1:11434"
 	}
-	return analysis.NewSummaryOllama(base, model, digest)
+	return analysis.NewSummaryOllamaWithLanguages(base, model, digest, getenv("PROJECT_CREATOR_SUMMARY_LANGUAGES"))
 }

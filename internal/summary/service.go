@@ -256,6 +256,11 @@ func (s *Service) process(j *job) {
 	if e == nil && !contracts.ValidSummary(text) {
 		code = "INVALID_OUTPUT"
 	}
+	if e == nil && code == "" {
+		if validator, ok := s.generator.(interface{ ValidateSummary(string) error }); ok && validator.ValidateSummary(text) != nil {
+			code = "INVALID_OUTPUT"
+		}
+	}
 	if ctx.Err() != nil {
 		code = "INTERRUPTED"
 	}

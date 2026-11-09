@@ -82,6 +82,8 @@ func TestSummaryOllamaInvalidOutputRetryAndLongPreview(t *testing.T) {
 		calls    int
 	}{
 		{"long-valid", []string{`{"summary":"` + strings.Repeat("x", 351) + `"}`}, nil, 1},
+		{"foreign-letters-invalid", []string{`{"summary":"必须保存要求"}`}, ErrInvalidSummary, 2},
+		{"foreign-letters-corrected", []string{`{"summary":"必须保存要求"}`, `{"summary":"Save the requirement."}`}, nil, 2},
 		{"empty-invalid", []string{`{"summary":""}`}, ErrInvalidSummary, 2},
 		{"retry-invalid", []string{`{"summary":"short","unsummarizable":"yes"}`, `{"summary":"short","extra":1}`}, ErrInvalidSummary, 2},
 		{"invalid-shape", []string{`{"summary":null}`}, ErrInvalidSummary, 2},
@@ -287,5 +289,29 @@ func TestSummaryRetriesWhenNumbersOrIdentifiersAreOmitted(t *testing.T) {
 	got, e := g.Summarize(context.Background(), summarySource("Retain REQ-0042 for 90 days."))
 	if e != nil || calls != 2 || got != "Retain REQ-0042 for 90 days." {
 		t.Fatalf("source facts lost: text=%q calls=%d err=%v", got, calls, e)
+	}
+}
+
+func TestSummaryLanguageConfigurationChangesProfileAndValidation(t *testing.T) {
+	defaultGenerator, err := NewSummaryOllama("http://127.0.0.1:11434", summaryModel, summaryDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	german, err := NewSummaryOllamaWithLanguages("http://127.0.0.1:11434", summaryModel, summaryDigest, "en,de")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaultGenerator.Profile() == german.Profile() {
+		t.Fatal("language change reused the old profile")
+	}
+	if defaultGenerator.ValidateSummary("Prüfung 42 €") == nil || german.ValidateSummary("Prüfung 42 €") != nil {
+		t.Fatal("configured alphabet not enforced")
+	}
+	if !strings.Contains(german.prompt, "German") || strings.Contains(german.prompt, "in the same language as the source") {
+		t.Fatal("prompt contradicts output language policy")
+	}
+	var provenance map[string]any
+	if json.Unmarshal([]byte(german.Provenance()), &provenance) != nil || !strings.Contains(german.Provenance(), "allowedLanguages") {
+		t.Fatal("missing language provenance")
 	}
 }

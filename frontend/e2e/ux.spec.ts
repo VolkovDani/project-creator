@@ -17,8 +17,11 @@ const requirement = (id: number) => ({
   updatedAt: 'now',
 });
 
-async function fixture(page: Page, count = 21) {
-  const rows = Array.from({ length: count }, (_, i) => requirement(i));
+async function fixture(page: Page, count = 21, sourceSuffix = '') {
+  const rows = Array.from({ length: count }, (_, i) => ({
+    ...requirement(i),
+    text: requirement(i).text + sourceSuffix,
+  }));
   const waiting = new Set<(body: string) => void>();
   let delay: Promise<void> | undefined;
   let failure = 0;
@@ -67,7 +70,7 @@ async function fixture(page: Page, count = 21) {
             projectId: row.projectId,
             version: row.version,
             status: 'ready',
-            text: row.text,
+            text: sourceSuffix ? row.text.slice(0, -sourceSuffix.length) : row.text,
             profile: 'fixture-summary-profile',
             provenance: 'fixture-summary-origin',
             createdAt: 'now',
@@ -220,10 +223,46 @@ test('infinite requirements append on scroll and stop at the terminal page', asy
   await expect.poll(() => api.connectionReads().length).toBe(1);
   expect(api.connectionReads()[0]?.first).toBe(40);
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await expect.poll(() => api.connectionReads().length).toBeGreaterThan(1);
-  await page.getByRole('button', { name: 'Загрузить ещё', exact: true }).click();
-  await expect.poll(() => api.connectionReads().length).toBe(3);
+  // Auto-loading can consume the terminal page before a manual click.
+  // Keep scrolling until all pages arrive; test the button independently below.
+  await expect
+    .poll(async () => {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      return api.connectionReads().length;
+    })
+    .toBe(3);
+  expect(api.connectionReads().map((read) => read.after)).toEqual([null, 'cursor-40', 'cursor-80']);
   await expect(page.getByRole('button', { name: 'Загрузить ещё', exact: true })).toHaveCount(0);
+});
+
+test('dynamic requirement cards keep the load button outside their content', async ({ page }) => {
+  const api = await fixture(
+    page,
+    200,
+    '\nДлинное условие с пояснениями и ограничениями.'.repeat(20),
+  );
+  await page.goto('/projects/demo/requirements');
+  const last = page.locator('#requirement-r39');
+  const more = page.getByRole('button', { name: 'Загрузить ещё', exact: true });
+  await more.scrollIntoViewIfNeeded();
+  await last.getByText('Полный исходный текст требования', { exact: true }).click();
+  await expect
+    .poll(async () => {
+      return page.evaluate(() => {
+        const button = [...document.querySelectorAll('button')].find(
+          (el) => el.textContent === 'Загрузить ещё',
+        );
+        if (!button) return false;
+        const top = button.getBoundingClientRect().top;
+        return [...document.querySelectorAll('[data-virtual-id] section')].every(
+          (el) => el.getBoundingClientRect().bottom <= top,
+        );
+      });
+    })
+    .toBe(true);
+  const before = api.connectionReads().length;
+  await more.click();
+  await expect.poll(() => api.connectionReads().length).toBeGreaterThan(before);
 });
 
 test('infinite page retry keeps the already rendered rows', async ({ page }) => {

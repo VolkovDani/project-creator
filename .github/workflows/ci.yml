@@ -4,6 +4,8 @@ on:
     branches:
       - main
   pull_request:
+permissions:
+  contents: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -181,3 +183,28 @@ jobs:
       - name: Remove disposable containers and data
         if: always()
         run: docker compose --env-file "$COMPOSE_ENV_FILE" down --volumes --remove-orphans
+
+
+  automerge:
+    needs: [checks, containers]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.checks.result == 'success' && needs.containers.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - name: Squash merge an explicitly labeled PR at the tested SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node scripts/ci-automerge.mjs

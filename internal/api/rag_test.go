@@ -5,15 +5,32 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"reflect"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
-type deterministicEmbedding struct{ calls atomic.Int32 }
+type deterministicEmbedding struct {
+	calls   atomic.Int32
+	entered chan struct{}
+	release chan struct{}
+}
 
 func (p *deterministicEmbedding) Profile() string { return "api-test-profile" }
 func (p *deterministicEmbedding) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	p.calls.Add(1)
+	if p.entered != nil {
+		select {
+		case p.entered <- struct{}{}:
+		default:
+		}
+		select {
+		case <-p.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	out := make([][]float32, len(texts))
 	for i := range out {
 		out[i] = make([]float32, 1024)
@@ -23,7 +40,7 @@ func (p *deterministicEmbedding) Embed(ctx context.Context, texts []string) ([][
 }
 
 func TestGraphQLRAGSourcesAndAccess(t *testing.T) {
-	provider := &deterministicEmbedding{}
+	provider := &deterministicEmbedding{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	s, err := NewWithEmbedder(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"}, provider)
 	if err != nil {
 		t.Fatal(err)
@@ -31,6 +48,11 @@ func TestGraphQLRAGSourcesAndAccess(t *testing.T) {
 	defer s.Close()
 	if _, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now');INSERT INTO requirements VALUES('r','a','p','Оплата только картой',1,'now','now')`); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-provider.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("automatic indexing did not start")
 	}
 	run := func(token, q string) map[string]any {
 		t.Helper()
@@ -45,10 +67,13 @@ func TestGraphQLRAGSourcesAndAccess(t *testing.T) {
 		}
 		return result
 	}
+	providerCalls := provider.calls.Load()
 	denied := run("token-b", `mutation {indexRequirement(projectId:"p",requirementId:"r"){status}}`)
-	if denied["errors"] == nil || provider.calls.Load() != 0 {
+	if denied["errors"] == nil || provider.calls.Load() != providerCalls {
 		t.Fatalf("unauthorized indexing: %v calls%d", denied, provider.calls.Load())
 	}
+	close(provider.release)
+	waitForIndexQueueReady(t, s, "token-a", "p", 1)
 	indexed := run("token-a", `mutation {indexRequirement(projectId:"p",requirementId:"r"){requirementId version status}}`)
 	if indexed["errors"] != nil {
 		t.Fatal(indexed)
@@ -56,6 +81,25 @@ func TestGraphQLRAGSourcesAndAccess(t *testing.T) {
 	state := indexed["data"].(map[string]any)["indexRequirement"].(map[string]any)
 	if state["status"] != "ready" || state["version"] != float64(1) {
 		t.Fatal(state)
+	}
+	statuses := run("token-a", `{requirementIndexByIds(projectId:"p",requirementIds:["r","hidden"]){requirementId projectId version status}}`)
+	if statuses["errors"] != nil {
+		t.Fatal(statuses)
+	}
+	statusRows := statuses["data"].(map[string]any)["requirementIndexByIds"].([]any)
+	if len(statusRows) != 1 {
+		t.Fatalf("out-of-scope status IDs leaked: %v", statuses)
+	}
+	statusRow := statusRows[0].(map[string]any)
+	if statusRow["requirementId"] != "r" || statusRow["projectId"] != "p" || statusRow["status"] != "ready" {
+		t.Fatalf("status row missing authorized project or current state: %v", statusRow)
+	}
+	if !reflect.DeepEqual(cacheTags(statuses["data"]), []string{"project:p", "project:p:requirements", "projects"}) {
+		t.Fatalf("status response missing project cache tags: %v", statuses)
+	}
+	denied = run("token-b", `{requirementIndexByIds(projectId:"p",requirementIds:["r"]){requirementId projectId status}}`)
+	if denied["errors"] == nil {
+		t.Fatalf("unauthorized status batch: %v", denied)
 	}
 	found := run("token-a", `{searchRequirements(projectId:"p",text:"Оплата картой",limit:5){requirementId projectId version text sourceText start end score}}`)
 	if found["errors"] != nil {
@@ -77,11 +121,13 @@ func TestGraphQLRAGSourcesAndAccess(t *testing.T) {
 	if _, err = s.db.Exec(`UPDATE requirements SET text='Новая версия',version=2 WHERE id='r'`); err != nil {
 		t.Fatal(err)
 	}
-	found = run("token-a", `{searchRequirements(projectId:"p",text:"Оплата",limit:5){requirementId}}`)
+	waitForIndexQueueReady(t, s, "token-a", "p", 1)
+	found = run("token-a", `{searchRequirements(projectId:"p",text:"Оплата",limit:5){requirementId version sourceText}}`)
 	if found["errors"] != nil {
 		t.Fatal(found)
 	}
-	if len(found["data"].(map[string]any)["searchRequirements"].([]any)) != 0 {
-		t.Fatalf("stale source returned: %v", found)
+	hits = found["data"].(map[string]any)["searchRequirements"].([]any)
+	if len(hits) != 1 || hits[0].(map[string]any)["version"] != float64(2) || hits[0].(map[string]any)["sourceText"] != "Новая версия" {
+		t.Fatalf("latest source was not indexed: %v", found)
 	}
 }

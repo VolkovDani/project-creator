@@ -94,12 +94,23 @@ func TestProgressMigrationPreservesSnapshotsAndInterruptsLegacyRunning(t *testin
 		if err := db.QueryRow(`SELECT status,stage,error_code,total_pairs,processed_pairs,pairs FROM analysis_runs WHERE id=$1`, id).Scan(&status, &stage, &code, &total, &processed, &raw); err != nil {
 			t.Fatal(err)
 		}
-		var pairs []analysis.PairResult
-		if err := json.Unmarshal(raw, &pairs); err != nil {
+		if string(raw) != "[]" {
+			t.Fatalf("legacy JSONB queue was not normalized: %s", raw)
+		}
+		var normalized []byte
+		if err := db.QueryRow(`SELECT jsonb_build_object('status',status,'left',left_source,'right',right_source,'verdict',verdict,'explanation',explanation) FROM analysis_pairs WHERE run_id=$1`, id).Scan(&normalized); err != nil {
 			t.Fatal(err)
 		}
-		if len(pairs) != 1 || pairs[0].Status != "completed" || pairs[0].Left.Text != "Original left" || pairs[0].Right.Version != 2 || processed != 1 || stage != "finished" {
-			t.Fatalf("legacy result changed: id=%s pairs=%+v processed=%d stage=%s", id, pairs, processed, stage)
+		var pair analysis.PairResult
+		if err := json.Unmarshal(normalized, &pair); err != nil {
+			t.Fatal(err)
+		}
+		if pair.Status != "completed" || pair.Left.Text != "Original left" || pair.Right.Version != 2 || pair.Verdict != "collision" || pair.Explanation != "Synthetic finding" || processed != 1 || stage != "finished" {
+			t.Fatalf("legacy result changed: id=%s pair=%+v processed=%d stage=%s", id, pair, processed, stage)
+		}
+		var savedSources int
+		if err := db.QueryRow(`SELECT count(*) FROM analysis_sources WHERE run_id=$1 AND ((requirement_id='left' AND source->>'text'='Original left') OR (requirement_id='right' AND source->>'text'='Original right' AND source->>'version'='2'))`, id).Scan(&savedSources); err != nil || savedSources != 2 {
+			t.Fatalf("source snapshots lost: %d %v", savedSources, err)
 		}
 		if id == "completed" && (!total.Valid || total.Int64 != 1) {
 			t.Fatalf("completed progress missing: %+v", total)

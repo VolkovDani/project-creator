@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ import (
 
 type collisionGenerator struct{ calls atomic.Int32 }
 
-const analysisFields = `id projectId status outcome reasonCode missingRequirementIds errorCode stale stage totalPairs processedPairs activePairId pairs{id position status left{id version text} right{id version text} verdict explanation errorCode} findings{leftId rightId leftVersion rightVersion verdict explanation} sources{id version text}`
+const analysisFields = `mode similarityThreshold selectionProfile possiblePairs notSelectedPairs duplicatePairs reusedPairs newPairs completedPairs pendingPairs runningPairs failedPairs collisionPairs compatiblePairs insufficientPairs generatorProfile generatorProvenance id projectId status outcome reasonCode missingRequirementIds errorCode stale stage totalPairs processedPairs activePairId pairs{selectionReasons similarityScore resultOrigin reusedFrom checkedAt generatorProfile id position status left{id version text} right{id version text} verdict explanation errorCode} findings{leftId rightId leftVersion rightVersion verdict explanation} sources{id version text}`
 
 func waitAnalysis(t *testing.T, request func(string) map[string]any, project string) map[string]any {
 	t.Helper()
@@ -43,7 +44,7 @@ func (g *collisionGenerator) Compare(ctx context.Context, pair analysis.Pair) (a
 }
 
 func TestGraphQLAnalysisPreservesSourcesAndScope(t *testing.T) {
-	embedder := &deterministicEmbedding{}
+	embedder := &deterministicEmbedding{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	generator := &collisionGenerator{}
 	s, err := NewWithProviders(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"}, embedder, generator)
 	if err != nil {
@@ -52,6 +53,11 @@ func TestGraphQLAnalysisPreservesSourcesAndScope(t *testing.T) {
 	defer s.Close()
 	if _, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now');INSERT INTO requirements VALUES('r1','a','p','Оплата разрешена только картой.',1,'now','now'),('r2','a','p','Оплата разрешена только наличными.',1,'now','now')`); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-embedder.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("automatic indexing did not start")
 	}
 	run := func(token, q string) map[string]any {
 		t.Helper()
@@ -73,13 +79,15 @@ func TestGraphQLAnalysisPreservesSourcesAndScope(t *testing.T) {
 		t.Fatal(unindexed)
 	}
 	diagnostic := waitAnalysis(t, authorized, "p")
-	if diagnostic["reasonCode"] != "INDEX_INCOMPLETE" || len(diagnostic["missingRequirementIds"].([]any)) != 2 {
+	if diagnostic["status"] != "failed" || diagnostic["mode"] != "related" || diagnostic["totalPairs"] != nil || diagnostic["reasonCode"] != "INDEX_INCOMPLETE" || len(diagnostic["missingRequirementIds"].([]any)) != 2 {
 		t.Fatal(diagnostic)
 	}
 	deniedDiagnostic := run("token-b", `{projectAnalysis(projectId:"p"){reasonCode missingRequirementIds}}`)
 	if deniedDiagnostic["errors"] == nil {
 		t.Fatal("cross-workspace diagnostics exposed")
 	}
+	close(embedder.release)
+	waitForIndexQueueReady(t, s, "token-a", "p", 2)
 	for _, id := range []string{"r1", "r2"} {
 		out := run("token-a", `mutation{indexRequirement(projectId:"p",requirementId:"`+id+`"){status}}`)
 		if out["errors"] != nil {
@@ -196,6 +204,7 @@ func TestGraphQLProgressSurvivesRequestAndRetriesOnlyFailedPairs(t *testing.T) {
 		t.Fatal(out)
 	}
 	initial := out["data"].(map[string]any)["startProjectAnalysis"].(map[string]any)
+	id := initial["id"].(string)
 	if initial["status"] != "running" || initial["totalPairs"] != nil || initial["stage"] != "checking_index" {
 		t.Fatalf("start must return before preparation/model: %v", initial)
 	}
@@ -209,7 +218,7 @@ func TestGraphQLProgressSurvivesRequestAndRetriesOnlyFailedPairs(t *testing.T) {
 	}
 	entered()
 	var events int
-	if err = s.db.QueryRow(`SELECT count(*) FROM cache_events WHERE workspace='a'`).Scan(&events); err != nil {
+	if err = s.db.QueryRow(`SELECT count(*) FROM cache_events WHERE workspace='a' AND keys @> ARRAY['project:p:analysis']`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	generator.release <- true
@@ -219,16 +228,51 @@ func TestGraphQLProgressSurvivesRequestAndRetriesOnlyFailedPairs(t *testing.T) {
 		t.Fatalf("first result not exposed while second is running: %v", progress)
 	}
 	firstID := progress["pairs"].([]any)[0].(map[string]any)["id"]
+	compact := authorized(`{projectAnalysisSummary(projectId:"p",analysisId:"` + id + `"){classifierProfile layaPendingPairs layaRunningPairs layaCompletedPairs layaFailedPairs layaSkippedPairs revision mode similarityThreshold possiblePairs notSelectedPairs duplicatePairs reusedPairs newPairs completedPairs pendingPairs runningPairs failedPairs collisionPairs compatiblePairs insufficientPairs stage totalPairs processedPairs activePairId reasonCode missingRequirementIds id projectId status outcome errorCode createdAt completedAt stale}}`)
+	if compact["errors"] != nil {
+		t.Fatalf("compact analysis summary failed: %v", compact)
+	}
+	compactRun := compact["data"].(map[string]any)["projectAnalysisSummary"].(map[string]any)
+	if compactRun["id"] != id || compactRun["revision"] == "" || compactRun["processedPairs"] != float64(1) {
+		t.Fatalf("compact summary did not track live run: %v", compactRun)
+	}
+	progressTx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	progressSnapshot, err := readAnalysisProgress(context.Background(), progressTx, "a", "p", generator.Profile(), embedder.Profile())
+	_ = progressTx.Rollback()
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotJSON, err := json.Marshal(progressSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sseSnapshot map[string]any
+	if err = json.Unmarshal(snapshotJSON, &sseSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(compactRun, sseSnapshot) {
+		t.Fatalf("GraphQL/SSE compact snapshot drift: graphql=%v sse=%v", compactRun, sseSnapshot)
+	}
+	metadata := authorized(`{analysisRunMetadata(projectId:"p",analysisId:"` + id + `"){id projectId generatorProfile generatorProvenance embeddingProfile selectionProfile}}`)
+	if metadata["errors"] != nil {
+		t.Fatalf("lazy analysis metadata failed: %v", metadata)
+	}
+	metadataRun := metadata["data"].(map[string]any)["analysisRunMetadata"].(map[string]any)
+	if metadataRun["id"] != id || metadataRun["generatorProfile"] != generator.Profile() {
+		t.Fatalf("lazy metadata mismatch: %v", metadataRun)
+	}
 	var committed int
-	if err = s.db.QueryRow(`SELECT count(*) FROM cache_events WHERE workspace='a' AND keys @> ARRAY['project:p']`).Scan(&committed); err != nil || committed <= events {
-		t.Fatalf("pair commit has no project invalidation: %d -> %d: %v", events, committed, err)
+	if err = s.db.QueryRow(`SELECT count(*) FROM cache_events WHERE workspace='a' AND keys @> ARRAY['project:p:analysis']`).Scan(&committed); err != nil || committed <= events {
+		t.Fatalf("pair commit has no analysis invalidation: %d -> %d: %v", events, committed, err)
 	}
 	generator.release <- false
 	failed := waitAnalysis(t, authorized, "p")
 	if failed["status"] != "failed" || len(failed["findings"].([]any)) != 1 || failed["processedPairs"] != float64(2) {
 		t.Fatalf("failure lost partial result or counted unprocessed pair: %v", failed)
 	}
-	id := initial["id"].(string)
 	denied := request(context.Background(), "token-b", `mutation{retryProjectAnalysis(projectId:"p",analysisId:"`+id+`"){id}}`)
 	if denied["errors"] == nil || generator.calls.Load() != 2 {
 		t.Fatal("unauthorized retry reached model", denied)
@@ -242,6 +286,15 @@ func TestGraphQLProgressSurvivesRequestAndRetriesOnlyFailedPairs(t *testing.T) {
 	entered()
 	generator.release <- true
 	completed := waitAnalysis(t, authorized, "p")
+	completedPairID := completed["pairs"].([]any)[0].(map[string]any)["id"].(string)
+	detail := authorized(`{analysisPair(projectId:"p",analysisId:"` + id + `",pairId:"` + completedPairID + `"){id left{id version text} right{id version text} verdict explanation}}`)
+	if detail["errors"] != nil {
+		t.Fatalf("lazy pair detail failed: %v", detail)
+	}
+	detailPair := detail["data"].(map[string]any)["analysisPair"].(map[string]any)
+	if detailPair["id"] != completedPairID || detailPair["left"].(map[string]any)["text"] == "" {
+		t.Fatalf("lazy pair detail incomplete: %v", detailPair)
+	}
 	if completed["id"] != id || completed["status"] != "completed" || completed["processedPairs"] != float64(3) || len(completed["findings"].([]any)) != 3 || generator.calls.Load() != 4 {
 		t.Fatalf("retry duplicated completed pair or changed run: %v; calls=%d", completed, generator.calls.Load())
 	}

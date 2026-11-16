@@ -129,6 +129,84 @@ func TestIndexLifecycleProfileAndIsolation(t *testing.T) {
 	}
 }
 
+func TestQueueIndexesExistingAndNewRequirements(t *testing.T) {
+	ctx := context.Background()
+	db := ragDB(t)
+	embedder := &fakeEmbedder{profile: "model:queue"}
+	s := New(db, embedder)
+	if err := s.StartQueue([]string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	waitReady := func(total int) Progress {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			progress, err := s.Summary(ctx, "a", "p")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if progress.Total == total && progress.Ready == total {
+				return progress
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		progress, _ := s.Summary(ctx, "a", "p")
+		t.Fatalf("queue did not index existing requirement: %+v", progress)
+		return Progress{}
+	}
+	if progress := waitReady(1); progress.Profile != "model:queue" || !progress.Configured {
+		t.Fatalf("summary: %+v", progress)
+	}
+	if _, err := db.Exec(`INSERT INTO requirements VALUES('new','a','p','New queued requirement',1,'later','later')`); err != nil {
+		t.Fatal(err)
+	}
+	progress := waitReady(2)
+	if progress.Total != 2 || progress.Ready != 2 {
+		t.Fatalf("new requirement not queued: %+v", progress)
+	}
+}
+
+func TestStatusByIDsScopesAndValidatesBatch(t *testing.T) {
+	ctx := context.Background()
+	db := ragDB(t)
+	s := New(db, &fakeEmbedder{profile: "model:a"})
+	states, err := s.StatusByIDs(ctx, "a", "p", []string{"r", "hidden", "missing", "r"})
+	if err != nil || len(states) != 1 || states[0].RequirementID != "r" || states[0].Status != "pending" {
+		t.Fatalf("scoped status batch: %+v %v", states, err)
+	}
+	if _, err = s.StatusByIDs(ctx, "a", "p", nil); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("empty batch: %v", err)
+	}
+	if _, err = s.StatusByIDs(ctx, "a", "p", []string{" "}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("blank ID: %v", err)
+	}
+	if _, err = s.StatusByIDs(ctx, "b", "p", []string{"r"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("wrong workspace: %v", err)
+	}
+	if _, err = s.StatusByIDs(ctx, "a", "missing-project", []string{"r"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("wrong project: %v", err)
+	}
+	if _, err = db.Exec(`INSERT INTO requirement_index(workspace,project_id,requirement_id,profile,version,status,attempt,lease_until,error_code) VALUES('a','p','r','old-profile',1,'ready','attempt-old-profile',clock_timestamp(),''),('a','p','r','model:a',2,'ready','attempt-old-version',clock_timestamp(),'')`); err != nil {
+		t.Fatal(err)
+	}
+	states, err = s.StatusByIDs(ctx, "a", "p", []string{"r"})
+	if err != nil || len(states) != 1 || states[0].Status != "pending" || states[0].Profile != "model:a" {
+		t.Fatalf("profile-scoped state: %+v %v", states, err)
+	}
+	unconfigured, err := New(db, nil).StatusByIDs(ctx, "a", "p", []string{"r"})
+	if err != nil || len(unconfigured) != 1 || unconfigured[0].Status != "pending" || unconfigured[0].ErrorCode != "NOT_CONFIGURED" {
+		t.Fatalf("unconfigured state: %+v %v", unconfigured, err)
+	}
+	tooMany := make([]string, 101)
+	for i := range tooMany {
+		tooMany[i] = "r"
+	}
+	if _, err = s.StatusByIDs(ctx, "a", "p", tooMany); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("oversized batch: %v", err)
+	}
+}
+
 func TestIndexFailureRetryAndLeaseRecovery(t *testing.T) {
 	ctx := context.Background()
 	db := ragDB(t)
@@ -165,7 +243,7 @@ func TestIndexConcurrentAndStaleVersionDiscard(t *testing.T) {
 	go func() { state, err := s.Index(ctx, "a", "p", "r"); done <- result{state, err} }()
 	<-embedder.started
 	second, err := s.Index(ctx, "a", "p", "r")
-	if err != nil || second.Status != "pending" || embedder.calls != 1 {
+	if err != nil || second.Status != "running" || embedder.calls != 1 {
 		close(embedder.release)
 		t.Fatalf("duplicate job: %+v %v", second, err)
 	}

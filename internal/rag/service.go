@@ -9,6 +9,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -16,6 +17,7 @@ import (
 var ErrNotFound = errors.New("project or requirement not found")
 var ErrInvalid = errors.New("invalid search or pagination")
 var ErrNotConfigured = errors.New("local embedding provider not configured")
+var ErrBusy = errors.New("embedding service is busy")
 var errStorage = errors.New("index storage unavailable")
 
 type State struct {
@@ -29,11 +31,93 @@ type Hit struct {
 	Score                                      float64
 }
 type Service struct {
-	db       *sql.DB
-	embedder Embedder
+	db                   *sql.DB
+	embedder             Embedder
+	inferenceMu          sync.Mutex
+	inferenceChanged     chan struct{}
+	inferenceActive      bool
+	inferenceInteractive int
+	inferenceBackground  int
+	interactiveBurst     int
+	queueMu              sync.Mutex
+	queueCancel          context.CancelFunc
+	queueDone            chan struct{}
 }
 
-func New(db *sql.DB, embedder Embedder) *Service { return &Service{db: db, embedder: embedder} }
+func New(db *sql.DB, embedder Embedder) *Service {
+	return &Service{db: db, embedder: embedder, inferenceChanged: make(chan struct{})}
+}
+
+const maxInteractiveWaiters = 8
+const maxInteractiveBurst = 4
+
+// withInference is process-local admission control: Search embedding gets
+// bounded priority over indexing, with a background turn after four searches.
+// PostgreSQL leases still fence writes across backend instances; their shared
+// model runtime does not gain cross-instance search priority from this gate.
+func (s *Service) withInference(ctx context.Context, interactive bool, fn func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.inferenceMu.Lock()
+	if interactive {
+		if s.inferenceInteractive >= maxInteractiveWaiters {
+			s.inferenceMu.Unlock()
+			return ErrBusy
+		}
+		s.inferenceInteractive++
+	} else {
+		s.inferenceBackground++
+	}
+	s.inferenceMu.Unlock()
+	defer func() {
+		s.inferenceMu.Lock()
+		if interactive {
+			s.inferenceInteractive--
+		} else {
+			s.inferenceBackground--
+		}
+		close(s.inferenceChanged)
+		s.inferenceChanged = make(chan struct{})
+		s.inferenceMu.Unlock()
+	}()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		s.inferenceMu.Lock()
+		backgroundTurn := s.inferenceBackground > 0 && s.interactiveBurst >= maxInteractiveBurst
+		ready := false
+		if interactive {
+			ready = s.inferenceActive == false && (s.inferenceBackground == 0 || s.interactiveBurst < maxInteractiveBurst)
+		} else {
+			ready = s.inferenceActive == false && (s.inferenceInteractive == 0 || backgroundTurn)
+		}
+		if ready {
+			s.inferenceActive = true
+			if interactive {
+				s.interactiveBurst++
+			} else {
+				s.interactiveBurst = 0
+			}
+			s.inferenceMu.Unlock()
+			err := fn()
+			s.inferenceMu.Lock()
+			s.inferenceActive = false
+			close(s.inferenceChanged)
+			s.inferenceChanged = make(chan struct{})
+			s.inferenceMu.Unlock()
+			return err
+		}
+		changed := s.inferenceChanged
+		s.inferenceMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-changed:
+		}
+	}
+}
 func (s *Service) authorize(ctx context.Context, workspace, project string) error {
 	var exists bool
 	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM projects WHERE workspace=$1 AND id=$2)`, workspace, project).Scan(&exists); err != nil {
@@ -59,12 +143,75 @@ func (s *Service) Status(ctx context.Context, workspace, project string, limit, 
 		return nil, ErrInvalid
 	}
 	profile := s.profile()
+	if active, configured, e := s.activeProfile(ctx, workspace); e != nil {
+		return nil, e
+	} else if configured && active != profile {
+		profile = ""
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT r.id,r.version,coalesce(i.status,'pending'),coalesce(i.error_code,'') FROM requirements r LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.version=r.version AND i.profile=$3 WHERE r.workspace=$1 AND r.project_id=$2 ORDER BY r.created_at,r.id LIMIT $4 OFFSET $5`, workspace, project, profile, limit, offset)
 	if err != nil {
 		return nil, errStorage
 	}
 	defer rows.Close()
 	out := []State{}
+	for rows.Next() {
+		state := State{Profile: profile}
+		if err = rows.Scan(&state.RequirementID, &state.Version, &state.Status, &state.ErrorCode); err != nil {
+			return nil, errStorage
+		}
+		if profile == "" {
+			state.ErrorCode = "NOT_CONFIGURED"
+		}
+		out = append(out, state)
+	}
+	if rows.Err() != nil {
+		return nil, errStorage
+	}
+	return out, nil
+}
+
+// StatusByIDs returns current-version indexing state for a bounded set of
+// requirements in the authorized project. Missing or out-of-scope IDs are omitted.
+func (s *Service) StatusByIDs(ctx context.Context, workspace, project string, requirementIDs []string) ([]State, error) {
+	if err := s.authorize(ctx, workspace, project); err != nil {
+		return nil, err
+	}
+	if len(requirementIDs) < 1 || len(requirementIDs) > 100 {
+		return nil, ErrInvalid
+	}
+	ids := make([]string, 0, len(requirementIDs))
+	seen := make(map[string]struct{}, len(requirementIDs))
+	for _, id := range requirementIDs {
+		if strings.TrimSpace(id) == "" {
+			return nil, ErrInvalid
+		}
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	profile := s.profile()
+	if active, configured, e := s.activeProfile(ctx, workspace); e != nil {
+		return nil, e
+	} else if configured && active != profile {
+		profile = ""
+	}
+	query := `SELECT r.id,r.version,coalesce(i.status,'pending'),coalesce(i.error_code,'') FROM requirements r LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.version=r.version AND i.profile=$3 WHERE r.workspace=$1 AND r.project_id=$2 AND r.id IN (`
+	args := []any{workspace, project, profile}
+	for i, id := range ids {
+		if i > 0 {
+			query += ","
+		}
+		args = append(args, id)
+		query += "$" + strconv.Itoa(len(args))
+	}
+	query += `) ORDER BY r.created_at,r.id`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, errStorage
+	}
+	defer rows.Close()
+	out := make([]State, 0, len(ids))
 	for rows.Next() {
 		state := State{Profile: profile}
 		if err = rows.Scan(&state.RequirementID, &state.Version, &state.Status, &state.ErrorCode); err != nil {
@@ -88,11 +235,60 @@ func (s *Service) Index(ctx context.Context, workspace, project, requirement str
 	if err := s.authorize(ctx, workspace, project); err != nil {
 		return state, err
 	}
+	if active, configured, err := s.activeProfile(ctx, workspace); err != nil {
+		return state, err
+	} else if configured && active != state.Profile {
+		return state, ErrInactiveProfile
+	}
+	var active bool
+	err := s.db.QueryRowContext(ctx, `SELECT r.version,coalesce(i.status,'pending'),coalesce(i.error_code,''),coalesce(i.lease_until>clock_timestamp(),false)
+ FROM requirements r LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.version=r.version AND i.profile=$4
+ WHERE r.workspace=$1 AND r.project_id=$2 AND r.id=$3`, workspace, project, requirement, state.Profile).Scan(&state.Version, &state.Status, &state.ErrorCode, &active)
+	if err == sql.ErrNoRows {
+		return state, ErrNotFound
+	}
+	if err != nil {
+		return state, errStorage
+	}
+	if state.Status == "ready" || ((state.Status == "running" || state.Status == "pending") && active) {
+		return state, nil
+	}
+	if s.embedder == nil || state.Profile == "" {
+		state.ErrorCode = "NOT_CONFIGURED"
+		return state, ErrNotConfigured
+	}
+	callCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	err = s.withEmbeddingLock(callCtx, func(lockCtx context.Context) error {
+		// Another adapter may still be unwinding after loss of its lock connection.
+		// Do not claim this manual job until the previous native call relinquishes its lease.
+		if err := s.waitEmbeddingIdle(lockCtx); err != nil {
+			return err
+		}
+		var err error
+		state, err = s.indexLocked(lockCtx, workspace, project, requirement)
+		return err
+	})
+	return state, err
+}
+
+func (s *Service) indexLocked(ctx context.Context, workspace, project, requirement string) (State, error) {
+	state := State{RequirementID: requirement, Status: "pending", Profile: s.profile()}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return state, errStorage
 	}
 	defer tx.Rollback()
+	if err := lockIndexWrites(ctx, tx); err != nil {
+		return state, errStorage
+	}
+	var configuredProfile string
+	if e := tx.QueryRowContext(ctx, `SELECT profile FROM embedding_profiles WHERE workspace=$1`, workspace).Scan(&configuredProfile); e != nil && e != sql.ErrNoRows {
+		return state, errStorage
+	} else if e == nil && configuredProfile != state.Profile {
+		return state, ErrInactiveProfile
+	}
 	var source string
 	if err = tx.QueryRowContext(ctx, `SELECT text,version FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 FOR UPDATE`, workspace, project, requirement).Scan(&source, &state.Version); err == sql.ErrNoRows {
 		return state, ErrNotFound
@@ -110,7 +306,7 @@ func (s *Service) Index(ctx context.Context, workspace, project, requirement str
 	if err != nil && err != sql.ErrNoRows {
 		return state, errStorage
 	}
-	if err == nil && version == state.Version && (status == "ready" || (status == "pending" && active)) {
+	if err == nil && version == state.Version && (status == "ready" || ((status == "pending" || status == "running") && active)) {
 		state.Status = status
 		state.ErrorCode = errorCode
 		return state, nil
@@ -120,7 +316,7 @@ func (s *Service) Index(ctx context.Context, workspace, project, requirement str
 		return state, errors.New("index attempt unavailable")
 	}
 	attempt := hex.EncodeToString(bytes[:])
-	if _, err = tx.ExecContext(ctx, `INSERT INTO requirement_index(workspace,project_id,requirement_id,profile,version,status,attempt,lease_until,error_code) VALUES($1,$2,$3,$4,$5,'pending',$6,clock_timestamp()+interval '2 minutes','') ON CONFLICT(workspace,project_id,requirement_id,profile) DO UPDATE SET version=excluded.version,status='pending',attempt=excluded.attempt,lease_until=excluded.lease_until,error_code=''`, workspace, project, requirement, state.Profile, state.Version, attempt); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO requirement_index(workspace,project_id,requirement_id,profile,version,status,attempt,lease_until,error_code,attempts,available_at) VALUES($1,$2,$3,$4,$5,'running',$6,clock_timestamp()+interval '2 minutes','',1,clock_timestamp()) ON CONFLICT(workspace,project_id,requirement_id,profile) DO UPDATE SET version=excluded.version,status='running',attempt=excluded.attempt,lease_until=excluded.lease_until,error_code='',attempts=CASE WHEN requirement_index.status='failed' THEN 1 ELSE requirement_index.attempts+1 END,available_at=clock_timestamp()`, workspace, project, requirement, state.Profile, state.Version, attempt); err != nil {
 		return state, errStorage
 	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM requirement_chunks WHERE workspace=$1 AND project_id=$2 AND requirement_id=$3 AND profile=$4`, workspace, project, requirement, state.Profile); err != nil {
@@ -130,9 +326,41 @@ func (s *Service) Index(ctx context.Context, workspace, project, requirement str
 		return state, errStorage
 	}
 	chunks := Split(source)
-	embeddings := make([][]float32, 0, len(chunks))
 	embedCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
+	var embeddings [][]float32
+	code := ""
+	item := queueItem{workspace: workspace, project: project, requirement: requirement, version: state.Version, source: source, profile: state.Profile, attempt: attempt}
+	current, checkErr := s.currentAttempt(embedCtx, item)
+	if checkErr != nil {
+		code = "EMBEDDING_FAILED"
+	} else if !current {
+		code = "SOURCE_CHANGED"
+	} else {
+		inferenceErr := s.withInference(embedCtx, false, func() error {
+			embeddings, code, _ = s.embed(embedCtx, chunks)
+			return nil
+		})
+		if inferenceErr != nil {
+			code = "EMBEDDING_FAILED"
+		}
+		if embedCtx.Err() != nil {
+			code = "EMBEDDING_FAILED"
+		}
+	}
+
+	if len(chunks) == 0 {
+		code = "EMPTY_SOURCE"
+	}
+	// Persist failure even when an HTTP caller disconnected; a bounded independent
+	// context leaves retry available instead of waiting for the lease to expire.
+	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer finishCancel()
+	return s.finish(finishCtx, workspace, project, state, attempt, chunks, embeddings, code)
+}
+
+func (s *Service) embed(embedCtx context.Context, chunks []Chunk) ([][]float32, string, error) {
+	embeddings := make([][]float32, 0, len(chunks))
 	code := ""
 	for start := 0; start < len(chunks); start += 32 {
 		end := min(start+32, len(chunks))
@@ -156,37 +384,65 @@ func (s *Service) Index(ctx context.Context, workspace, project, requirement str
 		}
 		embeddings = append(embeddings, vectors...)
 	}
-	if len(chunks) == 0 {
-		code = "EMPTY_SOURCE"
+	return embeddings, code, nil
+}
+
+func (s *Service) activeProfile(ctx context.Context, workspace string) (string, bool, error) {
+	var profile string
+	err := s.db.QueryRowContext(ctx, `SELECT profile FROM embedding_profiles WHERE workspace=$1`, workspace).Scan(&profile)
+	if err == sql.ErrNoRows {
+		return "", false, nil
 	}
-	// Persist failure even when an HTTP caller disconnected; a bounded independent
-	// context leaves retry available instead of waiting for the lease to expire.
-	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-	defer finishCancel()
-	return s.finish(finishCtx, workspace, project, state, attempt, chunks, embeddings, code)
+	if err != nil {
+		return "", false, errStorage
+	}
+	return profile, true, nil
 }
 
 func (s *Service) finish(ctx context.Context, workspace, project string, state State, attempt string, chunks []Chunk, vectors [][]float32, code string) (State, error) {
+	var retryAfter time.Duration
+	if code == "EMBEDDING_FAILED" {
+		retryAfter = 5 * time.Second
+	}
+	return s.finishWithRetry(ctx, workspace, project, state, attempt, chunks, vectors, code, retryAfter)
+}
+
+func (s *Service) finishWithRetry(ctx context.Context, workspace, project string, state State, attempt string, chunks []Chunk, vectors [][]float32, code string, retryAfter time.Duration) (State, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return state, errStorage
 	}
 	defer tx.Rollback()
+	if err := lockIndexWrites(ctx, tx); err != nil {
+		return state, errStorage
+	}
+	var activeProfile string
+	err = tx.QueryRowContext(ctx, `SELECT profile FROM embedding_profiles WHERE workspace=$1 FOR SHARE`, workspace).Scan(&activeProfile)
+	if err != nil && err != sql.ErrNoRows {
+		return state, errStorage
+	}
+	configured := err == nil
 	var current int
 	if err = tx.QueryRowContext(ctx, `SELECT version FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 FOR UPDATE`, workspace, project, state.RequirementID).Scan(&current); err == sql.ErrNoRows {
 		return state, ErrNotFound
 	} else if err != nil {
 		return state, errStorage
 	}
-	var owner string
-	err = tx.QueryRowContext(ctx, `SELECT attempt FROM requirement_index WHERE workspace=$1 AND project_id=$2 AND requirement_id=$3 AND profile=$4 FOR UPDATE`, workspace, project, state.RequirementID, state.Profile).Scan(&owner)
+	var owner, status string
+	var leaseActive bool
+	err = tx.QueryRowContext(ctx, `SELECT attempt,status,lease_until>clock_timestamp() FROM requirement_index WHERE workspace=$1 AND project_id=$2 AND requirement_id=$3 AND profile=$4 FOR UPDATE`, workspace, project, state.RequirementID, state.Profile).Scan(&owner, &status, &leaseActive)
 	if err != nil && err != sql.ErrNoRows {
 		return state, errStorage
 	}
-	if current != state.Version || owner != attempt {
+	if current != state.Version || owner != attempt || !leaseActive || (status != "pending" && status != "running") {
 		state.Version = current
 		state.Status = "pending"
 		state.ErrorCode = ""
+		return state, nil
+	}
+	if configured && activeProfile != state.Profile {
+		state.Status = "failed"
+		state.ErrorCode = "PROFILE_CHANGED"
 		return state, nil
 	}
 	if code == "" {
@@ -204,7 +460,7 @@ func (s *Service) finish(ctx context.Context, workspace, project string, state S
 		state.Status = "failed"
 		state.ErrorCode = code
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE requirement_index SET status=$5,error_code=$6,lease_until=clock_timestamp() WHERE workspace=$1 AND project_id=$2 AND requirement_id=$3 AND profile=$4`, workspace, project, state.RequirementID, state.Profile, state.Status, state.ErrorCode); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE requirement_index SET status=$5,error_code=$6,lease_until=clock_timestamp(),available_at=CASE WHEN $7>0 THEN clock_timestamp()+($7 * interval '1 second') ELSE clock_timestamp() END WHERE workspace=$1 AND project_id=$2 AND requirement_id=$3 AND profile=$4`, workspace, project, state.RequirementID, state.Profile, state.Status, state.ErrorCode, int(retryAfter.Seconds())); err != nil {
 		return state, errStorage
 	}
 	if err = tx.Commit(); err != nil {
@@ -224,9 +480,19 @@ func (s *Service) Search(ctx context.Context, workspace, project, text string, l
 	if s.embedder == nil || profile == "" {
 		return nil, ErrNotConfigured
 	}
+	if active, configured, err := s.activeProfile(ctx, workspace); err != nil {
+		return nil, err
+	} else if configured && active != profile {
+		return nil, ErrInactiveProfile
+	}
 	embedCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	vectors, err := s.embedder.Embed(embedCtx, []string{text})
+	var vectors [][]float32
+	err := s.withInference(embedCtx, true, func() error {
+		var embedErr error
+		vectors, embedErr = s.embedder.Embed(embedCtx, []string{text})
+		return embedErr
+	})
 	if err != nil || len(vectors) != 1 {
 		return nil, errors.New("search embedding unavailable")
 	}

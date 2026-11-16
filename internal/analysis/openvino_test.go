@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -96,6 +97,23 @@ func TestOpenVINOComparisonUsesPinnedNPUAndUntrustedPair(t *testing.T) {
 	other, _ := NewOpenVINO("/run/npu/runtime.sock", strings.Repeat("b", 64))
 	if generator.Profile() == other.Profile() || generator.Profile() == pinnedDigest {
 		t.Fatal("profile does not include protocol/runtime identity")
+	}
+}
+
+func TestOpenVINODuplicatePreservesSourceReferences(t *testing.T) {
+	generator := npuServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			json.NewEncoder(w).Encode(map[string]string{"profile": pinnedDigest, "device": "NPU"})
+			return
+		}
+		var finding Finding
+		json.Unmarshal([]byte(strings.Replace(npuFindingJSON(), `"collision"`, `"duplicate"`, 1)), &finding)
+		json.NewEncoder(w).Encode(map[string]any{"profile": pinnedDigest, "device": "NPU", "finding": finding})
+	})
+	pair := Pair{Left: Source{ID: "original-left", Version: 7, Text: "Z"}, Right: Source{ID: "original-right", Version: 11, Text: "A"}}
+	finding, err := generator.Compare(context.Background(), pair)
+	if err != nil || finding.Verdict != "duplicate" || finding.LeftID != pair.Left.ID || finding.LeftVersion != 7 || finding.RightID != pair.Right.ID || finding.RightVersion != 11 {
+		t.Fatalf("duplicate references lost through normalization: %+v %v", finding, err)
 	}
 }
 
@@ -189,17 +207,19 @@ func TestOpenVINOInputOrderDoesNotChangeModelPair(t *testing.T) {
 			Verdict: "compatible", Explanation: "Условия стоимости заказа не пересекаются."}
 		json.NewEncoder(w).Encode(map[string]any{"profile": pinnedDigest, "device": "NPU", "finding": finding})
 	})
-	for _, pair := range []Pair{{Left: first, Right: second}, {Left: second, Right: first}} {
+	preclassification := &Preclassification{Decision: "related", Scores: map[string]float64{"related": .8, "unrelated": .1, "uncertain": .1}}
+	for _, pair := range []Pair{{Left: first, Right: second, Preclassification: preclassification}, {Left: second, Right: first, Preclassification: preclassification}} {
 		finding, err := generator.Compare(context.Background(), pair)
 		if err != nil || !validFinding(pair, finding) || finding.Verdict != "compatible" {
 			t.Fatalf("original references not restored: finding=%+v err=%v", finding, err)
 		}
 	}
 	want := Pair{
-		Left:  Source{ID: "left", Version: 1, Text: second.Text},
-		Right: Source{ID: "right", Version: 1, Text: first.Text},
+		Left:              Source{ID: "left", Version: 1, Text: second.Text},
+		Right:             Source{ID: "right", Version: 1, Text: first.Text},
+		Preclassification: preclassification,
 	}
-	if len(received) != 2 || received[0] != want || received[1] != want {
+	if len(received) != 2 || !reflect.DeepEqual(received[0], want) || !reflect.DeepEqual(received[1], want) {
 		t.Fatalf("input order changed the model pair: got=%+v want=%+v", received, want)
 	}
 }
@@ -250,7 +270,7 @@ func TestOpenVINORejectsInvalidSourceBeforeRuntime(t *testing.T) {
 		t.Fatal("accepted repeated source")
 	}
 	pair = pairFixture()
-	pair.Left.Text = strings.Repeat("я", 2001)
+	pair.Left.Text = strings.Repeat("я", 10001)
 	if _, err := generator.Compare(context.Background(), pair); err == nil {
 		t.Fatal("accepted oversized source")
 	}
@@ -278,5 +298,24 @@ func TestOpenVINODriftAndCancellation(t *testing.T) {
 	<-ctx.Done()
 	if _, err := generator.Compare(ctx, pairFixture()); err == nil {
 		t.Fatal("ignored cancellation")
+	}
+}
+
+func TestOpenVINOReportsSafeRuntimeFailureCodes(t *testing.T) {
+	for _, code := range []string{"NPU_UNAVAILABLE", "NPU_RECOVERY_FAILED", "NPU_WORKER_EXIT", "TIMEOUT", "INVALID_OUTPUT", "PROFILE_CHANGED", "private unknown error"} {
+		t.Run(code, func(t *testing.T) {
+			o := npuServer(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(w).Encode(map[string]string{"code": code, "error": "private model text"})
+			})
+			_, got := checkedCompare(context.Background(), o, Pair{Left: Source{ID: "left", Version: 1, Text: "First"}, Right: Source{ID: "right", Version: 1, Text: "Second"}})
+			want := code
+			if code == "private unknown error" {
+				want = "GENERATION_FAILED"
+			}
+			if got != want {
+				t.Fatalf("got %q want %q", got, want)
+			}
+		})
 	}
 }

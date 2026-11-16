@@ -2,11 +2,35 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {test} from 'node:test';
 
+function compose(env) {
+  return spawnSync('docker', ['compose', '--profile', 'tools', '-f', 'compose.yml', '-f', 'compose.intel.yml', 'config', '--format', 'json'], {
+    encoding: 'utf8',
+    env: {...process.env, POSTGRES_PASSWORD: 'config-test-password', PROJECT_CREATOR_TOKEN: 'config-test-token', ...env},
+  });
+}
+
+test('Intel override defaults integrated Arc to Vulkan device zero', () => {
+  const result = compose({GGML_VK_VISIBLE_DEVICES: ''});
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+  const {services} = JSON.parse(result.stdout);
+  assert.equal(services.ollama.environment.GGML_VK_VISIBLE_DEVICES, '0');
+  assert.equal(services.ollama.environment.OLLAMA_IGPU_ENABLE, '1');
+});
+
+test('Intel override preserves an explicit nonzero Vulkan device', () => {
+  const result = compose({GGML_VK_VISIBLE_DEVICES: '2'});
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+  const {services} = JSON.parse(result.stdout);
+  assert.equal(services.ollama.environment.GGML_VK_VISIBLE_DEVICES, '2');
+  assert.equal(services.ollama.environment.OLLAMA_IGPU_ENABLE, '1');
+});
+
 // Run explicitly in the containers CI job; needs Compose, never a GPU or daemon.
-test('Intel override keeps the local stack and grants only DRM GPU access', () => {
+for (const capacity of ['1', '2']) {
+test(`Intel override preserves DRM access with ${capacity} loaded models`, () => {
   const result = spawnSync('docker', ['compose', '--profile', 'tools', '-f', 'compose.yml', '-f', 'compose.intel.yml', 'config', '--format', 'json'], {
     encoding: 'utf8',
-    env: {...process.env, POSTGRES_PASSWORD: 'config-test-password', PROJECT_CREATOR_TOKEN: 'config-test-token', GGML_VK_VISIBLE_DEVICES: '0'},
+    env: {...process.env, POSTGRES_PASSWORD: 'config-test-password', PROJECT_CREATOR_TOKEN: 'config-test-token', GGML_VK_VISIBLE_DEVICES: '0', OLLAMA_MAX_LOADED_MODELS: capacity},
   });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
   const {services, volumes} = JSON.parse(result.stdout);
@@ -18,7 +42,7 @@ test('Intel override keeps the local stack and grants only DRM GPU access', () =
   assert.equal(o.environment.VK_ICD_FILENAMES, '/etc/project-creator-intel-vulkan.json');
   assert.equal(o.environment.GGML_VK_VISIBLE_DEVICES, '0');
   assert.equal(o.environment.OLLAMA_NO_CLOUD, '1');
-  assert.equal(o.environment.OLLAMA_MAX_LOADED_MODELS, '1');
+  assert.equal(o.environment.OLLAMA_MAX_LOADED_MODELS, capacity);
   assert.equal(o.environment.OLLAMA_NUM_PARALLEL, '1');
   assert.equal(o.build.dockerfile, 'Dockerfile.ollama-intel');
   assert.equal(o.image, 'project-creator-ollama-intel:0.40.11');
@@ -36,3 +60,5 @@ test('Intel override keeps the local stack and grants only DRM GPU access', () =
   }
 });
 
+
+}

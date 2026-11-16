@@ -1,10 +1,16 @@
 name: CI
 on:
   push:
+    branches:
+      - main
   pull_request:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   checks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     services:
       postgres:
         image: pgvector/pgvector:0.8.0-pg16
@@ -44,12 +50,17 @@ jobs:
       - name: Deterministic NPU protocol and model profile tests (no weights or device)
         run: python3 -m unittest discover -s runtime/npu -v
       - run: node --test scripts/*.test.mjs
-      - run: go test ./...
+      # Integration packages share a database-wide model advisory lock even
+      # though their tables use separate schemas. Parallel packages can starve
+      # each other's fake generators and trigger model-start timeouts.
+      - run: go test -p 1 ./...
       - run: go vet ./...
       - run: |
           go run ./cmd/codegen
           git diff --exit-code -- graph/models_gen.go
       - run: npm ci
+        working-directory: frontend
+      - run: npm run lint:ci
         working-directory: frontend
       - run: npm run codegen && git diff --exit-code -- lib/generated.ts
         working-directory: frontend
@@ -57,7 +68,7 @@ jobs:
         working-directory: frontend
       - run: npm run typecheck && npm run build
         working-directory: frontend
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps --only-shell chromium
         timeout-minutes: 10
         working-directory: frontend
       - name: Deterministic desktop and narrow UX regressions
@@ -73,6 +84,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: desktop-screenshots
+          retention-days: 3
           path: frontend/screenshots/*.png
           if-no-files-found: warn
 
@@ -84,6 +96,7 @@ jobs:
       COMPOSE_PROJECT_NAME: project-creator-ci-smoke
       COMPOSE_FILE: compose.yml:compose.smoke.yml
       COMPOSE_ENV_FILE: .env.smoke.example
+      DOCKER_BUILD_RECORD_UPLOAD: 'false'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -98,16 +111,66 @@ jobs:
           PROJECT_CREATOR_GPU_ID=GPU-1234abcd docker compose --env-file "$COMPOSE_ENV_FILE" -f compose.yml -f compose.amd.yml config --quiet
           GGML_VK_VISIBLE_DEVICES=0 docker compose --env-file "$COMPOSE_ENV_FILE" -f compose.yml -f compose.amd-vulkan.yml config --quiet
           node --test scripts/intel-compose.check.mjs scripts/npu-compose.check.mjs scripts/gpu-compose.check.mjs
+      - name: Free space for large Docker layers
+        # This job uses an ephemeral GitHub-hosted runner, never a developer host.
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android
+          df -h /
+      - name: Set up cached Docker builder
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          version: v0.38.2
+          driver-opts: image=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
       - name: Build Intel Vulkan runtime (no GPU required)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.ollama-intel
+          load: true
+          push: false
+          provenance: false
+          tags: project-creator-ollama-intel:0.40.11
+          cache-from: type=gha,version=2,scope=ci-intel-v1
+          cache-to: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'type=gha,version=2,scope=ci-intel-v1,mode=max,ignore-error=true,timeout=60s' || '' }}
+      - name: Verify Intel Vulkan runtime
+        run: docker run --rm --entrypoint sh project-creator-ollama-intel:0.40.11 -c 'test -s /etc/project-creator-intel-vulkan.json && cat /etc/project-creator-intel-vulkan.json && ollama --version'
+      - name: Release verified Intel image and builder data
+        # The Intel image is already verified and its cache export has finished.
         run: |
-          docker build -f Dockerfile.ollama-intel -t project-creator-ollama-intel:0.40.11 .
-          docker run --rm --entrypoint sh project-creator-ollama-intel:0.40.11 -c 'test -s /etc/project-creator-intel-vulkan.json && cat /etc/project-creator-intel-vulkan.json && ollama --version'
-      - name: Build AMD RADV Vulkan runtime (no GPU required)
+          docker image rm project-creator-ollama-intel:0.40.11
+          docker buildx prune --all --force
+      - name: Build and verify AMD RADV Vulkan runtime (no GPU required)
+        # Keep the three existing remote caches; release this image before the app builds.
         run: |
-          docker build -f Dockerfile.ollama-amd-vulkan -t project-creator-ollama-amd-vulkan:0.40.11 .
+          docker buildx build --load -f Dockerfile.ollama-amd-vulkan -t project-creator-ollama-amd-vulkan:0.40.11 .
           docker run --rm --entrypoint sh project-creator-ollama-amd-vulkan:0.40.11 -c 'test -s /etc/project-creator-amd-vulkan.json && ollama --version'
+          docker image rm project-creator-ollama-amd-vulkan:0.40.11
+          docker buildx prune --all --force
+      - name: Build backend with cached layers
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          push: false
+          provenance: false
+          tags: project-creator-ci-smoke-backend:latest
+          cache-from: type=gha,version=2,scope=ci-backend-v1
+          cache-to: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'type=gha,version=2,scope=ci-backend-v1,mode=max,ignore-error=true,timeout=60s' || '' }}
+      - name: Build frontend with cached layers
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: frontend/Dockerfile
+          load: true
+          push: false
+          provenance: false
+          tags: project-creator-ci-smoke-frontend:latest
+          cache-from: type=gha,version=2,scope=ci-frontend-v1
+          cache-to: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'type=gha,version=2,scope=ci-frontend-v1,mode=max,ignore-error=true,timeout=60s' || '' }}
       - name: Build and start clean disposable stack
-        run: docker compose --env-file "$COMPOSE_ENV_FILE" up -d --build --wait --wait-timeout 180
+        run: docker compose --env-file "$COMPOSE_ENV_FILE" up -d --no-build --wait --wait-timeout 180
       - name: Exercise HTTP model workflow and restart persistence
         run: node scripts/compose-smoke.mjs
       - name: Show container diagnostics

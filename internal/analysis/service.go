@@ -21,37 +21,66 @@ var errStorage = errors.New("analysis storage unavailable")
 var errOwnership = errors.New("analysis worker no longer owns attempt")
 
 type PairResult struct {
-	ID          string `json:"id"`
-	Position    int    `json:"position"`
-	Status      string `json:"status"`
-	Left        Source `json:"left"`
-	Right       Source `json:"right"`
-	Verdict     string `json:"verdict"`
-	Explanation string `json:"explanation"`
-	ErrorCode   string `json:"errorCode"`
+	LayaStatus        string             `json:"layaStatus"`
+	LayaErrorCode     string             `json:"layaErrorCode"`
+	Preclassification *Preclassification `json:"preclassification"`
+	LayaCheckedAt     string             `json:"layaCheckedAt"`
+	ID                string             `json:"id"`
+	Position          int                `json:"position"`
+	Status            string             `json:"status"`
+	Left              Source             `json:"left"`
+	Right             Source             `json:"right"`
+	Verdict           string             `json:"verdict"`
+	Explanation       string             `json:"explanation"`
+	ErrorCode         string             `json:"errorCode"`
+	ReusedFrom        string             `json:"reusedFrom"`
+	CheckedAt         string             `json:"checkedAt"`
+	GeneratorProfile  string             `json:"generatorProfile"`
+	SelectionReasons  []string           `json:"selectionReasons"`
+	SimilarityScore   *float64           `json:"similarityScore"`
+	ResultOrigin      string             `json:"resultOrigin"`
 }
 
+type Options struct {
+	Mode      string
+	Threshold float64
+}
+
+const selectionVersion = "related-v2:cosine-max-chunk:threshold-required:exact-fields-v1"
+
 type Run struct {
-	ReasonCode                                                                                            string
-	MissingRequirementIDs                                                                                 []string
-	ID, ProjectID, Status, Outcome, ErrorCode, CreatedAt, CompletedAt, GeneratorProfile, EmbeddingProfile string
-	Stage                                                                                                 string
-	TotalPairs                                                                                            *int
-	ProcessedPairs                                                                                        int
-	ActivePairID                                                                                          string
-	Pairs                                                                                                 []PairResult
-	Stale                                                                                                 bool
-	Findings                                                                                              []Finding
-	Sources                                                                                               []Source
-	signature                                                                                             string
-	incomplete                                                                                            bool
-	workerID                                                                                              string
+	ClassifierProfile                                                                                                                                  string
+	LayaPendingPairs, LayaRunningPairs, LayaCompletedPairs, LayaFailedPairs, LayaSkippedPairs                                                          int
+	ReasonCode                                                                                                                                         string
+	MissingRequirementIDs                                                                                                                              []string
+	ID, ProjectID, Status, Outcome, ErrorCode, CreatedAt, CompletedAt, GeneratorProfile, GeneratorProvenance, EmbeddingProfile                         string
+	Revision                                                                                                                                           string
+	Stage                                                                                                                                              string
+	TotalPairs                                                                                                                                         *int
+	PossiblePairs                                                                                                                                      *int
+	NotSelectedPairs                                                                                                                                   *int
+	ProcessedPairs                                                                                                                                     int
+	ReusedPairs, NewPairs, CompletedPairs, PendingPairs, RunningPairs, FailedPairs, CollisionPairs, CompatiblePairs, InsufficientPairs, DuplicatePairs int
+	ActivePairID                                                                                                                                       string
+	Pairs                                                                                                                                              []PairResult
+	Stale                                                                                                                                              bool
+	Findings                                                                                                                                           []Finding
+	Sources                                                                                                                                            []Source
+	Mode                                                                                                                                               string
+	SimilarityThreshold                                                                                                                                float64
+	SelectionProfile                                                                                                                                   string
+	signature                                                                                                                                          string
+	incomplete                                                                                                                                         bool
+	workerID                                                                                                                                           string
+	cursorLeft, cursorRight                                                                                                                            string
+	fullQueue                                                                                                                                          bool
 }
 
 type Service struct {
 	db               *sql.DB
 	retriever        *rag.Service
 	generator        Generator
+	classifier       Classifier
 	embeddingProfile string
 	// Budgets apply to preparation and each individual pair, never to the batch.
 	timeout            time.Duration
@@ -62,12 +91,17 @@ type Service struct {
 	done               chan struct{}
 	wake               chan struct{}
 	closeOnce          sync.Once
+	workersMu          sync.Mutex
+	workers            map[string]context.CancelFunc
 }
 
-func New(db *sql.DB, retriever *rag.Service, generator Generator, embeddingProfile string) *Service {
+func New(db *sql.DB, retriever *rag.Service, generator Generator, embeddingProfile string, classifiers ...Classifier) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{db: db, retriever: retriever, generator: generator, embeddingProfile: embeddingProfile,
-		timeout: 120 * time.Second, preparationTimeout: 180 * time.Second, heartbeatInterval: 5 * time.Second, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1)}
+		timeout: 120 * time.Second, preparationTimeout: 180 * time.Second, heartbeatInterval: 5 * time.Second, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), workers: make(map[string]context.CancelFunc)}
+	if len(classifiers) > 0 {
+		s.classifier = classifiers[0]
+	}
 	go s.work()
 	return s
 }
@@ -81,6 +115,10 @@ func (s *Service) notify() {
 func (s *Service) generatorProfile() string {
 	if s.generator == nil {
 		return ""
+	}
+	if s.classifier != nil {
+		_, profile := encodeGenerationProvenance(generationProvenance{Adapter: "laya-llm-pipeline-v2", RuntimeProfile: s.generator.Profile(), Parameters: map[string]any{"classifierProfile": s.classifier.Profile(), "fallbackPolicy": "final-llm-on-laya-failure-with-full-originals-v1"}})
+		return profile
 	}
 	return s.generator.Profile()
 }
@@ -112,41 +150,61 @@ func (s *Service) authorize(ctx context.Context, q queryer, workspace, project s
 	return nil
 }
 
-// One statement snapshot includes every source version in the signature while
-// limiting retained text to the first 100 requirements.
-func snapshot(ctx context.Context, q queryer, workspace, project string) ([]Source, string, bool, error) {
-	var raw []byte
+// Hash each row before aggregation so signature checks never build a JSON
+// document containing every source text. Source edits are serialized against
+// result commits by the project lock; versions and exact text both participate.
+func sourceSignature(ctx context.Context, q queryer, workspace, project string) (string, error) {
 	var signature string
-	var count int
-	err := q.QueryRowContext(ctx, `WITH scoped AS (SELECT id,version,text FROM requirements WHERE workspace=$1 AND project_id=$2), limited AS (SELECT * FROM scoped ORDER BY id LIMIT 100) SELECT coalesce((SELECT jsonb_agg(to_jsonb(limited) ORDER BY id) FROM limited),'[]'::jsonb),(SELECT md5(coalesce(jsonb_agg(jsonb_build_array(id,version) ORDER BY id)::text,'[]')) FROM scoped),(SELECT count(*) FROM scoped)`, workspace, project).Scan(&raw, &signature, &count)
+	err := q.QueryRowContext(ctx, `SELECT md5(coalesce(string_agg(md5(jsonb_build_array(id,version,text)::text),'' ORDER BY id),'')) FROM requirements WHERE workspace=$1 AND project_id=$2`, workspace, project).Scan(&signature)
 	if err != nil {
-		return nil, "", false, errStorage
+		return "", errStorage
 	}
-	sources := []Source{}
-	if json.Unmarshal(raw, &sources) != nil {
-		return nil, "", false, errStorage
-	}
-	return sources, signature, count > 100, nil
+	return signature, nil
 }
 
-const runColumns = `id,project_id,status,outcome,error_code,generator_profile,embedding_profile,source_signature,sources,findings,created_at,completed_at,reason_code,missing_requirement_ids,stage,total_pairs,processed_pairs,active_pair_id,pairs,incomplete,worker_id`
+// Compatibility collections are bounded pages, never the complete queue. All
+// counters below cover the run, independently of those pages.
+const pairJSON = `jsonb_build_object('id',p.id,'position',p.position,'status',p.status,'left',p.left_source,'right',p.right_source,'verdict',p.verdict,'explanation',p.explanation,'errorCode',p.error_code,'reusedFrom',p.reused_from,'checkedAt',coalesce(to_char(p.checked_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),''),'generatorProfile',p.generator_profile,'selectionReasons',p.selection_reasons,'similarityScore',p.similarity_score,'resultOrigin',p.result_origin,'layaStatus',p.laya_status,'layaErrorCode',p.laya_error_code,'preclassification',p.laya_result,'layaCheckedAt',coalesce(to_char(p.laya_checked_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),''))`
+const runColumns = `id,project_id,status,outcome,error_code,generator_profile,embedding_profile,source_signature,
+ coalesce((SELECT jsonb_agg(source ORDER BY requirement_id) FROM (SELECT source,requirement_id FROM analysis_sources WHERE run_id=analysis_runs.id ORDER BY requirement_id LIMIT 100) s),'[]'::jsonb),
+ coalesce((SELECT jsonb_agg(jsonb_build_object('leftId',p.left_source->>'id','rightId',p.right_source->>'id','leftVersion',p.left_source->'version','rightVersion',p.right_source->'version','verdict',p.verdict,'explanation',p.explanation) ORDER BY p.position) FROM (SELECT * FROM analysis_pairs WHERE run_id=analysis_runs.id AND status='completed' ORDER BY position LIMIT 100) p),'[]'::jsonb),
+ created_at,completed_at,reason_code,missing_requirement_ids,stage,total_pairs,processed_pairs,active_pair_id,
+ coalesce((SELECT jsonb_agg(` + pairJSON + ` ORDER BY p.position) FROM (SELECT * FROM analysis_pairs WHERE run_id=analysis_runs.id ORDER BY position LIMIT 100) p),'[]'::jsonb),
+ incomplete,worker_id,generator_provenance,mode,similarity_threshold,selection_profile,possible_pairs,pair_cursor_left,pair_cursor_right,full_queue,
+ (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs,count(*) FILTER(WHERE laya_status='pending' AND status<>'failed'),count(*) FILTER(WHERE laya_status='running'),count(*) FILTER(WHERE laya_status='completed'),count(*) FILTER(WHERE laya_status='failed'),count(*) FILTER(WHERE laya_status='skipped')) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text,classifier_profile`
+
+const compactRunColumns = `id,project_id,status,outcome,error_code,generator_profile,embedding_profile,source_signature,
+ '[]'::jsonb,'[]'::jsonb,created_at,completed_at,reason_code,missing_requirement_ids,stage,total_pairs,processed_pairs,active_pair_id,
+ '[]'::jsonb,incomplete,worker_id,''::text,mode,similarity_threshold,''::text,possible_pairs,pair_cursor_left,pair_cursor_right,full_queue,
+ (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs,count(*) FILTER(WHERE laya_status='pending' AND status<>'failed'),count(*) FILTER(WHERE laya_status='running'),count(*) FILTER(WHERE laya_status='completed'),count(*) FILTER(WHERE laya_status='failed'),count(*) FILTER(WHERE laya_status='skipped')) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text,classifier_profile`
 
 func scanRun(row *sql.Row) (*Run, error) {
 	r := &Run{Sources: []Source{}, Findings: []Finding{}, Pairs: []PairResult{}, MissingRequirementIDs: []string{}}
-	var sources, findings, missing, pairs []byte
+	var sources, findings, missing, pairs, counts []byte
 	var created time.Time
 	var completed sql.NullTime
-	var total sql.NullInt64
-	err := row.Scan(&r.ID, &r.ProjectID, &r.Status, &r.Outcome, &r.ErrorCode, &r.GeneratorProfile, &r.EmbeddingProfile, &r.signature, &sources, &findings, &created, &completed, &r.ReasonCode, &missing, &r.Stage, &total, &r.ProcessedPairs, &r.ActivePairID, &pairs, &r.incomplete, &r.workerID)
+	var total, possible sql.NullInt64
+	err := row.Scan(&r.ID, &r.ProjectID, &r.Status, &r.Outcome, &r.ErrorCode, &r.GeneratorProfile, &r.EmbeddingProfile, &r.signature, &sources, &findings, &created, &completed, &r.ReasonCode, &missing, &r.Stage, &total, &r.ProcessedPairs, &r.ActivePairID, &pairs, &r.incomplete, &r.workerID, &r.GeneratorProvenance, &r.Mode, &r.SimilarityThreshold, &r.SelectionProfile, &possible, &r.cursorLeft, &r.cursorRight, &r.fullQueue, &counts, &r.Revision, &r.ClassifierProfile)
 	if err != nil {
 		return nil, err
 	}
-	if json.Unmarshal(sources, &r.Sources) != nil || json.Unmarshal(findings, &r.Findings) != nil || json.Unmarshal(missing, &r.MissingRequirementIDs) != nil || json.Unmarshal(pairs, &r.Pairs) != nil {
+	var c []int
+	if json.Unmarshal(sources, &r.Sources) != nil || json.Unmarshal(findings, &r.Findings) != nil || json.Unmarshal(missing, &r.MissingRequirementIDs) != nil || json.Unmarshal(pairs, &r.Pairs) != nil || json.Unmarshal(counts, &c) != nil || len(c) != 16 {
 		return nil, errStorage
 	}
+	r.ReusedPairs, r.NewPairs, r.CompletedPairs, r.PendingPairs, r.RunningPairs, r.FailedPairs, r.CollisionPairs, r.CompatiblePairs, r.InsufficientPairs, r.DuplicatePairs, r.ProcessedPairs = c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10]
+	r.LayaPendingPairs, r.LayaRunningPairs, r.LayaCompletedPairs, r.LayaFailedPairs, r.LayaSkippedPairs = c[11], c[12], c[13], c[14], c[15]
 	if total.Valid {
 		n := int(total.Int64)
 		r.TotalPairs = &n
+	}
+	if possible.Valid {
+		n := int(possible.Int64)
+		r.PossiblePairs = &n
+		if r.TotalPairs != nil {
+			m := n - *r.TotalPairs
+			r.NotSelectedPairs = &m
+		}
 	}
 	r.CreatedAt = created.UTC().Format(time.RFC3339Nano)
 	if completed.Valid {
@@ -155,18 +213,18 @@ func scanRun(row *sql.Row) (*Run, error) {
 	return r, nil
 }
 func (s *Service) markStale(ctx context.Context, workspace, project string, r *Run) error {
-	_, signature, _, err := snapshot(ctx, s.db, workspace, project)
+	signature, err := sourceSignature(ctx, s.db, workspace, project)
 	if err != nil {
 		return err
 	}
-	r.Stale = signature != r.signature || r.EmbeddingProfile != s.embeddingProfile || r.GeneratorProfile != s.generatorProfile()
+	r.Stale = signature != r.signature || r.GeneratorProfile != s.generatorProfile() || (r.Mode == "related" && r.EmbeddingProfile != s.embeddingProfile)
 	return nil
 }
 
 // All public mutations and lease recovery lock project before analysis rows.
 // Recovery never dispatches a model: an interrupted attempt needs explicit retry.
 func (s *Service) recoverProject(ctx context.Context, tx *sql.Tx, workspace, project string) error {
-	r, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM analysis_runs WHERE workspace=$1 AND project_id=$2 AND status='running' AND ((worker_id<>'' AND lease_until<=clock_timestamp()) OR (worker_id='' AND (generator_profile<>$3 OR embedding_profile<>$4))) FOR UPDATE`, workspace, project, s.generatorProfile(), s.embeddingProfile))
+	r, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM analysis_runs WHERE workspace=$1 AND project_id=$2 AND status='running' AND ((worker_id<>'' AND lease_until<=clock_timestamp()) OR (worker_id='' AND (generator_profile<>$3 OR (mode='related' AND embedding_profile<>$4)))) FOR UPDATE`, workspace, project, s.generatorProfile(), s.embeddingProfile))
 	if err == sql.ErrNoRows {
 		return nil
 	}
@@ -177,209 +235,10 @@ func (s *Service) recoverProject(ctx context.Context, tx *sql.Tx, workspace, pro
 	if r.workerID == "" {
 		code = "PROFILE_CHANGED"
 	}
-	interrupt(r, code)
-	return writeRun(ctx, tx, workspace, r, false)
+	return interruptRun(ctx, tx, workspace, r, code, false)
 }
-func (s *Service) Latest(ctx context.Context, workspace, project string) (*Run, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, errStorage
-	}
-	defer tx.Rollback()
-	if err = s.authorize(ctx, tx, workspace, project, true); err != nil {
-		return nil, err
-	}
-	if err = s.recoverProject(ctx, tx, workspace, project); err != nil {
-		return nil, err
-	}
-	r, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM analysis_runs WHERE workspace=$1 AND project_id=$2 ORDER BY seq DESC LIMIT 1`, workspace, project))
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, errStorage
-	}
-	if err = tx.Commit(); err != nil {
-		return nil, errStorage
-	}
-	if err = s.markStale(ctx, workspace, project, r); err != nil {
-		return nil, err
-	}
-	return r, nil
-}
-func (s *Service) Start(ctx context.Context, workspace, project string) (Run, error) {
-	empty := Run{ProjectID: project, Sources: []Source{}, Findings: []Finding{}, Pairs: []PairResult{}}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return empty, errStorage
-	}
-	defer tx.Rollback()
-	if err = s.authorize(ctx, tx, workspace, project, true); err != nil {
-		return empty, err
-	}
-	if err = s.recoverProject(ctx, tx, workspace, project); err != nil {
-		return empty, err
-	}
-	active, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM analysis_runs WHERE workspace=$1 AND project_id=$2 AND status='running' FOR UPDATE`, workspace, project))
-	if err == nil {
-		if active.GeneratorProfile == s.generatorProfile() && active.EmbeddingProfile == s.embeddingProfile {
-			if err = tx.Commit(); err != nil {
-				return empty, errStorage
-			}
-			if err = s.markStale(ctx, workspace, project, active); err != nil {
-				return empty, err
-			}
-			return *active, nil
-		}
-		interrupt(active, "PROFILE_CHANGED")
-		if err = writeRun(ctx, tx, workspace, active, false); err != nil {
-			return empty, err
-		}
-	} else if err != sql.ErrNoRows {
-		return empty, errStorage
-	}
-	sources, signature, incomplete, err := snapshot(ctx, tx, workspace, project)
-	if err != nil {
-		return empty, err
-	}
-	id, err := identifier()
-	if err != nil {
-		return empty, errors.New("analysis identifier unavailable")
-	}
-	r := Run{ID: id, ProjectID: project, Status: "running", Stage: "checking_index", Sources: sources, Findings: []Finding{}, Pairs: []PairResult{}, MissingRequirementIDs: []string{}, signature: signature, incomplete: incomplete, GeneratorProfile: s.generatorProfile(), EmbeddingProfile: s.embeddingProfile}
-	raw, _ := json.Marshal(sources)
-	var created time.Time
-	if err = tx.QueryRowContext(ctx, `INSERT INTO analysis_runs(id,workspace,project_id,status,generator_profile,embedding_profile,source_signature,sources,lease_until,stage,incomplete) VALUES($1,$2,$3,'running',$4,$5,$6,$7::jsonb,'infinity','checking_index',$8) RETURNING created_at`, id, workspace, project, r.GeneratorProfile, r.EmbeddingProfile, signature, string(raw), incomplete).Scan(&created); err != nil {
-		return empty, errStorage
-	}
-	r.CreatedAt = created.UTC().Format(time.RFC3339Nano)
-	if err = tx.Commit(); err != nil {
-		return empty, errStorage
-	}
-	s.notify()
-	return r, nil
-}
-func (s *Service) Retry(ctx context.Context, workspace, project, id string) (Run, error) {
-	empty := Run{}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return empty, errStorage
-	}
-	defer tx.Rollback()
-	if err = s.authorize(ctx, tx, workspace, project, true); err != nil {
-		return empty, err
-	}
-	if err = s.recoverProject(ctx, tx, workspace, project); err != nil {
-		return empty, err
-	}
-	r, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM analysis_runs WHERE workspace=$1 AND project_id=$2 ORDER BY seq DESC LIMIT 1 FOR UPDATE`, workspace, project))
-	if err != nil || r.ID != id {
-		return empty, ErrRetryUnavailable
-	}
-	if r.Status == "running" {
-		if err = tx.Commit(); err != nil {
-			return empty, errStorage
-		}
-		return *r, nil
-	}
-	_, signature, _, err := snapshot(ctx, tx, workspace, project)
-	if err != nil {
-		return empty, err
-	}
-	if r.Status != "failed" || signature != r.signature || r.GeneratorProfile != s.generatorProfile() || r.EmbeddingProfile != s.embeddingProfile {
-		return empty, ErrRetryUnavailable
-	}
-	retry := false
-	for i := range r.Pairs {
-		if r.Pairs[i].Status == "failed" {
-			r.Pairs[i].Status = "pending"
-			r.Pairs[i].ErrorCode = ""
-			retry = true
-		}
-	}
-	if !retry {
-		return empty, ErrRetryUnavailable
-	}
-	r.Status = "running"
-	r.Stage = "comparing"
-	r.ErrorCode = ""
-	r.Outcome = ""
-	r.CompletedAt = ""
-	r.workerID = ""
-	r.ActivePairID = ""
-	r.tally()
-	if err = writeRun(ctx, tx, workspace, r, false); err != nil {
-		return empty, err
-	}
-	if _, err = tx.ExecContext(ctx, `UPDATE analysis_runs SET lease_until='infinity' WHERE workspace=$1 AND project_id=$2 AND id=$3`, workspace, project, id); err != nil {
-		return empty, errStorage
-	}
-	if err = tx.Commit(); err != nil {
-		return empty, errStorage
-	}
-	s.notify()
-	return *r, nil
-}
-
-type execer interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}
-
-func writeRun(ctx context.Context, q execer, workspace string, r *Run, fenced bool) error {
-	pairs, _ := json.Marshal(r.Pairs)
-	findings, _ := json.Marshal(r.Findings)
-	missing, _ := json.Marshal(r.MissingRequirementIDs)
-	query := `UPDATE analysis_runs SET status=$4,outcome=$5,error_code=$6,stage=$7,total_pairs=$8,processed_pairs=$9,active_pair_id=$10,pairs=$11::jsonb,findings=$12::jsonb,reason_code=$13,missing_requirement_ids=$14::jsonb,incomplete=$15,completed_at=CASE WHEN $4='running' THEN NULL ELSE clock_timestamp() END,worker_id=$16 WHERE workspace=$1 AND project_id=$2 AND id=$3`
-	if fenced {
-		query += ` AND status='running' AND worker_id=$16 AND lease_until>clock_timestamp()`
-	}
-	result, err := q.ExecContext(ctx, query, workspace, r.ProjectID, r.ID, r.Status, r.Outcome, r.ErrorCode, r.Stage, r.TotalPairs, r.ProcessedPairs, r.ActivePairID, string(pairs), string(findings), r.ReasonCode, string(missing), r.incomplete, r.workerID)
-	if err != nil {
-		return errStorage
-	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return errStorage
-	}
-	if n != 1 {
-		return errOwnership
-	}
-	return nil
-}
-func (r *Run) tally() {
-	r.ProcessedPairs = 0
-	r.Findings = []Finding{}
-	for _, pair := range r.Pairs {
-		if pair.Status == "completed" {
-			r.ProcessedPairs++
-			r.Findings = append(r.Findings, Finding{LeftID: pair.Left.ID, RightID: pair.Right.ID, LeftVersion: pair.Left.Version, RightVersion: pair.Right.Version, Verdict: pair.Verdict, Explanation: pair.Explanation})
-		} else if pair.Status == "failed" && pair.ErrorCode != "NOT_PROCESSED" {
-			r.ProcessedPairs++
-		}
-	}
-}
-func interrupt(r *Run, code string) {
-	for i := range r.Pairs {
-		p := &r.Pairs[i]
-		switch p.Status {
-		case "running":
-			p.Status = "failed"
-			p.ErrorCode = code
-		case "pending":
-			p.Status = "failed"
-			p.ErrorCode = "NOT_PROCESSED"
-		}
-	}
-	r.Status = "failed"
-	r.Stage = "finished"
-	r.ErrorCode = code
-	r.Outcome = ""
-	r.ActivePairID = ""
-	r.tally()
-}
-
 func validFinding(pair Pair, f Finding) bool {
-	return f.LeftID == pair.Left.ID && f.RightID == pair.Right.ID && f.LeftVersion == pair.Left.Version && f.RightVersion == pair.Right.Version && (f.Verdict == "collision" || f.Verdict == "insufficient" || f.Verdict == "compatible") && strings.TrimSpace(f.Explanation) != "" && utf8.ValidString(f.Explanation) && utf8.RuneCountInString(f.Explanation) <= 2000
+	return f.LeftID == pair.Left.ID && f.RightID == pair.Right.ID && f.LeftVersion == pair.Left.Version && f.RightVersion == pair.Right.Version && (f.Verdict == "collision" || f.Verdict == "insufficient" || f.Verdict == "compatible" || f.Verdict == "duplicate") && strings.TrimSpace(f.Explanation) != "" && utf8.ValidString(f.Explanation) && utf8.RuneCountInString(f.Explanation) <= 2000
 }
 func outcome(findings []Finding, incomplete bool) string {
 	for _, f := range findings {
@@ -399,11 +258,18 @@ func outcome(findings []Finding, incomplete bool) string {
 // Even a replacement provider that ignores cancellation cannot publish a late
 // successful response after the analysis deadline.
 func checkedCompare(ctx context.Context, generator Generator, pair Pair) (Finding, string) {
+	if generator == nil || generator.Profile() == "" {
+		return Finding{}, "NOT_CONFIGURED"
+	}
 	finding, err := generator.Compare(ctx, pair)
 	if ctx.Err() != nil {
 		return Finding{}, "TIMEOUT"
 	}
 	if err != nil {
+		var failure npuFailure
+		if errors.As(err, &failure) && knownNPUFailure(string(failure)) {
+			return Finding{}, string(failure)
+		}
 		return Finding{}, "GENERATION_FAILED"
 	}
 	if !validFinding(pair, finding) {

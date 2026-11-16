@@ -35,6 +35,9 @@ class FakeProcess:
     def join(self, timeout=None):
         pass
 
+    def start(self):
+        self.alive = True
+
 
 class FakePipe:
     def __init__(self, responses=()):
@@ -60,15 +63,54 @@ class FakePipe:
 def runtime_fixture(responses=()):
     runtime = npu.Runtime.__new__(npu.Runtime)
     runtime.model = Path('/unused-test-model')
+    runtime.manifest = {}
+    runtime.cache = Path('/unused-test-cache')
+    runtime.startup_timeout = 600
     runtime.profile = 'a'*64
     runtime.snapshot = {'same': (1, 2, 3, 4, 5)}
     runtime.lock = threading.Lock()
     runtime.process = FakeProcess()
     runtime.connection = FakePipe(responses)
+    runtime.recoverable_after_cancel = False
+    runtime.start_failed = False
     return runtime
 
 
 class RuntimeLifecycleTests(unittest.TestCase):
+    def test_lifecycle_log_is_anchored_to_repository_and_valid_call_id_is_recorded(self):
+        self.assertEqual(npu.LIFECYCLE_LOG,
+                         Path(npu.__file__).resolve().parents[2] / 'logs/npu/runtime-lifecycle.jsonl')
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / 'events.jsonl'
+            with mock.patch.object(npu, 'LIFECYCLE_LOG', log_path):
+                npu.lifecycle_event('generation_started', call_id='a'*32)
+                npu.lifecycle_event('generation_started', call_id='invalid')
+            lines = [json.loads(line) for line in log_path.read_text().splitlines()]
+        self.assertEqual(lines[0]['call_id'], 'a'*32)
+        self.assertNotIn('call_id', lines[1])
+
+    def test_typed_runtime_errors_have_stable_safe_codes(self):
+        for code in ('NPU_UNAVAILABLE', 'NPU_RECOVERY_FAILED', 'NPU_WORKER_EXIT',
+                     'TIMEOUT', 'INVALID_OUTPUT', 'PROFILE_CHANGED'):
+            with self.subTest(code=code):
+                error = npu.RuntimeFailure(code, 'private source text')
+                self.assertEqual(error.code, code)
+                self.assertEqual(str(error), npu.RUNTIME_ERROR_MESSAGES[code])
+        with self.assertRaises(ValueError):
+            npu.RuntimeFailure('PRIVATE_DETAIL', 'secret')
+
+    def test_lifecycle_log_is_jsonl_and_redacts_request_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / 'runtime-lifecycle.jsonl'
+            with mock.patch.object(npu, 'LIFECYCLE_LOG', log_path):
+                npu.lifecycle_event('worker_recovery_started', profile='a'*64,
+                                    stage='NPU_STARTUP', detail='private prompt')
+            record = json.loads(log_path.read_text().strip())
+        self.assertEqual({key: record[key] for key in ('event', 'profile', 'device', 'stage')},
+                         {'event': 'worker_recovery_started',
+                          'profile': 'a'*64, 'device': 'NPU', 'stage': 'NPU_STARTUP'})
+        self.assertIsInstance(record['time'], (int, float))
+
     def sockets(self):
         try:
             server, client = socket.socketpair()
@@ -81,24 +123,152 @@ class RuntimeLifecycleTests(unittest.TestCase):
     def test_timeout_kills_native_worker_and_requires_explicit_restart(self):
         server, _ = self.sockets()
         runtime = runtime_fixture()
+        process = runtime.process
+        connection = runtime.connection
         with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot):
             with self.assertRaisesRegex(ValueError, 'restart runtime'):
                 runtime.compare(request(), server, timeout=-1)
             with self.assertRaisesRegex(ValueError, 'explicit restart'):
                 runtime.health()
-        self.assertTrue(runtime.process.terminated)
-        self.assertTrue(runtime.connection.closed)
+        self.assertTrue(process.terminated)
+        self.assertTrue(connection.closed)
         self.assertFalse(runtime.lock.locked())
 
+    def test_unexpected_worker_exit_is_distinct_and_not_recoverable(self):
+        runtime = runtime_fixture()
+        runtime.process.alive = False
+        with mock.patch.object(npu, 'lifecycle_event') as log_event:
+            with self.assertRaisesRegex(ValueError, 'worker exited'):
+                runtime.health()
+        log_event.assert_any_call('worker_exit', profile=runtime.profile,
+                                  stage='NPU_HEALTH', call_id=None)
+        self.assertFalse(runtime.recoverable_after_cancel)
+
     def test_disconnected_client_cancels_native_inference(self):
+        server, client = self.sockets()
+        client.close()
+        runtime = runtime_fixture()
+        process = runtime.process
+        with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot), \
+             mock.patch.object(npu, 'lifecycle_event') as log_event:
+            with self.assertRaisesRegex(ValueError, 'cancelled'):
+                runtime.compare(request(), server)
+        log_event.assert_any_call('request_cancelled', profile=runtime.profile,
+                                  stage='CLIENT_DISCONNECT', call_id=None)
+        self.assertTrue(process.terminated)
+        self.assertFalse(runtime.lock.locked())
+
+    def test_next_health_recovers_worker_after_client_disconnect(self):
+        server, client = self.sockets()
+        client.close()
+        runtime = runtime_fixture()
+        process = runtime.process
+        restarted_process = FakeProcess()
+        ready = {'ready': True, 'device_name': 'fixture', 'load_seconds': 0.1}
+        restarted_connection = FakePipe([ready])
+        child = FakePipe()
+        context = SimpleNamespace(
+            Pipe=mock.Mock(return_value=(restarted_connection, child)),
+            Process=mock.Mock(return_value=restarted_process))
+        with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot), \
+             mock.patch.object(npu, 'verify_model'), \
+             mock.patch.object(npu.multiprocessing, 'get_context', return_value=context), \
+             contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, 'cancelled'):
+                runtime.compare(request(), server)
+            self.assertTrue(runtime.recoverable_after_cancel)
+            self.assertEqual(runtime.health(), {'profile': runtime.profile, 'device': 'NPU'})
+            restarted_connection.responses.append({'finding': finding(), 'prompt_tokens': 10, 'seconds': .01})
+            result = runtime.compare(request(), server)
+        context.Process.assert_called_once_with(target=npu.worker, args=(child, runtime.model, runtime.manifest, runtime.cache), daemon=True)
+        context.Pipe.assert_called_once_with()
+        self.assertTrue(child.closed)
+        self.assertTrue(process.terminated)
+        self.assertTrue(restarted_process.is_alive())
+        self.assertEqual(result['finding'], finding())
+
+    def test_recovery_startup_failure_does_not_dispatch_request(self):
+        server, _ = self.sockets()
+        runtime = runtime_fixture()
+        runtime.recoverable_after_cancel = True
+        with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot), \
+             mock.patch.object(npu.Runtime, '_start_worker', side_effect=ValueError('startup failed'), create=True):
+            with self.assertRaisesRegex(ValueError, 'startup failed'):
+                runtime.health()
+            self.assertEqual(runtime.connection.sent, [])
+
+    def test_model_drift_blocks_recovery_after_client_disconnect(self):
         server, client = self.sockets()
         client.close()
         runtime = runtime_fixture()
         with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot):
             with self.assertRaisesRegex(ValueError, 'cancelled'):
                 runtime.compare(request(), server)
-        self.assertTrue(runtime.process.terminated)
-        self.assertFalse(runtime.lock.locked())
+        with mock.patch.object(npu, 'inventory', return_value={}):
+            with mock.patch.object(npu, 'verify_model'), \
+                 mock.patch.object(npu.multiprocessing, 'get_context') as spawn:
+                with self.assertRaisesRegex(ValueError, 'model changed'):
+                    runtime.health()
+        spawn.assert_not_called()
+
+    def test_worker_that_cannot_be_stopped_is_not_marked_recoverable(self):
+        server, client = self.sockets()
+        client.close()
+
+        class UnstoppableProcess(FakeProcess):
+            def terminate(self):
+                self.terminated = True
+
+            def kill(self):
+                pass
+
+            def is_alive(self):
+                return True
+
+        runtime = runtime_fixture()
+        runtime.process = UnstoppableProcess()
+        with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot):
+            with self.assertRaisesRegex(ValueError, 'could not be stopped'):
+                runtime.compare(request(), server)
+        self.assertFalse(runtime.recoverable_after_cancel)
+        self.assertTrue(runtime.start_failed)
+        with self.assertRaises(npu.RuntimeFailure) as failure:
+            runtime.compare(request(), server)
+        self.assertEqual(failure.exception.code, 'NPU_RECOVERY_FAILED')
+        self.assertEqual(len(runtime.connection.sent), 1)
+
+    def test_concurrent_health_checks_restart_once(self):
+        runtime = runtime_fixture()
+        runtime.recoverable_after_cancel = True
+        process = FakeProcess()
+        connection = FakePipe()
+        entered, release = threading.Event(), threading.Event()
+
+        def restart(*, call_id=None, recovery=False):
+            self.assertIsNone(call_id)
+            self.assertTrue(recovery)
+            entered.set()
+            self.assertTrue(release.wait(1))
+            runtime.process = process
+            runtime.connection = connection
+            runtime.recoverable_after_cancel = False
+
+        start_worker = mock.Mock(side_effect=restart)
+        results = []
+        with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot), \
+             mock.patch.object(npu.Runtime, '_start_worker', start_worker, create=True):
+            first = threading.Thread(target=lambda: results.append(runtime.health()))
+            second = threading.Thread(target=lambda: results.append(runtime.health()))
+            first.start()
+            self.assertTrue(entered.wait(1))
+            second.start()
+            release.set()
+            first.join(1)
+            second.join(1)
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        start_worker.assert_called_once_with(call_id=None, recovery=True)
+        self.assertEqual(len(results), 2)
 
     def test_busy_and_bad_profile_never_dispatch_to_worker(self):
         runtime = runtime_fixture()
@@ -110,6 +280,22 @@ class RuntimeLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'profile'):
             runtime.compare(bad, None)
         self.assertEqual(runtime.connection.sent, [])
+
+    def test_failed_recovery_is_attempted_once_and_remains_unavailable(self):
+        runtime = runtime_fixture()
+        runtime.recoverable_after_cancel = True
+        with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot), \
+             mock.patch.object(npu, 'verify_model'), \
+             mock.patch.object(npu.multiprocessing, 'get_context',
+                               side_effect=RuntimeError('private startup detail')) as spawn:
+            with self.assertRaises(npu.RuntimeFailure) as first:
+                runtime.health()
+            self.assertEqual(first.exception.code, 'NPU_RECOVERY_FAILED')
+            with self.assertRaises(npu.RuntimeFailure) as second:
+                runtime.health()
+        self.assertEqual(second.exception.code, 'NPU_RECOVERY_FAILED')
+        self.assertFalse(runtime.recoverable_after_cancel)
+        spawn.assert_called_once_with('spawn')
 
     def test_model_drift_rejected_before_dispatch_and_after_generation(self):
         runtime = runtime_fixture([{'finding': finding(), 'prompt_tokens': 10, 'seconds': .01}])
@@ -133,10 +319,14 @@ class RuntimeLifecycleTests(unittest.TestCase):
 
     def test_successful_result_retains_profile_and_exact_source_versions(self):
         runtime = runtime_fixture([{'finding': finding(), 'prompt_tokens': 10, 'seconds': .01}])
+        call_id = 'c'*32
         with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot), \
+             mock.patch.object(npu, 'lifecycle_event') as log_event, \
              contextlib.redirect_stdout(io.StringIO()):
-            result = runtime.compare(request(), None)
+            result = runtime.compare(request(), None, call_id=call_id)
         self.assertEqual(result, {'profile': runtime.profile, 'device': 'NPU', 'finding': finding()})
+        log_event.assert_any_call('generation_started', profile=runtime.profile,
+                                  stage='NPU_GENERATION', call_id=call_id)
         self.assertFalse(runtime.lock.locked())
 
 
@@ -210,7 +400,7 @@ class WorkerTests(unittest.TestCase):
     def test_worker_still_rejects_duplicate_keys_without_repair_or_retry(self):
         duplicate = json.dumps(finding())[:-1]+',"explanation":"duplicate"}'
         connection, pipeline, _, _, _ = self.run_worker('stop', text=duplicate)
-        self.assertEqual(connection.sent[1], {'error': 'INVALID_JSON_OR_SOURCES'})
+        self.assertEqual(connection.sent[1], {'error': 'OUTPUT_JSON'})
         pipeline.generate.assert_called_once()
 
 
@@ -218,13 +408,16 @@ class HTTPTests(unittest.TestCase):
     def server(self, unix=False):
         class FixtureRuntime:
             profile = 'a'*64
+            received_call_id = None
 
-            def health(self):
+            def health(self, call_id=None):
+                self.received_call_id = call_id
                 return {'profile': self.profile, 'device': 'NPU'}
 
-            def compare(self, value, _client):
+            def compare(self, value, _client, call_id=None):
+                self.received_call_id = call_id
                 npu.validate_request(value, self.profile)
-                return dict(self.health(), finding=finding())
+                return {'profile': self.profile, 'device': 'NPU', 'finding': finding()}
 
         if unix:
             directory = tempfile.TemporaryDirectory(prefix='pc-npu-')
@@ -253,6 +446,7 @@ class HTTPTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
         self.addCleanup(close)
+        connection._npu_runtime = server.runtime
         return connection
 
     def test_unix_socket_health_and_comparison_contract(self):
@@ -266,6 +460,37 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(json.loads(response.read())['finding'], finding())
 
+    def test_call_id_header_is_validated_and_propagated(self):
+        connection = self.server()
+        call_id = 'a'*32
+        connection.request('POST', '/compare', body=json.dumps(request()),
+                           headers={'X-NPU-Call-ID': call_id})
+        response = connection.getresponse()
+        self.assertEqual(response.status, 200)
+        response.read()
+        self.assertEqual(connection._npu_runtime.received_call_id, call_id)
+        connection.request('GET', '/health', headers={'X-NPU-Call-ID': call_id})
+        response = connection.getresponse()
+        self.assertEqual(response.status, 200)
+        response.read()
+        self.assertEqual(connection._npu_runtime.received_call_id, call_id)
+        connection.request('POST', '/compare', body=json.dumps(request()),
+                           headers={'X-NPU-Call-ID': 'not-a-call-id'})
+        response = connection.getresponse()
+        self.assertEqual(response.status, 200)
+        response.read()
+        self.assertIsNone(connection._npu_runtime.received_call_id)
+
+    def test_typed_failure_returns_only_safe_code_and_generic_message(self):
+        connection = self.server()
+        connection._npu_runtime.compare = mock.Mock(
+            side_effect=npu.RuntimeFailure('INVALID_OUTPUT', 'private source text'))
+        connection.request('POST', '/compare', body=json.dumps(request()))
+        response = connection.getresponse()
+        payload = json.loads(response.read())
+        self.assertEqual(response.status, 502)
+        self.assertEqual(payload, {'code': 'INVALID_OUTPUT', 'error': 'NPU comparison failed'})
+
     def test_handler_rejects_bad_profile_duplicate_keys_and_oversized_body(self):
         connection = self.server()
         cases = [json.dumps(dict(request(), profile='b'*64)),
@@ -273,7 +498,7 @@ class HTTPTests(unittest.TestCase):
         for body in cases:
             connection.request('POST', '/compare', body=body)
             response = connection.getresponse()
-            self.assertEqual(response.status, 422)
+            self.assertEqual(response.status, 409 if body == cases[0] else 422)
             self.assertIn('error', json.loads(response.read()))
         connection.request('POST', '/compare', body='{}', headers={'Content-Length': str(npu.MAX_BODY+1)})
         response = connection.getresponse()

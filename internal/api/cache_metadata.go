@@ -30,19 +30,35 @@ func (b *bufferedResponse) Write(p []byte) (int, error) {
 // operation. Entity tags allow finer subscriptions as the API grows. IDs in
 // tags come only from the authorized result, never from unchecked variables.
 func cacheTags(data any) []string {
-	tags := map[string]bool{"projects": true}
+	tags := map[string]bool{}
 	var visit func(any)
 	visit = func(v any) {
 		switch x := v.(type) {
 		case map[string]any:
 			if id, ok := x["projectId"].(string); ok {
-				tags["project:"+id] = true
-				tags["project:"+id+":requirements"] = true
+				_, hasRevision := x["revision"].(string)
+				_, hasAnalysisMode := x["mode"].(string)
+				_, hasCreatedAt := x["createdAt"].(string)
+				_, hasGeneratorProfile := x["generatorProfile"].(string)
+				_, hasGeneratorProvenance := x["generatorProvenance"].(string)
+				isAnalysis := x["__typename"] == "ProjectAnalysis" || x["__typename"] == "ProjectAnalysisSummary" || (hasRevision && hasAnalysisMode) || (hasAnalysisMode && hasCreatedAt) || (hasGeneratorProfile && hasGeneratorProvenance)
+				_, hasSummaryProvenance := x["provenance"].(string)
+				if hasSummaryProvenance {
+					tags["project:"+id+":summaries"] = true
+				}
+				if isAnalysis {
+					tags["project:"+id+":analysis"] = true
+				} else {
+					tags["project:"+id] = true
+					tags["project:"+id+":requirements"] = true
+					tags["projects"] = true
+				}
 			}
 			if _, ok := x["goal"]; ok {
 				if id, ok := x["id"].(string); ok {
 					tags["project:"+id] = true
 					tags["project:"+id+":requirements"] = true
+					tags["projects"] = true
 				}
 			}
 			for _, v := range x {
@@ -55,6 +71,9 @@ func cacheTags(data any) []string {
 		}
 	}
 	visit(data)
+	if len(tags) == 0 {
+		tags["projects"] = true
+	}
 	out := make([]string, 0, len(tags))
 	for k := range tags {
 		out = append(out, k)

@@ -75,18 +75,55 @@ def finding(**overrides):
 
 
 class ContractTests(unittest.TestCase):
+    def test_source_length_matches_shared_requirement_contract(self):
+        value = request()['pair']['left']
+        value['text'] = 'я' * 2001
+        payload = request()
+        payload['pair']['left']['text'] = value['text']
+        npu.validate_request(payload, 'a'*64)
+        contract_path = Path(npu.__file__).resolve().parents[2] / 'contracts' / 'requirement.json'
+        maximum = json.loads(contract_path.read_text(encoding='utf-8'))['fields']['text']['maxLength']
+        payload['pair']['left']['text'] = 'я' * (maximum + 1)
+        with self.assertRaises(ValueError):
+            npu.validate_request(payload, 'a'*64)
+
     def test_bad_profile_scope_and_source_bounds_rejected(self):
         value = request()
         npu.validate_request(value, 'a'*64)
         with self.assertRaises(ValueError):
             npu.validate_request(value, 'b'*64)
-        value['pair']['left']['text'] = 'я'*2001
+        maximum = json.loads((Path(npu.__file__).resolve().parents[2] / 'contracts' / 'requirement.json').read_text(encoding='utf-8'))['fields']['text']['maxLength']
+        value['pair']['left']['text'] = 'я' * (maximum + 1)
+        with self.assertRaises(ValueError):
+            npu.validate_request(value, 'a'*64)
+
+    def test_preclassification_is_optional_but_strict_when_present(self):
+        value = request()
+        npu.validate_request(value, 'a'*64)
+        value['pair']['preclassification'] = {'decision': 'related', 'scores': {'related': .8, 'unrelated': .1, 'uncertain': .1}}
+        npu.validate_request(value, 'a'*64)
+        for invalid in [
+                {'decision': 'unknown', 'scores': {'related': .8, 'unrelated': .1, 'uncertain': .1}},
+                {'decision': 'related', 'scores': {'related': .8, 'unrelated': .1}},
+                {'decision': 'related', 'scores': {'related': .8, 'unrelated': .1, 'uncertain': .1}, 'extra': True},
+                {'decision': 'related', 'scores': {'related': 1.2, 'unrelated': -.1, 'uncertain': 0}},
+                {'decision': 'related', 'scores': {'related': float('nan'), 'unrelated': 0, 'uncertain': 0}},
+                {'decision': 'related', 'scores': {'related': .8, 'unrelated': .1, 'uncertain': .2}},
+        ]:
+            with self.subTest(invalid=invalid):
+                value['pair']['preclassification'] = invalid
+                with self.assertRaises(ValueError):
+                    npu.validate_request(value, 'a'*64)
+        value['pair']['preclassification'] = {'decision': 'related', 'scores': {'related': .8, 'unrelated': .1, 'uncertain': .1}, 'confidence': .8}
         with self.assertRaises(ValueError):
             npu.validate_request(value, 'a'*64)
 
     def test_output_is_strict_and_references_exact_versions(self):
         pair = request()['pair']
         self.assertEqual(npu.parse_finding(json.dumps(finding()), pair)['verdict'], 'collision')
+        duplicate = finding()
+        duplicate['verdict'] = 'duplicate'
+        self.assertEqual(npu.parse_finding(json.dumps(duplicate), pair)['verdict'], 'duplicate')
         for output in [dict(finding(), leftVersion=3), dict(finding(), extra=True),
                        dict(finding(), verdict='certain'), dict(finding(), explanation=''),
                        dict(finding(), leftVersion=True)]:
@@ -96,6 +133,19 @@ class ContractTests(unittest.TestCase):
                        json.dumps(finding())[:-1]+',"verdict":"compatible"}']:
             with self.assertRaises(ValueError):
                 npu.parse_finding(output, pair)
+
+    def test_output_rejection_has_precise_safe_code(self):
+        pair = request()['pair']
+        cases = [('not json', 'OUTPUT_JSON'),
+                 (json.dumps(dict(finding(), extra=True)), 'OUTPUT_SCHEMA'),
+                 (json.dumps(dict(finding(), leftVersion=9)), 'OUTPUT_SOURCE'),
+                 (json.dumps(dict(finding(), verdict='other')), 'OUTPUT_VERDICT'),
+                 (json.dumps(dict(finding(), explanation='')), 'OUTPUT_EXPLANATION')]
+        for text, code in cases:
+            with self.subTest(code=code), self.assertRaises(npu.OutputRejected) as raised:
+                npu.parse_finding(text, pair)
+            self.assertEqual(raised.exception.code, code)
+            self.assertNotIn(text, str(raised.exception))
 
     def test_token_budget_counts_entire_template_without_truncation(self):
         class Tokenizer:

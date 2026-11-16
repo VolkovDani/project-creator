@@ -1,0 +1,92 @@
+[
+  {
+    "name": "english",
+    "text": "No guest may read tickets unless explicitly public.",
+    "valid": true,
+    "layaEligible": true
+  },
+  {
+    "name": "russian",
+    "text": "Гость не видит заявки, кроме опубликованных.",
+    "valid": true,
+    "layaEligible": true
+  },
+  {
+    "name": "ascii boundary",
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "valid": true,
+    "layaEligible": true
+  },
+  {
+    "name": "ascii over",
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "valid": true,
+    "layaEligible": false
+  },
+  {
+    "name": "cyrillic boundary",
+    "text": "яяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяя",
+    "valid": true,
+    "layaEligible": true
+  },
+  {
+    "name": "cyrillic over",
+    "text": "яяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяя",
+    "valid": true,
+    "layaEligible": false
+  },
+  {
+    "name": "emoji boundary",
+    "text": "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀ab",
+    "valid": true,
+    "layaEligible": true
+  },
+  {
+    "name": "emoji over",
+    "text": "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀",
+    "valid": true,
+    "layaEligible": false
+  },
+  {
+    "name": "quotes and newlines",
+    "text": "The \"owner\" must approve.\nLimit: 10 MB.",
+    "valid": true,
+    "layaEligible": true
+  },
+  {
+    "name": "empty",
+    "text": "",
+    "valid": false,
+    "layaEligible": false
+  },
+  {
+    "name": "whitespace",
+    "text": " \n\t",
+    "valid": false,
+    "layaEligible": false
+  },
+  {
+    "name": "unicode NEL blank",
+    "text": "",
+    "valid": false,
+    "layaEligible": false
+  },
+  {
+    "name": "unicode BOM is content",
+    "text": "﻿",
+    "valid": true,
+    "layaEligible": true
+  },
+  {
+    "name": "unicode NBSP blank",
+    "text": " ",
+    "valid": false,
+    "layaEligible": false
+  },
+  {
+    "name": "NUL cannot be stored in PostgreSQL text",
+    "text": "hello\u0000world",
+    "valid": false,
+    "layaEligible": false
+  }
+]

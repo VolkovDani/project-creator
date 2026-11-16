@@ -17,7 +17,10 @@ func configuredGenerator(getenv func(string) string) (analysis.Generator, error)
 		if model == "" && digest == "" {
 			return nil, nil
 		}
-		base := getenv("PROJECT_CREATOR_OLLAMA_URL")
+		base := getenv("PROJECT_CREATOR_GENERATOR_URL")
+		if base == "" {
+			base = getenv("PROJECT_CREATOR_OLLAMA_URL")
+		}
 		if base == "" {
 			base = "http://127.0.0.1:11434"
 		}

@@ -94,7 +94,7 @@ func TestProgressPersistsBeforeRemainingPairsAndSurvivesRequestCancellation(t *t
 	if progress.Pairs[0].Status != "completed" || progress.Pairs[1].Status != "running" || progress.Pairs[2].Status != "pending" || progress.ActivePairID != progress.Pairs[1].ID {
 		t.Fatal(progress.Pairs)
 	}
-	persisted, err := scanRun(db.QueryRow(`SELECT `+runColumns+` FROM analysis_runs WHERE id=$1`, run.ID))
+	persisted, err := service.Get(context.Background(), "a", "p", run.ID)
 	if err != nil || len(persisted.Findings) != 1 || persisted.ProcessedPairs != 1 {
 		t.Fatalf("not durable before next pair: %+v %v", persisted, err)
 	}
@@ -154,7 +154,7 @@ func TestPairFailureRetryKeepsCompletedPairsAndRequiresCurrentLatestSnapshot(t *
 }
 
 func TestRetryRejectsChangedSourcesAndProfiles(t *testing.T) {
-	for _, change := range []string{"sources", "generator", "embedding"} {
+	for _, change := range []string{"sources", "generator"} {
 		t.Run(change, func(t *testing.T) {
 			db, retriever, _ := analysisDB(t)
 			ready(t, retriever)
@@ -169,8 +169,6 @@ func TestRetryRejectsChangedSourcesAndProfiles(t *testing.T) {
 				_, err = db.Exec(`UPDATE requirements SET text='Changed',version=2 WHERE id='left'`)
 			case "generator":
 				service = testService(t, db, retriever, &fakeGenerator{profile: "gen-b"}, "embed-a")
-			case "embedding":
-				service = testService(t, db, retriever, gen, "embed-b")
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -330,6 +328,82 @@ func TestLossOfModelLockSessionCancelsGeneration(t *testing.T) {
 	interrupted := waitForRun(t, service, "a", "p", run.ID)
 	if interrupted.Status != "failed" || interrupted.ErrorCode != "INTERRUPTED" || interrupted.Pairs[0].Status != "failed" {
 		t.Fatalf("lost lock left inference running: %+v", interrupted)
+	}
+}
+
+func TestCancelFencesLatePairAndIsIdempotent(t *testing.T) {
+	db, retriever, _ := analysisDB(t)
+	ready(t, retriever)
+	addThird(t, db, retriever)
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(release) })
+	var calls atomic.Int32
+	gen := generatorFunc(func(ctx context.Context, pair Pair) (Finding, error) {
+		if calls.Add(1) == 2 {
+			close(started)
+			<-ctx.Done()
+			close(cancelled)
+			<-release // Deliberately return a valid late response after cancellation.
+		}
+		return findingFor(pair), nil
+	})
+	service := testService(t, db, retriever, gen, "embed-a")
+	run, err := service.Start(context.Background(), "a", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSignal(t, started)
+	canceled, err := service.Cancel(context.Background(), "a", "p", run.ID)
+	if err != nil || canceled.Status != "failed" || canceled.ErrorCode != "CANCELLED" || canceled.ProcessedPairs != 2 || canceled.Pairs[0].Status != "completed" || canceled.Pairs[1].ErrorCode != "CANCELLED" || canceled.Pairs[2].ErrorCode != "CANCELLED" {
+		t.Fatalf("cancel state: %+v %v", canceled, err)
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("active model call did not receive cancellation promptly")
+	}
+	releaseOnce.Do(func() { close(release) })
+	time.Sleep(50 * time.Millisecond)
+	after, err := service.Get(context.Background(), "a", "p", run.ID)
+	if err != nil || after.Status != "failed" || after.ErrorCode != "CANCELLED" || after.CompletedPairs != 1 || calls.Load() != 2 {
+		t.Fatalf("late result escaped cancellation fence: %+v calls=%d err=%v", after, calls.Load(), err)
+	}
+	again, err := service.Cancel(context.Background(), "a", "p", run.ID)
+	if err != nil || again.ErrorCode != "CANCELLED" {
+		t.Fatalf("repeat cancel: %+v %v", again, err)
+	}
+	if _, err = service.Cancel(context.Background(), "b", "p", run.ID); err != ErrNotFound {
+		t.Fatalf("cross-workspace cancel: %v", err)
+	}
+	if _, err = service.Cancel(context.Background(), "a", "q", run.ID); err != ErrNotFound {
+		t.Fatalf("cross-project cancel: %v", err)
+	}
+	if _, err = service.Retry(context.Background(), "a", "p", run.ID); err != nil {
+		t.Fatalf("retry cancelled run: %v", err)
+	}
+	completed := waitForRun(t, service, "a", "p", run.ID)
+	if completed.Status != "completed" || completed.CompletedPairs != 3 || calls.Load() != 4 {
+		t.Fatalf("retry did not preserve completed pair: %+v calls=%d", completed, calls.Load())
+	}
+	unchanged, err := service.Cancel(context.Background(), "a", "p", run.ID)
+	if err != nil || unchanged.Status != "completed" || unchanged.CompletedPairs != 3 {
+		t.Fatalf("cancel changed a completed run: %+v %v", unchanged, err)
+	}
+}
+
+func TestCancelQueuedRun(t *testing.T) {
+	db, retriever, _ := analysisDB(t)
+	service := &Service{db: db, retriever: retriever, generator: &fakeGenerator{profile: "gen-a"}, embeddingProfile: "embed-a"}
+	run, err := service.Start(context.Background(), "a", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	canceled, err := service.Cancel(context.Background(), "a", "p", run.ID)
+	if err != nil || canceled.Status != "failed" || canceled.ErrorCode != "CANCELLED" {
+		t.Fatalf("queued cancel: %+v %v", canceled, err)
 	}
 }
 

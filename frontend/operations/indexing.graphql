@@ -1,0 +1,16 @@
+query RequirementIndexByIds($projectId: ID!, $requirementIds: [ID!]!) {
+  requirementIndexByIds(projectId: $projectId, requirementIds: $requirementIds) {
+    projectId
+    requirementId
+    version
+    status
+    profile
+    errorCode
+  }
+}
+
+query RequirementIndexProgress($projectId: ID!) {
+  requirementIndexProgress(projectId: $projectId) {
+    projectId total queued running ready failed profile configured
+  }
+}

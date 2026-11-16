@@ -79,6 +79,32 @@ class GPUTests(unittest.TestCase):
         self.assertEqual(config.state['gpu_id'], None)
         self.assertEqual(config.values['GGML_VK_VISIBLE_DEVICES'], '')
 
+    def test_vulkan_switch_to_npu_arc_clears_previous_adapter(self):
+        config = cli.Config(self.root)
+        config.ensure('amd-vulkan', gpu_id='3')
+        config.ensure('npu', ollama_device='arc', switch=True)
+        app = cli.Installer(self.root, output=io.StringIO())
+        self.assertIsNone(app.gpu_id('arc'))
+        self.assertEqual(app.config.values['GGML_VK_VISIBLE_DEVICES'], '')
+
+    def test_npu_arc_rejects_uuid_before_saving_configuration(self):
+        config = cli.Config(self.root)
+        with self.assertRaisesRegex(cli.Failure, 'GPU_SELECTION'):
+            config.ensure('npu', ollama_device='arc', gpu_id='GPU-1234')
+        self.assertFalse(config.state)
+
+    def test_amd_vulkan_restart_keeps_numeric_selector_in_compose(self):
+        config = cli.Config(self.root)
+        config.ensure('amd-vulkan', gpu_id='2')
+        app = cli.Installer(self.root, output=io.StringIO())
+        app.config.update_env({'GGML_VK_VISIBLE_DEVICES': 'wrong'})
+        calls = []
+        app.runner.run = lambda args, **kw: calls.append((args, kw))
+        app.compose('config')
+        self.assertEqual(app.config.state['ollama_device'], 'amd-vulkan')
+        self.assertEqual(calls[-1][1]['env']['GGML_VK_VISIBLE_DEVICES'], '2')
+        self.assertIn(str(self.root/'compose.amd-vulkan.yml'), calls[-1][0])
+
     def test_old_arc_state_keeps_existing_vulkan_selector(self):
         config = cli.Config(self.root)
         config.ensure('arc')

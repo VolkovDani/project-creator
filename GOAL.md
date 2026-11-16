@@ -180,20 +180,26 @@ Fullstack-приложение для управления знаниями о �
 
 ### Снимок состояния на 16 ноября 2026 года
 
-Проверенный `main`: [`688cfcf6`](https://github.com/VolkovDani/project-creator/commit/688cfcf6cdc2ec464f3c2b26a233ccf1e7630344)
-от 9 ноября. Открыты **15 issues**: #22, #39, #40, #44, #46, #49–53,
-#57, #58, #64, #77, #78. Опубликованных GitHub Releases нет.
-Открытый [PR #43](https://github.com/VolkovDani/project-creator/pull/43)
-имеет конфликты и не слит; закрытие #42 не означает поставку AMD Vulkan.
-Этот PR остаётся вне ближайшего релиза.
+Проверенный `main`: [`d1ccde5`](https://github.com/VolkovDani/project-creator/commit/d1ccde5ff97ac23d1c46ca99c44af580502247e9).
+[PR #80](https://github.com/VolkovDani/project-creator/pull/80) исправил
+нестабильную проверку завершения infinite scroll; [PR #43](https://github.com/VolkovDani/project-creator/pull/43)
+добавил AMD Vulkan, [PR #82](https://github.com/VolkovDani/project-creator/pull/82)
+— завершающий CI job для явно разрешённого автомержа. Все три PR слиты.
 
-[CI на проверенном SHA](https://github.com/VolkovDani/project-creator/actions/runs/42614073023)
-завершился ошибкой: 78 UX-тестов прошли, один упал при клике «Загрузить ещё»
-на узком экране — блок «Предложение, созданное ИИ» перехватывал pointer events.
-Go-проверки, frontend unit/typecheck/build и контейнерный smoke прошли;
-последующий основной E2E-шаг пропущен. Лог подтверждает симптом, но сам по себе
-не отличает устойчивый дефект интерфейса от нестабильности теста.
-При этой сверке тесты повторно не запускались; текущий HEAD не принят к выпуску.
+Релизные UI-исправления #44 представлены в [PR #83](https://github.com/VolkovDani/project-creator/pull/83),
+инструкции автомержа — в [PR #84](https://github.com/VolkovDani/project-creator/pull/84).
+На момент сверки оба открыты, без конфликтов, с успешным CI на своих SHA;
+их изменения не входят в проверенный `main`.
+
+По [#85](https://github.com/VolkovDani/project-creator/issues/85) выполнена
+[детерминированная приёмка анализа пар](docs/pair-analysis-acceptance.md):
+225 Go-тестов, 67 frontend unit и 44 E2E прошли; 10 opt-in аппаратных тестов
+не запускались. Исторический сбой UX CI больше не является актуальным
+блокером на этом срезе. Результаты заглушек не подтверждают качество моделей.
+Сохраняются приёмка реального модельного профиля, производительность,
+установка/обновление и проверка окончательного SHA после интеграции UI.
+`npm audit` выявил предупреждения в dev-цепочке codegen; до выпуска нужна
+отдельная оценка и обновление, подробности — в отчёте #85.
 
 ### Уже реализованная основа
 

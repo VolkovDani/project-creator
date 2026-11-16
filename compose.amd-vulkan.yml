@@ -1,0 +1,19 @@
+# Native Linux only; AMD RADV Vulkan GPU/iGPU. No ROCm or /dev/kfd required.
+# Do not combine this override with other GPU profiles.
+services:
+  ollama:
+    image: project-creator-ollama-amd-vulkan:0.40.11
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile.ollama-amd-vulkan
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      OLLAMA_VULKAN: '1'
+      CUDA_VISIBLE_DEVICES: '-1'
+      ROCR_VISIBLE_DEVICES: '-1'
+      VK_DRIVER_FILES: /etc/project-creator-amd-vulkan.json
+      VK_ICD_FILENAMES: /etc/project-creator-amd-vulkan.json
+      # Numeric Vulkan ID from the container logs; blank uses automatic discovery.
+      GGML_VK_VISIBLE_DEVICES: ${GGML_VK_VISIBLE_DEVICES:-}

@@ -109,6 +109,7 @@ jobs:
           docker compose --env-file "$COMPOSE_ENV_FILE" -f compose.yml -f compose.intel.yml config --quiet
           PROJECT_CREATOR_NPU_PROFILE=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa NPU_SOCKET_GID=1000 NPU_SOCKET_DIR=/tmp/project-creator-npu docker compose --env-file "$COMPOSE_ENV_FILE" -f compose.yml -f compose.npu.yml config --quiet
           PROJECT_CREATOR_GPU_ID=GPU-1234abcd docker compose --env-file "$COMPOSE_ENV_FILE" -f compose.yml -f compose.amd.yml config --quiet
+          GGML_VK_VISIBLE_DEVICES=0 docker compose --env-file "$COMPOSE_ENV_FILE" -f compose.yml -f compose.amd-vulkan.yml config --quiet
           node --test scripts/intel-compose.check.mjs scripts/npu-compose.check.mjs scripts/gpu-compose.check.mjs
       - name: Free space for large Docker layers
         # This job uses an ephemeral GitHub-hosted runner, never a developer host.
@@ -138,6 +139,13 @@ jobs:
         # The Intel image is already verified and its cache export has finished.
         run: |
           docker image rm project-creator-ollama-intel:0.40.11
+          docker buildx prune --all --force
+      - name: Build and verify AMD RADV Vulkan runtime (no GPU required)
+        # Keep the three existing remote caches; release this image before the app builds.
+        run: |
+          docker buildx build --load -f Dockerfile.ollama-amd-vulkan -t project-creator-ollama-amd-vulkan:0.40.11 .
+          docker run --rm --entrypoint sh project-creator-ollama-amd-vulkan:0.40.11 -c 'test -s /etc/project-creator-amd-vulkan.json && ollama --version'
+          docker image rm project-creator-ollama-amd-vulkan:0.40.11
           docker buildx prune --all --force
       - name: Build backend with cached layers
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -173,6 +181,3 @@ jobs:
       - name: Remove disposable containers and data
         if: always()
         run: docker compose --env-file "$COMPOSE_ENV_FILE" down --volumes --remove-orphans
-
-
-

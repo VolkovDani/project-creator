@@ -101,3 +101,16 @@ test('browser setup uses supported LTS and downloads only the needed headless sh
   assert.match(checks, /playwright install --with-deps --only-shell chromium/);
   assert.doesNotMatch(checks, /mcr\.microsoft\.com\/playwright/);
 });
+
+
+test('AMD Vulkan is verified and released before application builds without another remote cache', () => {
+  const amd = steps.find((step) => step.includes('name: Build and verify AMD RADV Vulkan runtime'));
+  assert.ok(amd);
+  assert.match(amd, /docker buildx build --load -f Dockerfile.ollama-amd-vulkan/);
+  assert.match(amd, /docker run --rm --entrypoint sh project-creator-ollama-amd-vulkan:0\.40\.11/);
+  assert.match(amd, /docker image rm project-creator-ollama-amd-vulkan:0\.40\.11/);
+  assert.match(amd, /docker buildx prune --all --force/);
+  assert.ok(steps.indexOf(amd) > steps.findIndex((step) => step.includes('Release verified Intel image')));
+  assert.ok(steps.indexOf(amd) < steps.indexOf(builds[1]));
+  assert.doesNotMatch(amd, /cache-to/);
+});

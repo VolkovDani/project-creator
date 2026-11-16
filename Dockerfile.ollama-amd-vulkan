@@ -1,0 +1,9 @@
+# The base Ollama image includes Vulkan, but the Radeon Mesa ICD is supplied here.
+# Restrict the Vulkan loader to AMD RADV on mixed-vendor laptops.
+FROM ollama/ollama:0.40.11
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends mesa-vulkan-drivers \
+    && set -- /usr/share/vulkan/icd.d/radeon_icd*.json \
+    && test "$#" -eq 1 && test -s "$1" \
+    && ln -s "$1" /etc/project-creator-amd-vulkan.json \
+    && rm -rf /var/lib/apt/lists/*

@@ -8,9 +8,9 @@ export default function ProjectPage() {
     <section>
       <h2>{t(locale, 'nav.overview')}</h2>
       <h3>{t(locale, 'app.goal')}</h3>
-      <p>{project.goal}</p>
+      <p className="user-content">{project.goal}</p>
       <h3>{t(locale, 'app.description')}</h3>
-      <p>{project.description}</p>
+      <p className="user-content">{project.description}</p>
       <div className="overview-links">
         {sections
           .filter((key) => key !== 'overview')

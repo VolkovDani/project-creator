@@ -1,4 +1,9 @@
 import { expect, type Page, test } from '@playwright/test';
+import { expectLayout, layoutCases, setLayout } from './layout-assertions';
+
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status === 'passed') await expectLayout(page);
+});
 
 const project = {
   id: 'demo',
@@ -17,8 +22,17 @@ const requirement = (id: number) => ({
   updatedAt: 'now',
 });
 
-async function fixture(page: Page, count = 21) {
-  const rows = Array.from({ length: count }, (_, i) => requirement(i));
+async function fixture(
+  page: Page,
+  count = 21,
+  sourceSuffix = '',
+  projectValue = project,
+  summaryText?: string,
+) {
+  const rows = Array.from({ length: count }, (_, i) => ({
+    ...requirement(i),
+    text: requirement(i).text + sourceSuffix,
+  }));
   const waiting = new Set<(body: string) => void>();
   let delay: Promise<void> | undefined;
   let failure = 0;
@@ -67,7 +81,8 @@ async function fixture(page: Page, count = 21) {
             projectId: row.projectId,
             version: row.version,
             status: 'ready',
-            text: row.text,
+            text:
+              summaryText ?? (sourceSuffix ? row.text.slice(0, -sourceSuffix.length) : row.text),
             profile: 'fixture-summary-profile',
             provenance: 'fixture-summary-origin',
             createdAt: 'now',
@@ -126,7 +141,7 @@ async function fixture(page: Page, count = 21) {
             requirementId: 'r20',
             projectId: 'demo',
             text: 'Результат поиска',
-            sourceText: rows[20]?.text || 'Требование 20',
+            sourceText: rows[20]?.text || rows[0]?.text || 'Требование 20',
             version: 1,
             start: 0,
             end: 12,
@@ -139,13 +154,13 @@ async function fixture(page: Page, count = 21) {
     else if (query.includes('projectsConnection('))
       data = {
         projectsConnection: {
-          edges: [{ cursor: 'project-1', node: project }],
+          edges: [{ cursor: 'project-1', node: projectValue }],
           pageInfo: { endCursor: 'project-1', hasNextPage: false },
           totalCount: 1,
         },
       };
-    else if (query.includes('projects(')) data = { projects: [project] };
-    else data = { project };
+    else if (query.includes('projects(')) data = { projects: [projectValue] };
+    else data = { project: projectValue };
     await route.fulfill({ json: { data } }).catch(() => {});
   });
   return {
@@ -220,10 +235,46 @@ test('infinite requirements append on scroll and stop at the terminal page', asy
   await expect.poll(() => api.connectionReads().length).toBe(1);
   expect(api.connectionReads()[0]?.first).toBe(40);
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await expect.poll(() => api.connectionReads().length).toBeGreaterThan(1);
-  await page.getByRole('button', { name: 'Загрузить ещё', exact: true }).click();
-  await expect.poll(() => api.connectionReads().length).toBe(3);
+  // Auto-loading can consume the terminal page before a manual click.
+  // Keep scrolling until all pages arrive; test the button independently below.
+  await expect
+    .poll(async () => {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      return api.connectionReads().length;
+    })
+    .toBe(3);
+  expect(api.connectionReads().map((read) => read.after)).toEqual([null, 'cursor-40', 'cursor-80']);
   await expect(page.getByRole('button', { name: 'Загрузить ещё', exact: true })).toHaveCount(0);
+});
+
+test('dynamic requirement cards keep the load button outside their content', async ({ page }) => {
+  const api = await fixture(
+    page,
+    200,
+    '\nДлинное условие с пояснениями и ограничениями.'.repeat(20),
+  );
+  await page.goto('/projects/demo/requirements');
+  const last = page.locator('#requirement-r39');
+  const more = page.getByRole('button', { name: 'Загрузить ещё', exact: true });
+  await more.scrollIntoViewIfNeeded();
+  await last.getByText('Полный исходный текст требования', { exact: true }).click();
+  await expect
+    .poll(async () => {
+      return page.evaluate(() => {
+        const button = [...document.querySelectorAll('button')].find(
+          (el) => el.textContent === 'Загрузить ещё',
+        );
+        if (!button) return false;
+        const top = button.getBoundingClientRect().top;
+        return [...document.querySelectorAll('[data-virtual-id] section')].every(
+          (el) => el.getBoundingClientRect().bottom <= top,
+        );
+      });
+    })
+    .toBe(true);
+  const before = api.connectionReads().length;
+  await more.click();
+  await expect.poll(() => api.connectionReads().length).toBeGreaterThan(before);
 });
 
 test('infinite page retry keeps the already rendered rows', async ({ page }) => {
@@ -638,3 +689,81 @@ test('a late create response does not redirect after the user has left the form'
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('link', { name: project.name, exact: true })).toBeVisible();
 });
+
+for (const { width, zoom } of layoutCases) {
+  test(`responsive content at ${width}px zoom ${zoom} preserves full project text`, async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'Explicit viewport matrix');
+    await setLayout(page, width, zoom);
+    const longText = `${'ТребованиеURL_identifier'.repeat(20)}\nВторая строка / second line`;
+    const api = await fixture(
+      page,
+      3,
+      longText,
+      {
+        ...project,
+        name: 'Проект'.repeat(20),
+        goal: longText,
+        description: longText,
+      },
+      longText,
+    );
+    api.setProgress({
+      total: 2147483647,
+      ready: 1000000000,
+      queued: 1147483645,
+      running: 1,
+      failed: 1,
+    });
+    await page.goto('/?listMode=pages');
+    await expect(page.getByRole('article')).toHaveCount(1);
+    await expectLayout(page);
+    await page.getByRole('article').getByRole('link').click();
+    await expect(page.getByRole('heading', { name: 'Обзор', exact: true })).toBeVisible();
+    await expectLayout(page);
+    await page.screenshot({ path: testInfo.outputPath('overview.png'), fullPage: true });
+    const description = page.locator('section > p').filter({ hasText: 'Вторая строка' }).first();
+    await expect(description).toHaveText(longText);
+    expect(await description.evaluate((el) => getComputedStyle(el).whiteSpace)).toMatch(/pre/);
+    for (const locale of ['ru', 'en']) {
+      await page.locator('.language select').selectOption(locale);
+      for (const path of ['requirements', 'indexing', 'search', 'analysis']) {
+        await page.goto(`/projects/demo/${path}?listMode=pages`);
+        await expect(page.locator('.project-nav a[aria-current="page"]')).toBeVisible();
+        await expect(page.locator('main h2').first()).toBeVisible();
+        if (path === 'requirements') {
+          const card = page.locator('#requirement-r0');
+          const original = card.locator('details').last().locator('summary');
+          await original.focus();
+          await page.keyboard.press('Enter');
+          await expect(card.locator('details').last()).toHaveAttribute('open', '');
+          await expect(card.locator('details').last().locator('p')).toHaveText(
+            `Требование 0${longText}`,
+          );
+          const edit = card.getByRole('button', {
+            name: locale === 'ru' ? 'Изменить' : 'Edit',
+            exact: true,
+          });
+          await edit.click();
+          await expect(page.locator('textarea').first()).toHaveValue(`Требование 0${longText}`);
+        }
+        if (path === 'indexing') {
+          await expect(page.locator('#indexing-r1')).toBeVisible();
+          const ready = page.locator('.data-group').last();
+          if ((await ready.getAttribute('open')) === null) await ready.locator('summary').click();
+          await expect(page.locator('#indexing-r0')).toBeVisible();
+        }
+        if (path === 'search') {
+          await page
+            .locator('#semantic-search-form textarea, #semantic-search-form input')
+            .fill('text');
+          await page.locator('#semantic-search-form button').click();
+          await page.locator('article details summary').click();
+          await expect(page.locator('article details p')).toHaveText(`Требование 0${longText}`);
+        }
+        await expectLayout(page);
+      }
+    }
+  });
+}

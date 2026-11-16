@@ -1,4 +1,9 @@
 import { type BrowserContext, expect, type Locator, type Page, test } from '@playwright/test';
+import { expectLayout, layoutCases, setLayout } from './layout-assertions';
+
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status === 'passed') await expectLayout(page);
+});
 
 let fixtureRevision = 0;
 
@@ -1345,3 +1350,56 @@ test('cancel failure leaves the running analysis available for another attempt',
   await expect(page.getByText('Анализ выполняется', { exact: true })).toBeVisible();
   await expect(page.getByText('Анализ отменён', { exact: true })).toHaveCount(0);
 });
+
+for (const { width, zoom } of layoutCases) {
+  test(`responsive analysis at ${width}px zoom ${zoom} keeps long sources and provenance inside groups`, async ({
+    page,
+  }) => {
+    await setLayout(page, width, zoom);
+    const text = `${'https://example.test/Длинный_идентификатор'.repeat(20)}\nSecond line / вторая строка`;
+    const provenance = JSON.stringify({
+      model: 'local-model',
+      digest: 'abcdef0123456789'.repeat(40),
+    });
+    await fixture(
+      page,
+      complete({
+        generatorProvenance: provenance,
+        generatorProfile: text,
+        selectionProfile: text,
+        embeddingProfile: text,
+        pairs: [
+          {
+            ...candidate('long-pair', 0, 'completed', 'collision'),
+            left: { ...sources[0], text },
+            right: { ...sources[1], text },
+            explanation: text,
+          },
+        ],
+      }),
+    );
+    await page.goto('/projects/demo/analysis');
+    for (const locale of ['ru', 'en'] as const) {
+      await page.locator('.language select').selectOption(locale);
+      const provenanceGroup = page.getByText(
+        locale === 'ru'
+          ? 'Профиль генератора и происхождение проверки'
+          : 'Generator profile and comparison provenance',
+        { exact: true },
+      );
+      if (
+        (await provenanceGroup.locator('xpath=ancestor::details[1]').getAttribute('open')) === null
+      )
+        await provenanceGroup.click();
+      await expect(page.locator('pre')).toHaveText(provenance);
+      const collision = page.getByRole('group', {
+        name: locale === 'ru' ? 'Возможные противоречия: 1' : 'Possible contradictions: 1',
+        exact: true,
+      });
+      await expandGroup(collision);
+      const pair = await expandPair(collision);
+      await expect(pair.locator('.analysis-source').first()).toContainText(text);
+      await expectLayout(page);
+    }
+  });
+}

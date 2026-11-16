@@ -3,7 +3,9 @@
 Функция #48 включается явно. Без настроенной Laya приложение сохраняет прежний
 анализ. Веса автоматически не загружаются; существующие данные и профили сохраняются.
 
-Локальный Ollama 0.40.11 поддерживает `/v1/systemone`. Используется только
+Контракт Ollama 0.40.16 содержит `/v1/systemone`. Аппаратные прогоны ниже
+относятся к прежнему профилю; обновление контейнера само по себе не подтверждает
+качество Laya или выжимок на новой версии. Используется только
 `laya:322m-multilingual-bf16`; английский `laya:latest` и aliases не подменяют эту
 модель. Установка по явной команде:
 
@@ -83,7 +85,7 @@ NPU diagnostics). Нужны холодный/тёплый запуск и пр�
 Эти замеры не задают универсальный latency budget или гарантию ускорения.
 
 Источники: [точный тег Ollama](https://ollama.com/library/laya:322m-multilingual-bf16),
-[контракт API 0.40.11](https://github.com/ollama/ollama/blob/v0.40.11/docs/openapi.yaml),
+[контракт API 0.40.16](https://github.com/ollama/ollama/blob/v0.40.16/docs/openapi.yaml),
 [upstream конфигурация Laya](https://github.com/NandhaKishorM/laya/blob/main/laya-rust/README.md).
 Решение: [ADR-008](adr/008-laya-pipeline.md).
 

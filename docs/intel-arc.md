@@ -1,7 +1,7 @@
 # Запуск на Intel Arc / Core Ultra
 
 Вариант для ноутбука Intel Core Ultra 7 268V со встроенной Intel Arc:
-нативный Linux Docker Engine + Compose v2, Ollama 0.40.11 через Vulkan.
+нативный Linux Docker Engine + Compose v2, Ollama 0.40.16 через Vulkan.
 Docker Desktop VM/WSL2 здесь не проверены; проброс `/dev/dri` предназначен
 для нативного Linux. NPU процессора этот вариант не использует.
 

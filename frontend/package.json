@@ -26,15 +26,19 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
-    "@graphql-codegen/cli": "6.1.0",
-    "@graphql-codegen/typed-document-node": "6.0.0",
-    "@graphql-codegen/typescript": "5.0.0",
-    "@graphql-codegen/typescript-operations": "5.0.0",
+    "@graphql-codegen/cli": "8.0.0",
+    "@graphql-codegen/typed-document-node": "8.0.0",
+    "@graphql-codegen/typescript-operations": "7.0.1",
     "@playwright/test": "1.56.1",
     "@types/node": "24.10.0",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
     "typescript": "5.9.3"
   },
-  "type": "module"
+  "type": "module",
+  "overrides": {
+    "graphql-config": {
+      "minimatch": "11.0.1"
+    }
+  }
 }

@@ -682,6 +682,9 @@ npm run dev -- -H 127.0.0.1
 
 Проверка после изменения GraphQL-схемы и операций:
 
+Версии codegen, причина точечного override `minimatch` и порядок его удаления
+описаны в [оценке зависимостей генератора](docs/codegen-dependencies.md).
+
 ```bash
 cd frontend
 npm run codegen

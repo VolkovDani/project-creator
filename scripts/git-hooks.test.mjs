@@ -107,7 +107,7 @@ test('documentation-only commits need no installed Biome; frontend commits fail 
   f.write('frontend/demo.ts', 'export const demo = 1;\n'); f.git('add', 'frontend/demo.ts');
   const result = f.hook();
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /npm ci/);
+  assert.match(result.stderr, /bun install --frozen-lockfile/);
 });
 
 test('installer is repeatable and connects tracked executable hook', (t) => {

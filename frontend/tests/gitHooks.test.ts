@@ -11,7 +11,7 @@ test('repository Git hooks work with the pinned Biome', {
 }, () => {
   assert.ok(
     existsSync(new URL('../node_modules/@biomejs/biome/bin/biome', import.meta.url)),
-    'Install the pinned Biome with npm ci before running hook integration tests',
+    'Install the pinned Biome with bun install --frozen-lockfile before running hook integration tests',
   );
   // A nested Node test runner must not inherit its parent's worker context.
   const env = { ...process.env };

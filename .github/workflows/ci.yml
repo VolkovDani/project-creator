@@ -203,7 +203,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.22.1'
-      - name: Squash merge an explicitly labeled PR at the tested SHA
+      - name: Merge an explicitly labeled PR at the tested SHA
         env:
           GH_TOKEN: ${{ github.token }}
           NEEDS_JSON: ${{ toJSON(needs) }}

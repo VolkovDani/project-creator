@@ -30,12 +30,12 @@ function fixture() {
 }
 const writes = (f) => f.calls.filter((call) => call.body);
 
-test('squashes the tested head only, without deleting the branch', async () => {
+test('creates a merge commit for the tested head only, without deleting the branch', async () => {
   const f = fixture();
   const result = await autoMerge(f.context, f.request);
   assert.equal(result.merged, true);
   assert.deepEqual(writes(f), [{ path: `repos/${repository}/pulls/81/merge`,
-    body: { sha: head, merge_method: 'squash' } }]);
+    body: { sha: head, merge_method: 'merge' } }]);
 });
 
 for (const result of ['failure', 'cancelled', 'skipped', '']) {

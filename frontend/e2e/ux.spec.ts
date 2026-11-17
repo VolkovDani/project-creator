@@ -515,6 +515,30 @@ test('indexing appends on scroll with matching statuses and stops at the end', a
   await expect(failed.getByText('Требование 1', { exact: true })).toBeVisible();
 });
 
+test('indexing group state is restored across a Russian to English navigation', async ({
+  page,
+}) => {
+  await fixture(page, 2);
+  await page.goto('/projects/demo/indexing');
+  const language = page.locator('.language select');
+  await language.selectOption('ru');
+  let ready = page.locator('.data-group').last();
+  await expect(ready).toHaveAttribute('data-restored', 'true');
+  if ((await ready.getAttribute('open')) === null) await ready.locator('summary').click();
+  await expect(page.locator('#indexing-r0')).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem('group:demo:indexing:ready')))
+    .toBe('true');
+
+  await language.selectOption('en');
+  await page.goto('/projects/demo/requirements');
+  await page.goto('/projects/demo/indexing');
+  ready = page.locator('.data-group').last();
+  await expect(ready).toHaveAttribute('data-restored', 'true');
+  await expect(ready).toHaveAttribute('open', '');
+  await expect(page.locator('#indexing-r0')).toBeVisible();
+});
+
 test('indexing load-more retry preserves loaded cards', async ({ page }) => {
   const api = await fixture(page, 85);
   await page.goto('/projects/demo/indexing');
@@ -751,6 +775,7 @@ for (const { width, zoom } of layoutCases) {
         if (path === 'indexing') {
           await expect(page.locator('#indexing-r1')).toBeVisible();
           const ready = page.locator('.data-group').last();
+          await expect(ready).toHaveAttribute('data-restored', 'true');
           if ((await ready.getAttribute('open')) === null) await ready.locator('summary').click();
           await expect(page.locator('#indexing-r0')).toBeVisible();
         }

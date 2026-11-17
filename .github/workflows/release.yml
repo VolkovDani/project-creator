@@ -47,7 +47,7 @@ jobs:
       TEST_DATABASE_URL: postgresql://project_creator:ci-test-password@127.0.0.1:5432/project_creator_test?sslmode=disable
       E2E_DATABASE_URL: postgresql://project_creator:ci-test-password@127.0.0.1:5432/project_creator_e2e?sslmode=disable
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Validate release input, source tag, and main ancestry
@@ -93,7 +93,7 @@ jobs:
             const runs = JSON.parse(input);
             validateSuccessfulMainCi(runs, process.env.SOURCE_SHA);
           ' <<< "$runs"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.source_sha }}
       - uses: actions/setup-go@v5

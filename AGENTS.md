@@ -182,6 +182,10 @@
 
 ## GitHub
 
+- Write GitHub Issue and Pull Request titles, descriptions, review text, and
+  comments in English only. Keep Russian text in documentation, including its
+  required Russian translations; do not duplicate GitHub discussions in Russian.
+
 - Format milestone descriptions in readable Markdown: separate the goal,
   release contents, required release conditions, and scope boundaries using
   headings and paragraphs. Use lists for tasks and conditions; leave blank

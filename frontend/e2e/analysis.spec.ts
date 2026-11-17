@@ -34,6 +34,8 @@ const candidate = (id: string, position: number, status: string, verdict = '') =
   reusedFrom: '',
   checkedAt: 'now',
   generatorProfile: 'g',
+  detailsVersion: `details-${id}`,
+  isExactDuplicate: false,
 });
 const complete = (overrides: Record<string, unknown> = {}) => {
   fixtureRevision++;
@@ -696,9 +698,7 @@ test('all verdict groups have counts and collapse without changing source snapsh
   const compatible = area.getByRole('group', { name: /^Противоречий не обнаружено(?:: \d+)?$/ });
   await expandGroup(compatible);
   await expandPair(compatible);
-  await expect(
-    compatible.getByText('В этой паре противоречие не найдено', { exact: true }),
-  ).toBeVisible();
+  await expect(compatible.getByText(finding.explanation, { exact: true })).toBeVisible();
   await expect(compatible.getByText('Не связаны требования', { exact: false })).toHaveCount(0);
   const collision = area.getByRole('group', { name: /^Возможные противоречия(?:: \d+)?$/ });
   await expandGroup(collision);
@@ -1031,6 +1031,8 @@ test('history preserves the original generator profile and reused comparison pro
   const collision = area.getByRole('group', { name: /^Возможные противоречия/ });
   await expandGroup(collision);
   const oldPair = await expandPair(collision);
+  const technical = oldPair.getByRole('group', { name: 'Техническая информация' });
+  await technical.locator(':scope > summary').click();
   await expect(
     oldPair.getByText('Использован результат проверки original-check', { exact: true }),
   ).toBeVisible();
@@ -1149,6 +1151,7 @@ test('duplicate group distinguishes deterministic equality from model suggestion
   const exact = {
     ...candidate('exact', 0, 'completed', 'duplicate'),
     resultOrigin: 'exact_text_v1',
+    isExactDuplicate: true,
     selectionReasons: ['exact_text'],
     similarityScore: null,
     explanation: 'analysis.exactDuplicateExplanation',
@@ -1176,23 +1179,27 @@ test('duplicate group distinguishes deterministic equality from model suggestion
   const semanticCard = await expandPair(group, 1);
   await expect(group.getByRole('article')).toHaveCount(2);
   await expect(
-    exactCard.getByText('Точное совпадение после нормализации пробелов и переносов', {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect(
-    semanticCard.getByText(
-      'Возможный смысловой дубль — предложение модели для проверки человеком',
-      {
-        exact: true,
-      },
+    exactCard.getByText(
+      'Тексты требований совпадают после нормализации пробелов и переносов. Отрицания, числа, пунктуация и регистр сохранены. Требования не изменены.',
+      { exact: true },
     ),
   ).toBeVisible();
   await expect(
     exactCard.getByText('analysis.exactDuplicateExplanation', { exact: true }),
   ).toHaveCount(0);
+  const exactTechnical = exactCard.getByRole('group', { name: 'Техническая информация' });
+  await exactTechnical.locator(':scope > summary').click();
   await expect(
-    exactCard.getByText('Источник: алгоритм exact_text_v1; без вызова модели', { exact: true }),
+    exactTechnical.getByText('Источник: алгоритм exact_text_v1; без вызова модели', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  const semanticTechnical = semanticCard.getByRole('group', { name: 'Техническая информация' });
+  await semanticTechnical.locator(':scope > summary').click();
+  await expect(
+    semanticTechnical.getByText('Источник: модель; вывод требует проверки человеком', {
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(
     semanticCard.getByText('Возможно, оба требования описывают одно обязательство.', {

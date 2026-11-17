@@ -244,6 +244,8 @@ type AnalysisFinding struct {
 	Explanation  string
 }
 type AnalysisPair struct {
+	DetailsVersion    string
+	IsExactDuplicate  bool
 	LayaErrorCode     string
 	LayaStatus        string
 	Preclassification *string

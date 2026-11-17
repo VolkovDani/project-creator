@@ -212,8 +212,11 @@
   branch's connection to `develop` in history.
 - Target release-preparation PRs from `develop` to `main` without `automerge`;
   merge them manually after checking CI, the diff, and release acceptance.
-  `main` remains the default branch. Do not publish a release before hardware
-  verification has been accepted.
+  `main` remains the default branch. Publish the initial v0.1.0 local MVP
+  prerelease when its release workflow passes on the exact source SHA and no
+  known critical issue remains. Hardware verification is not a publication gate;
+  record hardware evidence and limitations accurately and collect further reports
+  after publication. Documentation and installation fixes may ship in patch releases.
 - If you determine that a PR should not be automatically merged into `develop`
   (for example, work is unfinished or there is an unresolved defect, risk, or
   open decision), create it without `automerge` and briefly state the specific

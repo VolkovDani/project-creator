@@ -6,8 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Submit one report per tested hardware/profile combination. Attach complete logs; redact credentials and personal data. A maintainer must review the evidence and apply `hardware-accepted` before a draft release can be prepared.
-        Для каждой пары оборудования и профиля создавайте отдельный отчёт. Приложите полные логи, удалив секреты и персональные данные. Перед подготовкой черновика выпуска maintainer должен проверить доказательства и поставить метку `hardware-accepted`.
+        Submit one report per tested hardware/profile combination. Attach complete logs; redact credentials and personal data. A maintainer reviews the evidence and applies `hardware-accepted` to confirm only this configuration. Reports can be added after release; untested hardware does not block publication.
+        Для каждой пары оборудования и профиля создавайте отдельный отчёт. Приложите полные логи, удалив секреты и персональные данные. Maintainer проверяет доказательства и ставит метку `hardware-accepted` только для этой конфигурации. Отчёты можно добавлять после выпуска; непроверенное оборудование не блокирует публикацию.
   - type: textarea
     id: candidate
     attributes:
@@ -65,5 +65,5 @@ body:
     attributes:
       label: Maintainer acceptance / Приёмка maintainer
       options:
-        - label: I reviewed the complete logs, source SHA, hardware/profile identifiers, and accept this candidate for a draft prerelease. / Проверены полные логи, SHA, идентификаторы оборудования и профиля; кандидат принят для черновика prerelease.
+        - label: I reviewed the complete logs, source SHA, hardware/profile identifiers, and confirm this hardware/profile for the recorded release. / Проверены полные логи, SHA, идентификаторы оборудования и профиля; конфигурация оборудования и профиля подтверждена для указанного выпуска.
           required: false

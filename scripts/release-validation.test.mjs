@@ -23,13 +23,13 @@ test('rejects malformed tags, abbreviated SHAs, and non-main dispatches', () => 
   ]) assert.throws(() => validateReleaseInput(input));
 });
 
-test('release workflow is manual-only, main-only, acceptance-gated, and creates a draft', () => {
+test('release workflow is manual-only, main-only, permits unverified hardware, and creates a draft', () => {
   const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
   const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
   assert.match(workflow, /workflow_dispatch:/);
   assert.doesNotMatch(workflow, /^\s+(push|pull_request|create):/m);
   assert.match(workflow, /if: github\.ref == 'refs\/heads\/main'/);
-  assert.match(workflow, /hardware-accepted/);
+  assert.doesNotMatch(workflow, /acceptance_issue|validateAcceptanceIssue|hardware-accepted/);
   assert.match(workflow, /git merge-base --is-ancestor/);
   assert.match(workflow, /ref: \$\{\{ inputs\.source_sha \}\}/);
   assert.match(workflow, /actions: read/);

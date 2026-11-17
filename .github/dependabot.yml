@@ -15,7 +15,7 @@ updates:
           - minor
           - patch
 
-  - package-ecosystem: npm
+  - package-ecosystem: bun
     directory: /frontend
     target-branch: develop
     schedule:

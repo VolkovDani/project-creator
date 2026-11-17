@@ -14,11 +14,29 @@
 | Экосистема | Настроенные каталоги | Отслеживаемые файлы |
 | --- | --- | --- |
 | Go modules (`gomod`) | `/` | `go.mod`, `go.sum` |
-| npm | `/frontend` | `package.json`, `package-lock.json` |
+| Bun (`bun`) | `/frontend` | `package.json`, `bun.lock` |
 | pip | `/runtime/npu` | `requirements.txt`, `requirements-export.txt` |
 | Docker | `/`, `/frontend` | Корневой `Dockerfile`, корневые `Dockerfile.*` и `frontend/Dockerfile` |
 | Docker Compose | `/` | Корневые файлы `compose*.yml` |
 | GitHub Actions | `/` | Workflow-файлы в `.github/workflows` |
+
+GitHub указывает Bun как экосистему обновления версий Dependabot (Bun 1.1.39
+или новее) и поддерживает текущий текстовый формат `bun.lock`, но не устаревший
+бинарный `bun.lockb`. См. [раздел Bun в официальном списке поддерживаемых
+экосистем](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories#bun).
+Это поддержка обновления версий. Bun сейчас отсутствует в официальном списке
+[экосистем графа зависимостей](https://docs.github.com/en/code-security/reference/supply-chain-security/dependency-graph-supported-package-ecosystems),
+поэтому данная конфигурация не означает, что для зависимостей из `bun.lock`
+создаются alerts графа зависимостей или PR обновления безопасности. npm advisory
+может относиться к пакету, который также используется через Bun, но наличие
+advisory само по себе не добавляет зависимость в граф GitHub и не подтверждает
+покрытие установок Bun alerts-ами.
+После появления `bun.lock` в `develop` сопровождающие могут отдельно вручную
+запустить `bun audit` из `frontend/`. Bun читает lock-файл и отправляет список
+пакетов в endpoint npm advisory; см. [официальную документацию Bun audit](https://bun.sh/docs/pm/cli/audit).
+Этот PR активации не добавляет `bun audit` в CI, а команда не гарантирует полного
+покрытия уязвимостей. Пока автоматическая проверка отдельно не реализована и не
+подтверждена, запускайте её вручную при проверке обновлений Bun.
 
 Обновляющий модуль Python поддерживает файлы зависимостей `.txt`. Модуль Docker
 распознаёт имена Dockerfile, содержащие `dockerfile` (включая варианты
@@ -58,7 +76,10 @@ Dependabot указаны как бесплатные, в том числе дл
 на обновления версий: Dependabot читает манифесты из `develop` и направляет PR на
 эту ветку. По документации GitHub, настройки `target-branch` не применяются к
 обновлениям безопасности. Такие PR продолжают направляться в ветку по умолчанию
-(`main`) и используют отдельные настройки и лимиты.
+(`main`) и используют отдельные настройки и лимиты. Существующее поведение npm
+security alerts и PR обновлений безопасности в `main` не меняется при замене
+обновления версий на Bun; это не подтверждает покрытие безопасности для lock-файла
+Bun в `develop`.
 
 17 ноября 2026 года read-only запросы к GitHub API вернули HTTP 204 для endpoint
 предупреждений об уязвимостях репозитория и `{ "enabled": true, "paused": false }`

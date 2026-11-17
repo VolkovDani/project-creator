@@ -14,11 +14,27 @@ prepared.
 | Ecosystem | Configured locations | Tracked files |
 | --- | --- | --- |
 | Go modules (`gomod`) | `/` | `go.mod`, `go.sum` |
-| npm | `/frontend` | `package.json`, `package-lock.json` |
+| Bun (`bun`) | `/frontend` | `package.json`, `bun.lock` |
 | pip | `/runtime/npu` | `requirements.txt`, `requirements-export.txt` |
 | Docker | `/`, `/frontend` | Root `Dockerfile`, root `Dockerfile.*`, and `frontend/Dockerfile` |
 | Docker Compose | `/` | Root `compose*.yml` files |
 | GitHub Actions | `/` | Workflows under `.github/workflows` |
+
+GitHub lists Bun as a Dependabot version-update ecosystem (Bun 1.1.39 or later)
+and supports the current text `bun.lock` format, not legacy `bun.lockb`. See the
+[Bun entry in GitHub's supported ecosystems reference](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories#bun).
+This entry is for version updates. Bun is not listed in GitHub's current
+[dependency-graph supported ecosystems](https://docs.github.com/en/code-security/reference/supply-chain-security/dependency-graph-supported-package-ecosystems),
+so do not infer that this configuration provides dependency-graph alerts or
+security-update PRs for `bun.lock` dependencies. An npm advisory may concern a
+package also used through Bun, but the advisory's existence alone does not add
+that dependency to GitHub's graph or establish alert coverage for Bun installs.
+After #125 puts `bun.lock` on `develop`, maintainers can run `bun audit` from
+`frontend/` as a separate manual check. Bun reads the lockfile and sends package
+data to the npm advisory endpoint; see the [official Bun audit documentation](https://bun.sh/docs/pm/cli/audit).
+This activation PR does not add `bun audit` to CI, and the command is not a
+guarantee of complete vulnerability coverage. Until an automated check is
+separately implemented and verified, run it manually when reviewing Bun updates.
 
 The Python updater supports `.txt` dependency files. The Docker updater recognizes
 Dockerfile names containing `dockerfile` (including the repository's
@@ -57,7 +73,10 @@ The repository's default branch remains `main`. `target-branch: develop` applies
 to version updates: Dependabot checks manifests from `develop` and targets those
 pull requests at `develop`. GitHub documents that `target-branch` options do not
 apply to security updates. Security update pull requests continue to target the
-default branch (`main`) and use their separate configuration and limits.
+default branch (`main`) and use their separate configuration and limits. The
+existing npm security-alert/security-update behavior on `main` is unchanged by
+switching the version-update entry to Bun; it does not establish security
+coverage for the Bun lockfile on `develop`.
 
 On 2026-11-17, read-only GitHub API checks returned HTTP 204 for the repository's
 vulnerability-alerts endpoint and `{ "enabled": true, "paused": false }` for

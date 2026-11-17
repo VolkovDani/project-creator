@@ -1,0 +1,157 @@
+name: Draft prerelease
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing semantic version tag (initial prerelease: v0.1.0)'
+        required: true
+        type: string
+      source_sha:
+        description: Full 40-character commit SHA to validate and release
+        required: true
+        type: string
+      acceptance_issue:
+        description: Closed hardware acceptance issue carrying hardware-accepted
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: draft-release-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  draft:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      issues: read
+      actions: read
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg16
+        env:
+          POSTGRES_USER: project_creator
+          POSTGRES_PASSWORD: ci-test-password
+          POSTGRES_DB: project_creator_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U project_creator -d project_creator_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql://project_creator:ci-test-password@127.0.0.1:5432/project_creator_test?sslmode=disable
+      E2E_DATABASE_URL: postgresql://project_creator:ci-test-password@127.0.0.1:5432/project_creator_e2e?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate release input, source tag, and main ancestry
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          git fetch origin main --tags
+          node --input-type=module -e '
+            import { validateReleaseInput } from "./scripts/release-validation.mjs";
+            validateReleaseInput({ tag: process.env.RELEASE_TAG, sourceSha: process.env.SOURCE_SHA, ref: process.env.DISPATCH_REF });
+          '
+          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$SOURCE_SHA"
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
+      - name: Require closed, maintainer accepted hardware evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACCEPTANCE_ISSUE: ${{ inputs.acceptance_issue }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          if ! [[ "$ACCEPTANCE_ISSUE" =~ ^[1-9][0-9]*$ ]]; then
+            echo 'Acceptance issue must be a positive issue number.' >&2
+            exit 1
+          fi
+          issue=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ACCEPTANCE_ISSUE")
+          node --input-type=module -e '
+            let input = ""; for await (const chunk of process.stdin) input += chunk;
+            const issue = JSON.parse(input);
+            const { validateAcceptanceIssue } = await import("./scripts/release-validation.mjs");
+            validateAcceptanceIssue(issue, process.env.RELEASE_TAG, process.env.SOURCE_SHA);
+          ' <<< "$issue"
+      - name: Require successful CI on main at the exact source SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          runs=$(gh run list --workflow ci.yml --branch main --commit "$SOURCE_SHA" --json headSha,status,conclusion,event,headBranch)
+          node --input-type=module -e '
+            import { validateSuccessfulMainCi } from "./scripts/release-validation.mjs";
+            let input = ""; for await (const chunk of process.stdin) input += chunk;
+            const runs = JSON.parse(input);
+            validateSuccessfulMainCi(runs, process.env.SOURCE_SHA);
+          ' <<< "$runs"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Prepare isolated E2E database
+        run: psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE project_creator_e2e'
+      - name: Go tests, vet, and generated-code check
+        run: |
+          go test -p 1 ./...
+          go vet ./...
+          go run ./cmd/codegen
+          git diff --exit-code -- graph/models_gen.go
+      - name: Frontend tests, typecheck, and production build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint:ci
+          npm run codegen
+          git diff --exit-code -- lib/generated.ts
+          npm test
+          npm run typecheck
+          npm run build
+      - name: Build backend and frontend containers
+        run: |
+          docker build -f Dockerfile -t project-creator-release-backend:"$SOURCE_SHA" .
+          docker build -f frontend/Dockerfile -t project-creator-release-frontend:"$SOURCE_SHA" .
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+      - name: Prepare draft release notes
+        run: |
+          notes_en="docs/release-notes-${RELEASE_TAG}.md"
+          notes_ru="docs/release-notes-${RELEASE_TAG}.ru.md"
+          test -s "$notes_en"
+          test -s "$notes_ru"
+          cat "$notes_en" "$notes_ru" > release-notes-draft.md
+          cat >> release-notes-draft.md <<EOF
+
+          ## Candidate under review
+
+          - Tag: $RELEASE_TAG
+          - Source commit: $SOURCE_SHA
+          - Hardware acceptance: issue #$ACCEPTANCE_ISSUE
+          - English notes source: https://github.com/$GITHUB_REPOSITORY/blob/$SOURCE_SHA/$notes_en
+          - Русская версия: https://github.com/$GITHUB_REPOSITORY/blob/$SOURCE_SHA/$notes_ru
+          EOF
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          ACCEPTANCE_ISSUE: ${{ inputs.acceptance_issue }}
+      - name: Create draft prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: gh release create "$RELEASE_TAG" --draft --prerelease --verify-tag --target "$SOURCE_SHA" --title "Source + Compose $RELEASE_TAG" --notes-file release-notes-draft.md

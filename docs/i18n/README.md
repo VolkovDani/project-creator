@@ -8,9 +8,10 @@ Review both versions in the same PR. Link each version to its counterpart.
 
 New documents use `<name>.md` for English and `<name>.ru.md` for Russian.
 Existing Russian canonical files keep their paths and use `<name>.en.md` for
-English. Keep tool-discovered names such as `AGENTS.md` unchanged. Existing
-untranslated documents are legacy gaps, not evidence of bilingual coverage.
-Translate them when updating them; preserve dates and SHA in historical reports.
+English. Keep tool-discovered `AGENTS.md` as canonical English instructions and
+use `AGENTS.ru.md` for Russian. Existing untranslated documents are legacy gaps,
+not evidence of bilingual coverage. Translate them when updating them; preserve
+dates and SHA in historical reports.
 
 ## Adding another language
 

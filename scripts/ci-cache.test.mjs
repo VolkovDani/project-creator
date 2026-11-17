@@ -114,3 +114,16 @@ test('AMD Vulkan is verified and released before application builds without anot
   assert.ok(steps.indexOf(amd) < steps.indexOf(builds[1]));
   assert.doesNotMatch(amd, /cache-to/);
 });
+
+
+test('both CI triggers ignore only Markdown and text paths, keeping mixed changes eligible', () => {
+  const header = workflow.split('\npermissions:')[0];
+  for (const event of ['push', 'pull_request']) {
+    const block = header.split(`\n  ${event}:\n`)[1]?.split(/\n  [a-z_]+:/)[0];
+    assert.ok(block, `${event} trigger must exist`);
+    const patterns = block.match(/    paths-ignore:\n((?:      - .+\n?)+)/)?.[1]
+      .trim().split('\n').map((line) => line.trim().replace(/^- ['"]|['"]$/g, ''));
+    assert.deepEqual(patterns, ['**/*.md', '**/*.txt'], `${event} must exclude only md/txt`);
+    assert.doesNotMatch(block, /\n    paths:/);
+  }
+});

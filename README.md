@@ -582,6 +582,17 @@ GitHub Actions; Compose запускает уже загруженные обр�
 
 ### Автоматическое слияние после CI
 
+Изменения только файлов `.md` и `.txt` не запускают GitHub Actions ни для PR,
+ни для push в `main`: фильтр `paths-ignore` применяется ко всему workflow.
+Если diff содержит хотя бы один другой файл, CI работает как обычно.
+Документационный PR после проверки diff и `git diff --check` сливается обычным
+merge commit через `gh pr merge --merge --match-head-commit SHA`, без метки
+`automerge`: job слияния в этом случае тоже не запускается.
+Пропущенный workflow нельзя делать обязательным условием для таких PR:
+GitHub может оставить required checks в состоянии Pending. Защиту ветки
+не обходить через `--admin`; при добавлении обязательных checks согласовать
+их совместимость с этим правилом. См. [фильтры путей GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onpushpull_requestpull_request_targetpathspaths-ignore).
+
 Для готового к слиянию PR из ветки этого репозитория в `main` поставьте метку
 `automerge`. Завершающий job `automerge` ждёт успешных `checks` и `containers`,
 затем создаёт merge commit с двумя родителями: история сохраняет коммиты ветки

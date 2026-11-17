@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:24.22.1-bookworm-slim AS build
+FROM node:26.13.1-bookworm-slim AS build
 ARG BUN_VERSION=1.4.4
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app/frontend
@@ -11,7 +11,7 @@ COPY graph /app/graph
 COPY frontend /app/frontend
 RUN bun run codegen && bun run build
 
-FROM node:24.22.1-bookworm-slim AS runtime
+FROM node:26.13.1-bookworm-slim AS runtime
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 WORKDIR /app
 COPY --from=build --chown=node:node /app/frontend/.next/standalone ./

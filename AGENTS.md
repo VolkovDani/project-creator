@@ -54,7 +54,7 @@
   `./node_modules/.bin/biome check --write <paths>` without `--unsafe`. Do not
   replace formatting with manual whitespace edits or format unrelated files.
 - The frontend package manager is pinned to Bun 1.4.4 in `frontend/package.json`;
-  use `bun install --frozen-lockfile` and `bun run <script>`. Node.js 24 remains
+  use `bun install --frozen-lockfile` and `bun run <script>`. Node.js 26 remains
   required for unit tests, repository scripts, and the production Next.js server.
 - After cloning and installing dependencies, install the tracked Git hook:
   `cd frontend && bun install --frozen-lockfile && bun run hooks:install`. It is stored in

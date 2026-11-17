@@ -4,7 +4,7 @@
 
 ## Commands
 
-The frontend uses Bun 1.4.4 as its package manager and to run `next build`; Node.js 24 remains in use for tests and the production server.
+The frontend uses Bun 1.4.4 as its package manager and to run `next build`; Node.js 26 remains in use for tests and the production server.
 
 **Go (from the repository root):**
 ```

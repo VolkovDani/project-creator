@@ -28,6 +28,7 @@ export default function Group({
     <details
       className="data-group"
       open={open}
+      data-restored={String(restored)}
       aria-label={title}
       onToggle={(event) => {
         const value = event.currentTarget.open;

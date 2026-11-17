@@ -667,11 +667,13 @@ on ordinary pushes/manual merges to `main`.
 The manual `Draft prerelease` workflow runs only from `main`. It validates the
 semantic version tag and full source SHA, verifies that the tag points exactly to
 that SHA and the SHA is contained in `main`, and checks that a successful CI run
-on `main` (push or manual run) completed on that same SHA. It also verifies that
-a closed hardware issue contains the exact tag/SHA fields and the
-`hardware-accepted` label. The workflow then repeats checks and builds on the source
-SHA and creates only a prerelease draft. Publishing remains a separate manual
-decision by the maintainer after reviewing reports and release notes.
+on `main` (push or manual run) completed on that same SHA. Use `v0.1.0` for the
+initial prerelease of the local single-user MVP. The workflow repeats checks and
+builds on the source SHA and creates a prerelease draft. A maintainer separately
+publishes it after reviewing the candidate and release notes and confirming there
+is no known critical issue. Hardware reports are collected and reviewed separately
+and do not block publication. Documentation and installation fixes can be included
+in patch releases.
 
 Detailed instructions are available [in Russian](docs/release-acceptance.ru.md)
 and [in English](docs/release-acceptance.md); release notes are available

@@ -1,20 +1,27 @@
-# v0.1.0 hardware release acceptance
+# v0.1.0 release acceptance and hardware reports
 
 Русская версия: [docs/release-acceptance.ru.md](release-acceptance.ru.md).
 
-A successful CI run proves deterministic tests and container builds. It does not
-prove that a real model profile works on the target device. Keep the v0.1.0
-prerelease in draft until maintainers have reviewed real hardware reports.
+The initial v0.1.0 MVP prerelease may be published once the release candidate
+passes the release workflow and has no known critical issue. Hardware/profile
+reports remain useful evidence to collect and review after publication; they are
+not a prerequisite for publishing v0.1.0. Do not describe an untested device or
+profile as verified.
 
-## Required report for each hardware/profile combination
+The owner clarified this publication policy on 17 November 2026: ship the initial
+MVP, then collect hardware confirmations and installation refinements in patches.
+For v0.1.0 this supersedes the earlier pre-publication hardware and full
+installation/upgrade acceptance sequence in GOAL.md. A known critical defect,
+including a critical installation failure, still blocks publication.
 
-Use the **Hardware release acceptance** issue template. Attach complete smoke
-logs and record:
+## Hardware/profile reports
+
+Use the **Hardware release acceptance** issue template for each hardware/profile
+combination. Attach complete smoke logs and record:
 
 - Candidate tag and full source commit SHA.
 - Exact standalone lines in the report body: `release-tag: v0.1.0` and
-  `source-sha: <full 40-character SHA>`; these bind maintainer acceptance to the
-  release candidate.
+  `source-sha: <full 40-character SHA>`; these bind the report to a release.
 - CPU, GPU/NPU model and device identifiers, memory, OS, kernel and driver/runtime versions.
 - Compose and application versions, Ollama/runtime version, model name and digest, profile identifier and configuration hash.
 - Exact smoke commands and pass/fail outcomes, including startup, representative generation, restart/recovery, and clean shutdown. Include timing and resource observations where available.
@@ -23,18 +30,12 @@ logs and record:
   listing the device/profile combinations and outcomes they confirm.
 - Patch notes, compatibility notes, and known limitations.
 
-## Acceptance and draft release gate
+A maintainer may review a report and record an explicit decision with the
+`hardware-accepted` label. This label records human-reviewed evidence; it does
+not gate v0.1.0 publication. CI output and model self-assessment cannot substitute
+for hardware evidence. A report applies only to its recorded device and profile.
 
-A maintainer reviews the full evidence and records the decision in the issue. The
-initial hardware/profile report does not require independent community
-reproduction. Apply the `hardware-accepted` label and close the issue only after
-the maintainer accepts the complete report.
-The manual release workflow requires that closed, labeled issue before preparing
-a draft GitHub prerelease. This label is an explicit human decision; CI output or
-model self-assessment cannot substitute for it.
-
-Run the following operational checks for the candidate and record commands,
-outcomes, and complete logs in the report:
+Suggested operational checks for reports include:
 
 1. Start from a clean checkout and follow the README setup instructions using a
    fresh `.env`; record image, app, database, runtime, and model versions.
@@ -48,13 +49,18 @@ outcomes, and complete logs in the report:
    requirement data remains readable.
 5. Record shutdown and resource use, and capture failures with full diagnostics.
 
-The workflow accepts only a semantic version tag, a full source SHA that is the
-commit of the tag and is reachable from `main`, and a dispatch from `main`. For
-the initial Source + Compose prerelease, use `v0.1.0`. It runs reproducible
-release checks against that commit and creates a **draft** prerelease. Keep it
-draft until release notes and the final candidate have been reviewed. Publishing
-is a separate maintainer action after acceptance; do not publish while any
-required hardware/profile acceptance remains open.
+## Preparing and publishing v0.1.0
+
+The manual release workflow runs only when dispatched from `main`. It accepts a
+semantic version tag and full source SHA, verifies that the tag points exactly
+to that SHA, that the SHA is reachable from `main`, and that a successful CI run
+on `main` completed on the same SHA. For the initial Source + Compose MVP
+prerelease, use `v0.1.0`. The workflow repeats release checks and builds against
+the source SHA and creates a **draft prerelease**. A maintainer reviews the
+candidate and release notes, confirms there is no known critical issue, and
+separately publishes the prerelease. Hardware acceptance is not a publication
+gate; unresolved installation or documentation issues can be addressed in patch
+releases.
 
 ## Community confirmations by release patch
 

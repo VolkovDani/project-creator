@@ -10,10 +10,6 @@ on:
         description: Full 40-character commit SHA to validate and release
         required: true
         type: string
-      acceptance_issue:
-        description: Closed hardware acceptance issue carrying hardware-accepted
-        required: true
-        type: string
 permissions:
   contents: read
   actions: read
@@ -27,7 +23,6 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: write
-      issues: read
       actions: read
     services:
       postgres:
@@ -63,24 +58,6 @@ jobs:
           '
           test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$SOURCE_SHA"
           git merge-base --is-ancestor "$SOURCE_SHA" origin/main
-      - name: Require closed, maintainer accepted hardware evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ACCEPTANCE_ISSUE: ${{ inputs.acceptance_issue }}
-          RELEASE_TAG: ${{ inputs.tag }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
-        run: |
-          if ! [[ "$ACCEPTANCE_ISSUE" =~ ^[1-9][0-9]*$ ]]; then
-            echo 'Acceptance issue must be a positive issue number.' >&2
-            exit 1
-          fi
-          issue=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ACCEPTANCE_ISSUE")
-          node --input-type=module -e '
-            let input = ""; for await (const chunk of process.stdin) input += chunk;
-            const issue = JSON.parse(input);
-            const { validateAcceptanceIssue } = await import("./scripts/release-validation.mjs");
-            validateAcceptanceIssue(issue, process.env.RELEASE_TAG, process.env.SOURCE_SHA);
-          ' <<< "$issue"
       - name: Require successful CI on main at the exact source SHA
         env:
           GH_TOKEN: ${{ github.token }}
@@ -149,14 +126,13 @@ jobs:
 
           - Tag: $RELEASE_TAG
           - Source commit: $SOURCE_SHA
-          - Hardware acceptance: issue #$ACCEPTANCE_ISSUE
+          - Hardware confirmations are tracked per configuration after publication.
           - English notes source: https://github.com/$GITHUB_REPOSITORY/blob/$SOURCE_SHA/$notes_en
           - Русская версия: https://github.com/$GITHUB_REPOSITORY/blob/$SOURCE_SHA/$notes_ru
           EOF
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           SOURCE_SHA: ${{ inputs.source_sha }}
-          ACCEPTANCE_ISSUE: ${{ inputs.acceptance_issue }}
       - name: Create draft prerelease
         env:
           GH_TOKEN: ${{ github.token }}

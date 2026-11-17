@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { matchesGlob } from 'node:path';
 import test from 'node:test';
 
 const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
@@ -116,14 +117,30 @@ test('AMD Vulkan is verified and released before application builds without anot
 });
 
 
-test('both CI triggers ignore only Markdown and text paths, keeping mixed changes eligible', () => {
+test('both CI triggers skip docs but run for requirements updates and mixed changes', () => {
   const header = workflow.split('\npermissions:')[0];
   for (const event of ['push', 'pull_request']) {
     const block = header.split(`\n  ${event}:\n`)[1]?.split(/\n  [a-z_]+:/)[0];
     assert.ok(block, `${event} trigger must exist`);
-    const patterns = block.match(/    paths-ignore:\n((?:      - .+\n?)+)/)?.[1]
+    const patterns = block.match(/    paths:\n((?:      - .+\n?)+)/)?.[1]
       .trim().split('\n').map((line) => line.trim().replace(/^- ['"]|['"]$/g, ''));
-    assert.deepEqual(patterns, ['**/*.md', '**/*.txt'], `${event} must exclude only md/txt`);
-    assert.doesNotMatch(block, /\n    paths:/);
+    assert.deepEqual(patterns, ['**', '!**/*.md', '!**/*.txt', '**/requirements*.txt'], `${event} path rules`);
+
+    const included = (file) => {
+      let matches = false;
+      for (const pattern of patterns) {
+        const excluded = pattern.startsWith('!');
+        const glob = excluded ? pattern.slice(1) : pattern;
+        if (matchesGlob(file, glob)) matches = !excluded;
+      }
+      return matches;
+    };
+    const workflowRuns = (files) => files.some(included);
+    assert.equal(workflowRuns(['README.md', 'docs/usage.md']), false, `${event} docs-only changes skip CI`);
+    assert.equal(workflowRuns(['docs/notes.txt']), false, `${event} other text-only changes skip CI`);
+    assert.equal(workflowRuns(['runtime/npu/requirements.txt']), true, `${event} NPU requirements run CI`);
+    assert.equal(workflowRuns(['runtime/npu/requirements-export.txt']), true, `${event} exported NPU requirements run CI`);
+    assert.equal(workflowRuns(['backend/requirements-dev.txt']), true, `${event} nested requirements run CI`);
+    assert.equal(workflowRuns(['README.md', 'backend/main.go']), true, `${event} mixed changes run CI`);
   }
 });

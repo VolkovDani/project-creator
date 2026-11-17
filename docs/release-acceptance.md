@@ -8,6 +8,12 @@ reports remain useful evidence to collect and review after publication; they are
 not a prerequisite for publishing v0.1.0. Do not describe an untested device or
 profile as verified.
 
+The owner clarified this publication policy on 17 November 2026: ship the initial
+MVP, then collect hardware confirmations and installation refinements in patches.
+For v0.1.0 this supersedes the earlier pre-publication hardware and full
+installation/upgrade acceptance sequence in GOAL.md. A known critical defect,
+including a critical installation failure, still blocks publication.
+
 ## Hardware/profile reports
 
 Use the **Hardware release acceptance** issue template for each hardware/profile

@@ -4,7 +4,8 @@
 
 ## Установка одной командой
 
-На нативном Linux x86_64 с Python 3.12 и Docker Engine/Compose:
+На нативном Linux x86_64 с Python 3 для CLI и Docker Engine/Compose
+(для NPU дополнительно нужны Python 3.12 и установленный uv):
 
 ```bash
 ./project-creator setup --device cpu  # либо arc, nvidia, amd, amd-vulkan, npu
@@ -203,7 +204,8 @@ macOS не предоставляет Metal GPU этому Linux-контейн�
 
 ### GPU и встроенная графика: матрица запуска
 
-CLI поддерживает нативный Linux x86_64, Python 3.12 и Docker Engine/Compose 2.20+.
+CLI поддерживает нативный Linux x86_64, Python 3 и Docker Engine/Compose 2.20+;
+профиль NPU дополнительно использует Python 3.12 и установленный uv.
 Наличие профиля означает поддержку конфигурации; совместимость конкретного
 оборудования подтверждается отдельным реальным запуском `setup`/`up`.
 

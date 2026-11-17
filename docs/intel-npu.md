@@ -1,5 +1,7 @@
 # Эксперимент: Intel NPU на Core Ultra 7 268V
 
+[English version](intel-npu.en.md)
+
 Ветка `feat/22-intel-npu`, отдельный PR к #22; **не сливать до завершения аппаратной приёмки**.
 Вариант рассчитан на нативный Linux, Python 3.12 и Docker Engine/Compose v2.
 Первичная аппаратная проверка 29.10.2026 подтвердила генерацию Qwen на NPU,
@@ -28,6 +30,7 @@ BGE-M3 не подтверждена; модель и размерность н�
 | `profile.json`, `profile.sha256` | Манифест целостности/режима генерации и его профиль |
 | `run/`, `compiled-cache/` | Сокет работающего runtime и кеш компиляции |
 | `export-tmp/`, `*-freeze.txt` | Временные файлы экспорта и зафиксированные зависимости окружений |
+| `uv-cache/` | Кеш uv для локального Python и NPU-зависимостей |
 
 Логи runtime, отчёты установки и результаты диагностических прогонов хранятся
 в корневом `logs/npu/`, исключённом из Git и Docker build context. Веса,
@@ -72,8 +75,18 @@ OpenVINO 2026.3.1. Наши результаты относятся к указ�
 
 На Ubuntu 26.04 системным Python может быть 3.14. Закреплённый CPU wheel
 PyTorch рассчитан на CPython 3.12: не заменяйте системный Python и не ставьте
-экспортные пакеты глобально. Если `python3.12` отсутствует, установите его
-локально с помощью уже установленного [uv](https://docs.astral.sh/uv/getting-started/installation/):
+экспортные пакеты глобально. Для подготовки окружений нужен uv **0.12.13 или
+новее**. Эта минимальная версия совпадает с установленной и проверенной версией;
+команды `uv venv`, `uv pip install --python` и `uv pip freeze --python` проверены
+с ней. Официальный релиз 0.12.13 вышел 10.09.2026. uv распространяется на выбор
+по MIT или Apache-2.0; [установите uv по официальной инструкции](https://docs.astral.sh/uv/getting-started/installation/)
+и проверьте версию:
+
+```bash
+uv --version
+```
+
+Если `python3.12` отсутствует, установите его локально через uv:
 
 ```bash
 uv python install 3.12.14 --install-dir .npu/python --no-bin --cache-dir .npu/uv-cache
@@ -87,17 +100,25 @@ export NPU_PYTHON="$PWD/.npu/python/cpython-3.12.14-linux-x86_64-gnu/bin/python3
 
 ```bash
 mkdir -p .npu logs/npu
-"${NPU_PYTHON:-python3.12}" -m venv .npu/export-env
-.npu/export-env/bin/python -m pip install --report logs/npu/export-env-install.json -r runtime/npu/requirements-export.txt
+uv venv --no-project --no-config --python "${NPU_PYTHON:-python3.12}" --no-python-downloads .npu/export-env
+uv pip install --python .npu/export-env/bin/python --no-python-downloads --no-config --cache-dir .npu/uv-cache --requirements runtime/npu/requirements-export.txt
 .npu/export-env/bin/opt_in_out --opt_out
-.npu/export-env/bin/python -m pip freeze > .npu/export-freeze.txt
+uv pip freeze --python .npu/export-env/bin/python --no-python-downloads > .npu/export-freeze.txt
 
-"${NPU_PYTHON:-python3.12}" -m venv .npu/runtime-env
-.npu/runtime-env/bin/python -m pip install --report logs/npu/runtime-env-install.json -r runtime/npu/requirements.txt
+uv venv --no-project --no-config --python "${NPU_PYTHON:-python3.12}" --no-python-downloads .npu/runtime-env
+uv pip install --python .npu/runtime-env/bin/python --no-python-downloads --no-config --cache-dir .npu/uv-cache --requirements runtime/npu/requirements.txt
 .npu/runtime-env/bin/opt_in_out --opt_out
-.npu/runtime-env/bin/python -m pip freeze > .npu/runtime-freeze.txt
+uv pip freeze --python .npu/runtime-env/bin/python --no-python-downloads > .npu/runtime-freeze.txt
 .npu/runtime-env/bin/python -c 'import openvino as ov; c=ov.Core(); print(c.available_devices); print(c.get_property("NPU", "FULL_DEVICE_NAME"))'
 ```
+
+`uv pip freeze` records the installed environment; it is not an installation
+event report. The CLI writes honest JSON diagnostics under `logs/npu/*-install.json`
+with the uv version, input requirements hash, command, result status, and freeze
+snapshot path/hash. It does not imitate pip's `--report` format. For a manual
+package inventory, use `uv pip list --python .npu/runtime-env/bin/python
+--format json > logs/npu/runtime-env-packages.json` (and similarly for exporter).
+Both runtime and exporter caches remain under `.npu/uv-cache`.
 
 Последняя команда должна показать NPU. Ошибку исправьте до загрузки pipeline.
 Python 3.12 нужен прежде всего для закреплённого exporter wheel PyTorch.

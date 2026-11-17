@@ -282,30 +282,103 @@ class LogTests(unittest.TestCase):
         self.assertEqual(logfile.parent.stat().st_mode & 0o777, 0o700)
         self.assertFalse((self.app.npu/'runtime.log').exists())
 
-    def test_install_reports_go_to_logs_and_freeze_remains_model_provenance(self):
+    def test_uv_install_reports_go_to_logs_and_freeze_remains_model_provenance(self):
         requirements = self.root/'runtime/npu'
         requirements.mkdir(parents=True)
-        for filename in ['requirements.txt', 'requirements-export.txt']:
-            (requirements/filename).write_text('example==1.0\n')
+        (requirements/'requirements.txt').write_text('example==1.0\n')
+        (requirements/'requirements-export.txt').write_text('example==2.0\n')
         def run(arguments, **kwargs):
             arguments = list(map(str, arguments))
             self.runner.calls.append(arguments)
-            if '--report' in arguments:
-                python = arguments[0]
-                self.assertIn([python, '-m', 'ensurepip', '--upgrade'], self.runner.calls[:-1],
-                              'Existing uv venvs can have Python without pip')
-                destination = Path(arguments[arguments.index('--report')+1])
-                self.assertEqual(destination.parent, self.root/'logs/npu')
-                self.assertTrue(destination.parent.is_dir())
-            return 'example==1.0\n' if 'freeze' in arguments else ''
+            if arguments[1:3] == ['--version']:
+                return 'uv 0.12.13\n'
+            if 'venv' in arguments and '--python' in arguments:
+                folder = Path(arguments[-1])
+                (folder/'bin').mkdir(parents=True, exist_ok=True)
+                (folder/'bin/python').touch()
+                return ''
+            if arguments[1:3] == ['pip', 'freeze']:
+                environment_python = arguments[arguments.index('--python')+1]
+                return 'example==2.0\n' if 'export-env' in environment_python else 'example==1.0\n'
+            return ''
         self.runner.run = run
-        with patch.object(self.app, 'python_npu', return_value='python3.12'):
+        with patch.object(cli.shutil, 'which', return_value='/usr/bin/uv'), \
+             patch.object(self.app, 'python_npu', return_value='python3.12'):
             self.app.environments_npu()
-        self.assertEqual(len([call for call in self.runner.calls if '--report' in call]), 2)
-        self.assertEqual((self.app.npu/'export-env-freeze.txt').read_text(), 'example==1.0\n')
+        installs = [call for call in self.runner.calls if call[1:3] == ['pip', 'install']]
+        self.assertEqual(len(installs), 2)
+        self.assertTrue(all('--python' in call for call in installs))
+        reports = list((self.root/'logs/npu').glob('*-install.json'))
+        self.assertEqual(len(reports), 2)
+        for report in reports:
+            data = json.loads(report.read_text())
+            self.assertEqual(data['installer'], 'uv')
+            self.assertEqual(data['report_format'], 'project-creator.uv-install-diagnostics.v1')
+            self.assertEqual(data['status'], 'installed')
+            requirement_text = 'example==2.0\n' if data['requirements_file'].endswith('requirements-export.txt') else 'example==1.0\n'
+            self.assertEqual(data['requirements_sha256'], cli.hashlib.sha256(requirement_text.encode()).hexdigest())
+            env_name = 'export-env' if data['requirements_file'].endswith('requirements-export.txt') else 'runtime-env'
+            marker_data = json.loads((self.app.npu/env_name/'project-creator-requirements.sha256').read_text())
+            self.assertEqual(marker_data['requirements_sha256'], data['requirements_sha256'])
+        self.assertFalse(any('ensurepip' in call or call[:2] == ['python3.12', '-m'] for call in self.runner.calls))
+        self.assertEqual((self.app.npu/'export-env-freeze.txt').read_text(), 'example==2.0\n')
         self.assertEqual((self.app.npu/'runtime-env-freeze.txt').read_text(), 'example==1.0\n')
 
-    def test_existing_environment_without_pip_is_repaired_offline(self):
+    def test_missing_environment_is_reinstalled_even_when_marker_matches(self):
+        requirements = self.root/'runtime/npu'
+        requirements.mkdir(parents=True)
+        (requirements/'requirements.txt').write_text('example==1.0\n')
+        folder = self.app.npu/'runtime-env'
+        folder.mkdir(parents=True)
+        digest = cli.hashlib.sha256(b'example==1.0\n').hexdigest()
+        (folder/'project-creator-requirements.sha256').write_text(json.dumps({
+            'schema_version': 1, 'installer': 'uv', 'requirements_sha256': digest,
+        })+'\n')
+        def run(arguments, **kwargs):
+            arguments = list(map(str, arguments)); self.runner.calls.append(arguments)
+            if arguments[1:3] == ['--version']:
+                return 'uv 0.12.13\n'
+            if 'venv' in arguments and '--python' in arguments:
+                environment = Path(arguments[-1]); (environment/'bin').mkdir(parents=True); (environment/'bin/python').touch()
+            if arguments[1:3] == ['pip', 'freeze']:
+                return 'example==1.0\n'
+            return ''
+        self.runner.run = run
+        with patch.object(cli.shutil, 'which', return_value='/usr/bin/uv'), \
+             patch.object(self.app, 'python_npu', return_value='python3.12'):
+            self.app.environments_npu(prepare_export=False)
+        self.assertTrue(any(call[1:3] == ['pip', 'install'] for call in self.runner.calls))
+        venv = next(call for call in self.runner.calls if 'venv' in call)
+        self.assertIn('--allow-existing', venv, 'uv must preserve marker-only partial directories during recovery')
+
+    def test_unchanged_requirements_skip_uv_install_and_legacy_marker_is_upgraded(self):
+        requirements = self.root/'runtime/npu'
+        requirements.mkdir(parents=True)
+        (requirements/'requirements.txt').write_text('example==1.0\n')
+        folder = self.app.npu/'runtime-env'
+        (folder/'bin').mkdir(parents=True)
+        (folder/'bin/python').touch()
+        marker = folder/'project-creator-requirements.sha256'
+        digest = cli.hashlib.sha256(b'example==1.0\n').hexdigest()
+        marker.write_text(digest+'\n')
+        calls = []
+        def run(arguments, **kwargs):
+            arguments = list(map(str, arguments)); calls.append(arguments)
+            if arguments[1:3] == ['--version']:
+                return 'uv 0.12.13\n'
+            return 'example==1.0\n' if arguments[1:3] == ['pip', 'freeze'] else ''
+        self.runner.run = run
+        with patch.object(cli.shutil, 'which', return_value='/usr/bin/uv'), \
+             patch.object(self.app, 'python_npu', return_value='python3.12'):
+            self.app.environments_npu(prepare_export=False)
+            self.app.environments_npu(prepare_export=False)
+        installs = [call for call in calls if call[1:3] == ['pip', 'install']]
+        self.assertEqual(len(installs), 1, 'legacy pip marker should trigger one uv migration; next run skips')
+        marker_data = json.loads(marker.read_text())
+        self.assertEqual(marker_data, {'schema_version': 1, 'installer': 'uv', 'requirements_sha256': digest})
+        self.assertFalse(any('venv' in call and '--python' in call for call in calls))
+
+    def test_existing_environment_without_pip_is_reused_without_ensurepip(self):
         folder = self.app.npu/'runtime-env'
         subprocess.run([sys.executable, '-m', 'venv', '--without-pip', folder], check=True,
                        capture_output=True)
@@ -317,15 +390,104 @@ class LogTests(unittest.TestCase):
         (requirements/'requirements.txt').write_text('example==1.0\n')
         def run(arguments, **kwargs):
             arguments = list(map(str, arguments))
-            if 'ensurepip' in arguments:
-                subprocess.run(arguments, check=True, capture_output=True, env=kwargs['env'])
-            if 'pip' in arguments:
-                subprocess.run(probe, check=True, capture_output=True)
+            self.runner.calls.append(arguments)
+            if arguments[1:3] == ['--version']:
+                return 'uv 0.12.13\n'
+            if arguments[1:3] == ['pip', 'freeze']:
+                return 'example==1.0\n'
             return ''
         self.runner.run = run
-        with patch.object(self.app, 'python_npu', return_value=sys.executable):
+        with patch.object(cli.shutil, 'which', return_value='/usr/bin/uv'), \
+             patch.object(self.app, 'python_npu', return_value=sys.executable):
             self.app.environments_npu(prepare_export=False)
-        subprocess.run(probe, check=True, capture_output=True)
+        self.assertFalse(any('ensurepip' in call for call in self.runner.calls))
+        self.assertNotEqual(subprocess.run(probe, capture_output=True).returncode, 0)
+        install = next(call for call in self.runner.calls if call[1:3] == ['pip', 'install'])
+        self.assertEqual(install[install.index('--python')+1], python)
+
+    def test_missing_uv_is_actionable_and_does_not_create_environment(self):
+        requirements = self.root/'runtime/npu'
+        requirements.mkdir(parents=True)
+        (requirements/'requirements.txt').write_text('example==1.0\n')
+        with patch.object(cli.shutil, 'which', return_value=None):
+            with self.assertRaisesRegex(cli.Failure, 'UV_MISSING'):
+                self.app.environments_npu(prepare_export=False)
+        self.assertFalse((self.app.npu/'runtime-env').exists())
+
+    def test_unchanged_uv_checkpoint_does_not_require_uv(self):
+        requirements = self.root/'runtime/npu'
+        requirements.mkdir(parents=True)
+        (requirements/'requirements.txt').write_text('example==1.0\n')
+        folder = self.app.npu/'runtime-env'
+        (folder/'bin').mkdir(parents=True)
+        (folder/'bin/python').touch()
+        digest = cli.hashlib.sha256(b'example==1.0\n').hexdigest()
+        (folder/'project-creator-requirements.sha256').write_text(json.dumps({
+            'schema_version': 1, 'installer': 'uv', 'requirements_sha256': digest,
+        })+'\n')
+        with patch.object(cli.shutil, 'which', return_value=None):
+            self.app.environments_npu(prepare_export=False)
+        self.assertFalse(any('uv' in call for call in self.runner.calls))
+
+    def test_uv_install_failure_writes_diagnostic_but_no_marker_or_freeze(self):
+        requirements = self.root/'runtime/npu'
+        requirements.mkdir(parents=True)
+        (requirements/'requirements.txt').write_text('example==1.0\n')
+        def run(arguments, **kwargs):
+            arguments = list(map(str, arguments)); self.runner.calls.append(arguments)
+            if arguments[1:3] == ['--version']:
+                return 'uv 0.12.13\n'
+            if 'venv' in arguments and '--python' in arguments:
+                folder = Path(arguments[-1]); (folder/'bin').mkdir(parents=True, exist_ok=True); (folder/'bin/python').touch()
+                return ''
+            if arguments[1:3] == ['pip', 'install']:
+                raise cli.Failure('PYTHON_INSTALL', 'uv exited with status 1.')
+            return ''
+        self.runner.run = run
+        with patch.object(cli.shutil, 'which', return_value='/usr/bin/uv'), \
+             patch.object(self.app, 'python_npu', return_value='python3.12'):
+            with self.assertRaisesRegex(cli.Failure, 'PYTHON_INSTALL'):
+                self.app.environments_npu(prepare_export=False)
+        folder = self.app.npu/'runtime-env'
+        self.assertFalse((folder/'project-creator-requirements.sha256').exists())
+        self.assertFalse((self.app.npu/'runtime-env-freeze.txt').exists())
+        report = json.loads((self.root/'logs/npu/runtime-env-install.json').read_text())
+        self.assertEqual(report['status'], 'failed')
+
+    def test_unsupported_uv_version_is_rejected(self):
+        requirements = self.root/'runtime/npu'
+        requirements.mkdir(parents=True)
+        (requirements/'requirements.txt').write_text('example==1.0\n')
+        self.runner.responses['--version'] = 'uv 0.12.12\n'
+        with patch.object(cli.shutil, 'which', return_value='/usr/bin/uv'):
+            with self.assertRaisesRegex(cli.Failure, 'UV_VERSION'):
+                self.app.environments_npu(prepare_export=False)
+
+    def test_openvino_and_huggingface_telemetry_controls_remain_explicit(self):
+        requirements = self.root/'runtime/npu'
+        requirements.mkdir(parents=True)
+        (requirements/'requirements.txt').write_text('example==1.0\n')
+        def run(arguments, **kwargs):
+            arguments=list(map(str,arguments)); self.runner.calls.append(arguments); self.runner.envs.append(kwargs.get('env') or {})
+            if arguments[1:3] == ['--version']:
+                return 'uv 0.12.13\n'
+            if 'venv' in arguments and '--python' in arguments:
+                folder=Path(arguments[-1]); (folder/'bin').mkdir(parents=True,exist_ok=True); (folder/'bin/python').touch()
+            if arguments[1:3] == ['pip', 'freeze']:
+                return 'example==1.0\n'
+            return ''
+        self.runner.run=run
+        with patch.object(cli.shutil,'which',return_value='/usr/bin/uv'), \
+             patch.object(self.app,'python_npu',return_value='python3.12'):
+            self.app.environments_npu(prepare_export=False)
+        self.assertTrue(any(Path(call[0]).name == 'opt_in_out' and call[-1] == '--opt_out'
+                            for call in self.runner.calls))
+        install_index=next(i for i,call in enumerate(self.runner.calls) if call[1:3]==['pip','install'])
+        environment=self.runner.envs[install_index]
+        self.assertEqual(environment['HF_HUB_DISABLE_TELEMETRY'],'1')
+        self.assertEqual(environment['HF_HUB_DISABLE_IMPLICIT_TOKEN'],'1')
+        self.assertEqual(environment['UV_CACHE_DIR'], str(self.app.npu/'uv-cache'))
+        self.assertEqual(environment['UV_NO_PROGRESS'],'1')
 
 
 class VerifyTests(InstallTests):

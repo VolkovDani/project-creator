@@ -257,7 +257,13 @@ func (s *Service) process(j *job) {
 		code = "INVALID_OUTPUT"
 	}
 	if e == nil && code == "" {
-		if validator, ok := s.generator.(interface{ ValidateSummary(string) error }); ok && validator.ValidateSummary(text) != nil {
+		if validator, ok := s.generator.(interface {
+			ValidateSummaryForSource(analysis.Source, string) error
+		}); ok {
+			if validator.ValidateSummaryForSource(j.source, text) != nil {
+				code = "INVALID_OUTPUT"
+			}
+		} else if validator, ok := s.generator.(interface{ ValidateSummary(string) error }); ok && validator.ValidateSummary(text) != nil {
 			code = "INVALID_OUTPUT"
 		}
 	}

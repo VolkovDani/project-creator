@@ -31,7 +31,7 @@ export async function autoMerge(context, request) {
     return skip('The tested merge is stale; update the branch and run CI again.');
   }
   // The API rejects a head change racing this request; never retry another SHA.
-  const result = await request(`${root}/pulls/${number}/merge`, { sha: head, merge_method: 'squash' });
+  const result = await request(`${root}/pulls/${number}/merge`, { sha: head, merge_method: 'merge' });
   if (result.merged !== true) throw new Error('GitHub did not confirm the merge.');
   return { merged: true, sha: result.sha };
 }
@@ -57,7 +57,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       event: process.env.GITHUB_EVENT_NAME,
       needs: JSON.parse(process.env.NEEDS_JSON),
     }, githubRequest);
-    console.log(result.merged ? `Squash merged: ${result.sha}` : `Auto-merge skipped: ${result.reason}`);
+    console.log(result.merged ? `Merged: ${result.sha}` : `Auto-merge skipped: ${result.reason}`);
   } catch (error) {
     console.error(`Auto-merge failed: ${error.message}`);
     process.exitCode = 1;

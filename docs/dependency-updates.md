@@ -78,6 +78,16 @@ succeeded. These are local measurements rather than a guarantee across hardware.
 The change runs only `next build` under Bun; unit tests and the production server
 continue to use Node.
 
+## Consolidated dependency refresh (2026-11-17)
+
+This refresh consolidates the dependency proposals from Dependabot pull requests [#112–120, #122, #133, and #134](https://github.com/VolkovDani/project-creator/issues/137). The older npm lockfile proposal in #121 was superseded by the Bun lockfile updates in #133 and #134; `package-lock.json` was not restored.
+
+The frontend now pins React 19.3.1, Biome 2.6.7, Playwright 1.65.1, Node types 26.6.6, and TypeScript 7.0.2. Frozen Bun installation, formatting, type checking, unit tests, and the production build passed. The Node 26.13.1 production image also built successfully, including the Next.js build and deterministic tests.
+
+The backend module versions follow #117, and the build image follows the Go 1.27.4 proposal in #114. Compose now uses pgvector 0.8.7. GitHub Actions checkout and artifact actions follow #116 and #118. The NPU export pins include NNCF 3.4.0, ONNX 1.23.2, and Optimum Intel 2.2.0.
+
+The proposed `transformers==5.23.0` from #119 was not retained: the published [Optimum Intel 2.2.0 metadata](https://pypi.org/project/optimum-intel/2.2.0/) requires `transformers>=4.51,<5.6`. PyPI metadata confirms Transformers 5.5.2 satisfies that range, while 5.23.0 does not. A metadata comparison for the direct NPU pins found no additional direct-version conflicts. A full Python 3.12 `pip install --dry-run` did not complete within the local run window while downloading the 59.1 MB OpenVINO wheel, but a subsequent full Python 3.12 resolver run completed successfully, including transitive dependencies. The NPU dependency set also still needs export and hardware inference validation on the supported Intel NPU environment; direct metadata compatibility alone does not establish model compatibility.
+
 ## Schedule and pull request volume
 
 Each ecosystem is checked weekly, staggered from Monday through Saturday. Within

@@ -48,7 +48,7 @@
   `./node_modules/.bin/biome check --write <пути>` без `--unsafe`.
   Не заменяй форматирование ручной правкой пробелов и не форматируй посторонние файлы.
 - Менеджер пакетов фронтенда закреплён как Bun 1.4.4 в `frontend/package.json`;
-  используй `bun install --frozen-lockfile` и `bun run <script>`. Node.js 24
+  используй `bun install --frozen-lockfile` и `bun run <script>`. Node.js 26
   остаётся необходим для unit-тестов, скриптов репозитория и production-сервера Next.js.
 - После клонирования и установки зависимостей подключи отслеживаемый Git hook:
   `cd frontend && bun install --frozen-lockfile && bun run hooks:install`. Он хранится в

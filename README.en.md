@@ -56,8 +56,8 @@ with Linux containers, is required. Go and Node.js are not needed on the host to
 run the application. Run commands from the repository root. CPU is used by
 default; a GPU is optional, but analysis may exceed the timeout on a slow CPU.
 
-The configuration pins Go 1.26.10, Node.js 24.22.1 on Debian Bookworm,
-PostgreSQL 16 with pgvector 0.8.0, and Ollama 0.40.16. Models are downloaded
+The configuration pins Go 1.26.10, Node.js 26.13.1 on Debian Bookworm,
+PostgreSQL 16 with pgvector 0.8.7, and Ollama 0.40.16. Models are downloaded
 separately:
 
 | Purpose | Model | Weight download size |
@@ -330,7 +330,7 @@ then data persistence after restarting PostgreSQL/backend. No weights or GPU are
 needed. The test stub is included only through explicit `compose.smoke.yml`; it
 is not in the production Compose setup.
 
-Node.js 24 is additionally required to run the smoke script on the host. The
+Node.js 26 is additionally required to run the smoke script on the host. The
 commands below run in a subshell so test variables do not affect normal startup.
 The test requires an empty database and refuses to add data to a non-empty one:
 
@@ -422,8 +422,8 @@ has been accepted or that the public multi-user service is ready.
 
 ## Local checks
 
-Go 1.26.10, a C compiler for SQLite import/testing, Node.js 24, and PostgreSQL 16
-with pgvector 0.8.0 are required. Ordinary tests do not require an LLM or cloud
+Go 1.26.10, a C compiler for SQLite import/testing, Node.js 26, and PostgreSQL 16
+with pgvector 0.8.7 are required. Ordinary tests do not require an LLM or cloud
 APIs. Integration tests use separate schemas in the database from
 `TEST_DATABASE_URL`. Without this variable they are skipped; such a run does not
 check storage.
@@ -472,7 +472,7 @@ server and UI use the key and do not parse translated strings.
 ## PostgreSQL and running the API
 
 The storage decision is documented in [ADR-001](docs/adr/001-postgresql-pgvector.md).
-`compose.postgres.yml` pins PostgreSQL 16 and pgvector 0.8.0. It provides only a
+`compose.postgres.yml` pins PostgreSQL 16 and pgvector 0.8.7. It provides only a
 database for development with processes on the host. To run the whole application,
 use the main `compose.yml` as described above. SQLite is no longer the server's
 working storage.
@@ -708,7 +708,7 @@ manager, provenance, security, and benchmark assessment.
 The hook is stored in the tracked `.githooks/pre-commit` directory, and its
 implementation is in `scripts/biome-pre-commit.mjs`. Git does not enable hooks from
 a repository automatically: on each new computer/clone, run the following with
-Node.js 24:
+Node.js 26:
 
 ```bash
 git clone https://github.com/VolkovDani/project-creator.git
@@ -758,7 +758,7 @@ there; other frontend tests run as usual.
 
 ## Next.js interface
 
-Node.js 24 and Go 1.26.10 are required. Start the GraphQL server in one terminal,
+Node.js 26 and Go 1.26.10 are required. Start the GraphQL server in one terminal,
 setting `PROJECT_CREATOR_TOKEN` and `PROJECT_CREATOR_DATABASE_URL` as described
 above. In another terminal:
 

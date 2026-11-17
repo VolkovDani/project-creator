@@ -33,7 +33,7 @@ try {
     .toString().split('\0').filter((path) => path.startsWith('frontend/') && /\.(?:ts|tsx|json|jsonc)$/.test(path));
   if (paths.length) {
     const biome = join(root, 'frontend', 'node_modules', '@biomejs', 'biome', 'bin', 'biome');
-    if (!existsSync(biome)) throw Error('Install the pinned Biome first: cd frontend && npm ci');
+    if (!existsSync(biome)) throw Error('Install the pinned Biome first: cd frontend && bun install --frozen-lockfile');
     snapshot = mkdtempSync(join(tmpdir(), 'pc-biome-index-'));
     const copy = (path, content) => {
       const target = join(snapshot, path);

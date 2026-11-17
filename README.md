@@ -1,8 +1,11 @@
 # Project Creator
 
+[English version](README.en.md)
+
 ## Установка одной командой
 
-На нативном Linux x86_64 с Python 3.12 и Docker Engine/Compose:
+На нативном Linux x86_64 с Python 3 для CLI и Docker Engine/Compose
+(для NPU дополнительно нужны Python 3.12 и установленный uv):
 
 ```bash
 ./project-creator setup --device cpu  # либо arc, nvidia, amd, amd-vulkan, npu
@@ -201,7 +204,8 @@ macOS не предоставляет Metal GPU этому Linux-контейн�
 
 ### GPU и встроенная графика: матрица запуска
 
-CLI поддерживает нативный Linux x86_64, Python 3.12 и Docker Engine/Compose 2.20+.
+CLI поддерживает нативный Linux x86_64, Python 3 и Docker Engine/Compose 2.20+;
+профиль NPU дополнительно использует Python 3.12 и установленный uv.
 Наличие профиля означает поддержку конфигурации; совместимость конкретного
 оборудования подтверждается отдельным реальным запуском `setup`/`up`.
 
@@ -582,21 +586,35 @@ GitHub Actions; Compose запускает уже загруженные обр�
 
 ### Автоматическое слияние после CI
 
-Изменения только файлов `.md` и `.txt` не запускают GitHub Actions ни для PR,
-ни для push в `main`: фильтр `paths-ignore` применяется ко всему workflow.
-Если diff содержит хотя бы один другой файл, CI работает как обычно.
-Документационный PR после проверки diff и `git diff --check` сливается обычным
-merge commit через `gh pr merge --merge --match-head-commit SHA`, без метки
-`automerge`: job слияния в этом случае тоже не запускается.
+`main` остаётся default branch и содержит только принятые изменения. Обычные
+изменения направляются PR в `develop`; CI запускается для PR и отменяет
+устаревшие прогоны. `develop` создан от `main` на момент подготовки релизного
+процесса. Push CI на `main` сохраняется для проверки фактически интегрированного
+состояния; отдельный push workflow для `develop` отключён во избежание второго
+прогона после PR.
+
+Метка `automerge` действует только для PR этого репозитория с базой `develop`.
+Подготовку выпуска выполняйте отдельным PR `develop` → `main` без этой метки;
+его слияние вручную, после проверки diff, состояния CI и готовности выпуска.
+Release PR не публикует версию.
+
+Изменения только файлов `.md` и `.txt` пропускаются фильтром GitHub Actions,
+кроме файлов `requirements*.txt` в любом каталоге: они запускают CI даже сами
+по себе. Смешанные изменения с кодом также запускают CI. Документационный PR,
+для которого workflow пропущен, после проверки diff и `git diff --check`
+сливается обычным merge commit командой
+`gh pr merge --merge --match-head-commit SHA` без метки `automerge`: job
+слияния в этом случае тоже не запускается.
 Пропущенный workflow нельзя делать обязательным условием для таких PR:
 GitHub может оставить required checks в состоянии Pending. Защиту ветки
 не обходить через `--admin`; при добавлении обязательных checks согласовать
 их совместимость с этим правилом. См. [фильтры путей GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onpushpull_requestpull_request_targetpathspaths-ignore).
 
-Для готового к слиянию PR из ветки этого репозитория в `main` поставьте метку
-`automerge`. Завершающий job `automerge` ждёт успешных `checks` и `containers`,
-затем создаёт merge commit с двумя родителями: история сохраняет коммиты ветки
-и её соединение с `main`. Это отдельный job обычного CI, без платного штатного
+Для готового к слиянию PR из ветки этого репозитория в `develop` поставьте
+метку `automerge`. Завершающий job `automerge` ждёт успешных `checks` и
+`containers`, затем создаёт merge commit с двумя родителями: история сохраняет
+коммиты ветки и её соединение с `develop`. Скрипт повторно проверяет базу и
+отклоняет PR в `main`. Это отдельный job обычного CI, без платного штатного
 GitHub auto-merge, PAT и дополнительных зависимостей.
 
 В настройках репозитория включено **Automatically delete head branches**:
@@ -604,20 +622,22 @@ GitHub удаляет удалённую head-ветку после успешн
 Закрытие PR без слияния не запускает эту очистку. Локальные ветки сохраняются
 до очистки в клоне: `git fetch --prune` удаляет только устаревшие remote-tracking
 refs. Агент после merge удаляет подтверждённо интегрированную локальную ветку
-по правилам `AGENTS.md`, сохраняя новые коммиты, `main` и занятые worktree.
+по правилам `AGENTS.md`, сохраняя новые коммиты, постоянные `main`/`develop` и
+занятые worktree. Если GitHub удалил `develop` после release PR, восстановите её
+от актуального `main`.
 
 Метка — явное разрешение на слияние: ставьте её после ревью. Job читает актуальное
 состояние PR, поэтому снятие метки до его проверки отменяет слияние. Draft, закрытые
 PR, форки, конфликты, изменившийся head и изменение `main` относительно проверенного
 merge-коммита приводят к пропуску. GitHub получает ожидаемый head SHA и отклоняет
 merge, если head успел измениться. Проверка базы выполняется перед запросом;
-атомарной блокировки `main` между этой проверкой и merge нет. Это не merge queue
+атомарной блокировки `develop` между этой проверкой и merge нет. Это не merge queue
 и не замена защищённой ветке.
 
 Добавление/снятие метки само по себе не перезапускает CI. Можно поставить метку,
 пока проверки идут. Если CI уже завершился, повторите **только job `automerge`**
 в Actions (или `gh run rerun RUN_ID --job JOB_ID`), сохранив результаты проверок.
-Если изменился head или `main`, обновите рабочую ветку относительно `main` и
+Если изменился head или `develop`, обновите рабочую ветку относительно `develop` и
 дождитесь нового полного CI. Сбой API завершает job ошибкой, без автоматического
 повтора merge; после проверки причины можно повторить этот job.
 
@@ -628,6 +648,47 @@ merge, если head успел измениться. Проверка базы 
 из этого push не будет. Проверки PR остаются основанием слияния; кеши по-прежнему
 обновляются на обычных push/ручных merge в `main`.
 
+### Подготовка Source + Compose v0.1.0
+
+Ручной workflow `Draft prerelease` запускается только с `main`. Он проверяет
+semantic version tag и полный source SHA, что тег указывает ровно на этот SHA,
+что SHA входит в `main` и что успешный CI run на `main` (push или ручной запуск)
+завершился на том же SHA. Для первого prerelease локального однопользовательского
+MVP используйте `v0.1.0`. Workflow повторяет проверки и сборки на source SHA и
+создаёт черновик prerelease; maintainer отдельно публикует его после проверки
+кандидата и release notes и подтверждения отсутствия известных критических
+проблем. Аппаратные отчёты собираются и проверяются отдельно и не блокируют
+публикацию. Исправления документации и установки можно включать в patch-релизы.
+
+Подробная инструкция доступна [на русском](docs/release-acceptance.ru.md) и
+[на английском](docs/release-acceptance.md); заметки выпуска доступны
+[на русском](docs/release-notes-v0.1.0.ru.md) и
+[на английском](docs/release-notes-v0.1.0.md). Фактические проверки и оставшиеся
+условия перечислены [в отчёте от 17 ноября 2026 года](docs/release-verification-2026-11-17.md).
+
+## Менеджер пакетов фронтенда и сборка/runtime
+
+Менеджер пакетов фронтенда — Bun 1.4.4, версия закреплена в
+`frontend/package.json`; зафиксированный граф зависимостей хранится в
+`frontend/bun.lock`. Из каталога `frontend/` устанавливай зависимости командой
+`bun install --frozen-lockfile`, скрипты запускай через `bun run <script>`.
+Список `trustedDependencies` намеренно пуст: install-скрипты зависимостей
+отключены, закреплённому графу фронтенда они не нужны. `bun audit` проверяет
+зависимости из `bun.lock` по advisory npm.
+
+Production-сборка Next.js выполняется Bun: в повторных локальных измерениях она
+была быстрее, чем сборка на Node при одинаковых условиях. На Linux x64 с Node
+24.21.0, Bun 1.4.4 и Next.js 16.4.6 медиана трёх чистых сборок составила 4.31 с
+на Node и 3.88 с на Bun; трёх сборок с кешем — 1.98 с и 1.51 с соответственно.
+Это измерения на одной локальной системе, а не гарантия производительности.
+Node.js 24 остаётся для unit-тестов и production-сервера. Production-образ
+использует Node согласно [руководству Next.js по развёртыванию](https://nextjs.org/docs/app/guides/deploying-to-platforms).
+Для запуска всего стека Docker Compose устанавливает Bun в образ сборки; на
+хосте Bun не нужен.
+
+[Руководство по обновлению зависимостей](docs/dependency-updates.ru.md) содержит
+оценку пакетного менеджера Bun, происхождения, безопасности и замеры.
+
 ## Git hooks и форматирование
 
 Hook хранится в отслеживаемой папке `.githooks/pre-commit`, а его реализация —
@@ -637,8 +698,8 @@ Hook хранится в отслеживаемой папке `.githooks/pre-co
 ```bash
 git clone https://github.com/VolkovDani/project-creator.git
 cd project-creator/frontend
-npm ci
-npm run hooks:install
+bun install --frozen-lockfile
+bun run hooks:install
 ```
 
 Для уже существующего клона достаточно последних двух команд из `frontend/`.
@@ -653,7 +714,7 @@ npm run hooks:install
 ```bash
 cd frontend
 ./node_modules/.bin/biome check --write 'app/projects/[id]/IndexProgress.tsx'
-npm run format:check
+bun run format:check
 ```
 
 Pre-commit автоматически обрабатывает подготовленные `.ts`, `.tsx`, `.json`,
@@ -673,10 +734,10 @@ Hook не следует по симлинкам поддерживаемых ф
 
 Hook не заменяет `typecheck`, тесты, сборку или CI. Изменения Go и документации
 без поддерживаемых frontend-файлов не требуют установленного Biome.
-Тесты hooks: после `npm ci` в `frontend/` выполните из корня
+Тесты hooks: после `bun install --frozen-lockfile` в `frontend/` выполните из корня
 `node --test scripts/git-hooks.test.mjs`.
-В исходном checkout `npm test` также запускает эту интеграционную проверку после
-установки зависимостей. Ранний запуск Node-тестов в CI без `npm ci` проверяет
+В исходном checkout `bun run test` также запускает эту интеграционную проверку после
+установки зависимостей. Ранний запуск Node-тестов в CI без `bun install --frozen-lockfile` проверяет
 установщик, а сценарии с настоящим Biome выполняются позже через frontend-тесты.
 В Docker-сборке приложения Git tooling отсутствует, поэтому эта проверка hooks
 пропускается; остальные frontend-тесты выполняются как обычно.
@@ -688,9 +749,9 @@ Hook не заменяет `typecheck`, тесты, сборку или CI. Из
 
 ```bash
 cd frontend
-npm ci
+bun install --frozen-lockfile
 export PROJECT_CREATOR_TOKEN='тот-же-секрет-что-у-сервера'
-npm run dev -- -H 127.0.0.1
+bun run dev -- -H 127.0.0.1
 ```
 
 Откройте `http://127.0.0.1:3000`. Сервер Next.js пересылает GraphQL-запросы
@@ -706,16 +767,16 @@ npm run dev -- -H 127.0.0.1
 
 ```bash
 cd frontend
-npm run codegen
-npm test
-npm run typecheck
-npm run build
-npx playwright install chromium
-npm run e2e
+bun run codegen
+bun run test
+bun run typecheck
+bun run build
+bunx playwright install chromium
+bun run e2e
 ```
 
 Для E2E создайте отдельную пустую одноразовую базу с pgvector и задайте
-`E2E_DATABASE_URL` перед `npm run e2e`. Playwright запускает отдельные Go и
+`E2E_DATABASE_URL` перед `bun run e2e`. Playwright запускает отдельные Go и
 Next.js серверы. Тесты создают данные: для повторного чистого прогона пересоздайте
 именно E2E-базу; никогда не указывайте URL рабочей базы. Пример подготовки:
 
@@ -723,7 +784,7 @@ Next.js серверы. Тесты создают данные: для повт�
 createdb -h 127.0.0.1 -U project_creator project_creator_e2e
 export E2E_DATABASE_URL='postgresql://project_creator:ваш-пароль@127.0.0.1:5432/project_creator_e2e?sslmode=disable'
 cd frontend
-npm run e2e
+bun run e2e
 ```
 
 ## Бизнес-требования
@@ -1078,9 +1139,9 @@ go test ./internal/analysis -run TestRealAnalysisSmoke -v -count=1
 
 ```sh
 cd frontend
-npm run build
-npx playwright install chromium
-npm run test:ux
+bun run build
+bunx playwright install chromium
+bun run test:ux
 ```
 
 Сценарии проверяют desktop 1920×1080 и узкий экран 390×844, медленные запросы,
@@ -1184,7 +1245,7 @@ go test ./internal/analysis -run 'TestReplacement|TestCancelWaiting' -count=1
 go test ./internal/api -run TestGraphQLReplacement -count=1
 python3 -m unittest discover -s runtime/npu -v
 cd frontend
-E2E_CHROMIUM_PATH=/path/to/chrome npm run test:ux -- --grep 'replacing an analysis'
+E2E_CHROMIUM_PATH=/path/to/chrome bun run test:ux -- --grep 'replacing an analysis'
 ```
 
 Эти проверки используют заглушки и не доказывают аппаратную готовность NPU.
@@ -1231,6 +1292,16 @@ backend, если изменялся код. Список учитывается
 алфавита не отличает языки с одинаковыми буквами, поэтому языковое ограничение
 дополнительно задано в инструкции модели. Оригинальные требования новым правилом
 не ограничиваются.
+
+Выжимка с ограниченным языком может сохранять отдельные технические ASCII-имена
+из того же оригинала (например, `Excel`, `API` или `PDF` в русском требовании).
+Исключение не разрешает английский текст: посторонние названия и предложения
+на другом языке по-прежнему отклоняются. В выжимке должен оставаться текст
+разрешённого алфавита. Это консервативная проверка токенов, а не распознавание
+произвольных названий продуктов или языка. Исключение не охватывает иностранные
+названия из нескольких слов. Проверка без оригинала остаётся строгой.
+Политика учитывается в профиле генерации: её изменение создаёт новые выжимки,
+сохраняя предыдущие профили в истории.
 
 
 При явной настройке `PROJECT_CREATOR_SUMMARY_MODEL` и полного

@@ -9,7 +9,7 @@ export default defineConfig({
     launchOptions: { args: ['--no-sandbox'] },
   },
   webServer: {
-    command: 'npm run start -- -p 3101',
+    command: 'bun run start -- -p 3101',
     url: 'http://127.0.0.1:3101',
     reuseExistingServer: false,
     timeout: 120000,

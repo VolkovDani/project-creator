@@ -19,13 +19,13 @@ export async function autoMerge(context, request) {
   const pr = await request(`${root}/pulls/${number}`);
   if (pr.state !== 'open' || pr.draft !== false ||
       pr.head?.repo?.full_name !== repository || pr.base?.repo?.full_name !== repository ||
-      pr.base?.ref !== 'main' || pr.head?.sha !== head || pr.mergeable !== true ||
+      pr.base?.ref !== 'develop' || pr.head?.sha !== head || pr.mergeable !== true ||
       !pr.labels?.some((label) => label.name === 'automerge')) {
     return skip('PR must be open, ready, mergeable, labeled automerge, and still at the tested head.');
   }
-  // PR jobs test the synthetic merge commit. Do not merge after main has moved.
+  // PR jobs test the synthetic merge commit. Do not merge after develop has moved.
   const tested = await request(`${root}/git/commits/${merge}`);
-  const currentBase = await request(`${root}/git/ref/heads/main`);
+  const currentBase = await request(`${root}/git/ref/heads/develop`);
   if (tested.parents?.length !== 2 || tested.parents[1].sha !== head ||
       tested.parents[0].sha !== currentBase.object?.sha) {
     return skip('The tested merge is stale; update the branch and run CI again.');

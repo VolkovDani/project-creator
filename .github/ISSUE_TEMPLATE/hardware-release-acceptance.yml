@@ -1,0 +1,69 @@
+name: Hardware release acceptance
+description: Record hardware smoke results / Записать результаты аппаратного smoke
+title: "Hardware acceptance: v0.1.0 — <device/profile>"
+labels: ["hardware-acceptance"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Submit one report per tested hardware/profile combination. Attach complete logs; redact credentials and personal data. A maintainer reviews the evidence and applies `hardware-accepted` to confirm only this configuration. Reports can be added after release; untested hardware does not block publication.
+        Для каждой пары оборудования и профиля создавайте отдельный отчёт. Приложите полные логи, удалив секреты и персональные данные. Maintainer проверяет доказательства и ставит метку `hardware-accepted` только для этой конфигурации. Отчёты можно добавлять после выпуска; непроверенное оборудование не блокирует публикацию.
+  - type: textarea
+    id: candidate
+    attributes:
+      label: Release candidate and full source SHA / Кандидат выпуска и полный SHA исходного кода
+      description: Record exact standalone lines below / Укажите отдельными строками тег и полный SHA.
+      value: |
+        release-tag: v0.1.0
+        source-sha: <40-character SHA>
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware identifiers / Идентификаторы оборудования
+      description: CPU, GPU/NPU, device IDs, memory, host OS and kernel/driver versions. / Модели CPU, GPU/NPU, ID устройств, память, ОС, версии ядра и драйверов.
+    validations:
+      required: true
+  - type: input
+    id: software
+    attributes:
+      label: Software and profile identifiers / Идентификаторы ПО и профиля
+      description: Compose/app version, Ollama/runtime version, model name and digest, profile ID/config hash. / Версии Compose, приложения, Ollama/runtime, имя и digest модели, ID профиля и хеш конфигурации.
+    validations:
+      required: true
+  - type: textarea
+    id: smoke
+    attributes:
+      label: Smoke scenarios and results / Сценарии smoke и результаты
+      description: Include exact commands, expected/actual outcomes, timings and pass/fail per scenario. / Укажите команды, ожидаемый и фактический результат, длительность и pass/fail каждого сценария.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Full logs / Полные логи
+      description: Attach complete logs or a durable artifact, including startup, generation, restart/recovery and shutdown diagnostics. / Приложите полные логи запуска, генерации, рестарта/восстановления и завершения.
+    validations:
+      required: true
+  - type: textarea
+    id: batch
+    attributes:
+      label: Community-tested confirmations grouped by release patch / Подтверждения сообщества, сгруппированные по патчам выпуска
+      description: Optionally link independent reports and summarize the combinations and outcomes confirmed by this release patch. / При наличии сгруппируйте ссылки на независимые отчёты и укажите подтверждённые этим патчем сочетания и результаты.
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Patch notes and known limitations / Список изменений и известные ограничения
+      description: User-visible fixes, compatibility notes and remaining limitations for this hardware/profile. / Пользовательские исправления, совместимость и оставшиеся ограничения для устройства/профиля.
+    validations:
+      required: true
+  - type: checkboxes
+    id: maintainer
+    attributes:
+      label: Maintainer acceptance / Приёмка maintainer
+      options:
+        - label: I reviewed the complete logs, source SHA, hardware/profile identifiers, and confirm this hardware/profile for the recorded release. / Проверены полные логи, SHA, идентификаторы оборудования и профиля; конфигурация оборудования и профиля подтверждена для указанного выпуска.
+          required: false

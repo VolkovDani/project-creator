@@ -1,259 +1,311 @@
-# Инструкции для работы в репозитории
+# Repository Instructions
 
-- Перед изменениями прочитай `GOAL.md`. Сохраняй различие между согласованными
-  целями, предложениями и открытыми решениями; не расширяй задачу до всей карты развития.
-- Работай по **TDD: Red → Green → Refactor**. Для изменения поведения сначала
-  добавь тест и убедись, что он падает по ожидаемой причине, затем реализуй минимум
-  для прохождения и выполни рефакторинг. Для багов сначала добавляй регрессионный тест.
-  Изменения только документации не требуют искусственных тестов.
-- Go — предварительный выбор целевой архитектуры; backend MVP уже реализован на Go.
-  Учитывай фактический стек репозитория;
-  не выбирай дополнительные фреймворки и сервисы без необходимости.
-- Соблюдай границы модулей. Отделяй бизнес-логику от HTTP, хранилища, RAG
-  и адаптеров моделей. Предпочитай простую архитектуру без преждевременных микросервисов.
-- Приоритет — локальные модели для генерации и embeddings. Внешние провайдеры
-  (OpenAI, Anthropic и другие) подключаются через заменяемые адаптеры и явную
-  конфигурацию. Не добавляй автоматическую отправку данных в облако при сбое локальной модели.
-- Не считай вывод LLM подтверждённым фактом. Сохраняй источники и происхождение
-  предложений; не представляй самооценку модели как статистическую вероятность.
-- Проверяй права доступа до поиска и передачи контекста модели.
-  Не допускай утечек между клиентами. Не коммить ключи, секреты и реальные клиентские данные.
-- В обычных тестах используй детерминированные заглушки провайдеров.
-  Тесты с реальными моделями и внешними API должны запускаться отдельно и явно;
-  качество RAG проверяй на фиксированных примерах с ожидаемыми источниками.
-- После изменений Go-кода запускай `gofmt`, `go test ./...` и `go vet ./...`
-  из соответствующего Go-модуля; выполняй необходимые проверки
-  затронутых компонентов. Не сообщай об успешной проверке, если она не запускалась.
-- Делай небольшие изменения по задаче. Обновляй документацию при изменении поведения
-  и фиксируй существенные архитектурные решения с обоснованием.
-- При крупных изменениях по возможности сохраняй законченные рабочие части
-  отдельными небольшими коммитами по мере готовности. Перед каждым коммитом
-  выполняй проверки, соответствующие его изменениям; промежуточные коммиты
-  должны собираться и сохранять работоспособность, чтобы можно было безопасно
-  откатывать изменения и искать регрессию через `git bisect`. Не включай в такой
-  коммит незавершённые связанные изменения или чужие правки.
-- Логи и диагностические отчёты сохраняй в корневой `logs/` (для NPU — `logs/npu/`),
-  исключённой из Git и Docker build context. Веса, профили и файлы происхождения
-  моделей оставляй в предназначенных для них каталогах.
-- В результате работы кратко укажи, что изменено, какие проверки выполнены
-  и какие ограничения остались.
+**Русская версия:** [AGENTS.ru.md](AGENTS.ru.md).
 
-## Контракты фронтенда и бэкенда
+- Read `GOAL.md` before making changes. Preserve the distinction between agreed
+  goals, proposals, and open decisions; do not expand the task to cover the entire
+  roadmap.
+- Work using **TDD: Red → Green → Refactor**. For behavior changes, add a test
+  first and confirm that it fails for the expected reason, then implement the
+  minimum needed to pass and refactor. For bugs, add a regression test first.
+  Documentation-only changes do not require artificial tests.
+- Go is the preliminary choice for the target architecture; the backend MVP is
+  already implemented in Go. Follow the repository's actual stack; do not choose
+  additional frameworks or services without necessity.
+- Respect module boundaries. Separate business logic from HTTP, storage, RAG,
+  and model adapters. Prefer a simple architecture without premature
+  microservices.
+- Prefer local models for generation and embeddings. External providers (OpenAI,
+  Anthropic, and others) must connect through replaceable adapters and explicit
+  configuration. Do not add automatic cloud data transmission when a local
+  model fails.
+- Do not treat LLM output as a confirmed fact. Preserve sources and the
+  provenance of proposals; do not present a model's self-assessment as a
+  statistical probability.
+- Check access rights before searching or passing context to a model. Prevent
+  cross-client data leaks. Do not commit keys, secrets, or real client data.
+- Use deterministic provider stubs in ordinary tests. Tests with real models and
+  external APIs must run separately and explicitly; check RAG quality against
+  fixed examples with expected sources.
+- After changing Go code, run `gofmt`, `go test ./...`, and `go vet ./...` from
+  the relevant Go module; run the necessary checks for affected components. Do
+  not report a check as successful if it was not run.
+- Keep changes small and task-focused. Update documentation when behavior
+  changes and record significant architectural decisions with their rationale.
+- For large changes, where practical, preserve completed working pieces in
+  separate small commits as they are ready. Before each commit, run the checks
+  relevant to its changes; intermediate commits must build and remain functional
+  so they can be safely reverted and regressions located with `git bisect`. Do
+  not include unfinished related changes or other people's changes in such a
+  commit.
+- Store logs and diagnostic reports in the root `logs/` directory (for NPU, in
+  `logs/npu/`), which is excluded from Git and the Docker build context. Keep
+  model weights, profiles, and provenance files in their designated directories.
+- In your final report, briefly state what changed, which checks were run, and
+  what limitations remain.
 
-- Для изменений TypeScript/TSX соблюдай `frontend/biome.jsonc`. Не форматируй файлы вне текущей задачи, не редактируй сгенерированные GraphQL-типы вручную и не используй `any` для обхода ошибок TypeScript.
-- Перед каждым коммитом форматируй изменённые файлы, входящие в область
-  `frontend/biome.jsonc`, через Biome: из `frontend/` запускай
-  `./node_modules/.bin/biome check --write <пути>` без `--unsafe`.
-  Не заменяй форматирование ручной правкой пробелов и не форматируй посторонние файлы.
-- После клонирования и установки зависимостей подключи отслеживаемый Git hook:
-  `cd frontend && npm ci && npm run hooks:install`. Он хранится в
-  `.githooks/pre-commit`; настройка `core.hooksPath` локальна для каждого клона
-  и не переносится автоматически через Git. Полная инструкция — в разделе
-  «Git hooks и форматирование» README.
-- Pre-commit проверяет содержимое Git index, применяет безопасные исправления
-  Biome к полностью подготовленным файлам и добавляет их обратно в index.
-  Незастейдженные изменения частично подготовленных файлов сохраняются;
-  если подготовленная часть требует исправлений, коммит блокируется до их
-  явного форматирования и повторного staging. Hook не заменяет обязательные
-  тесты, проверку типов и сборку; не обходи его ради сокрытия ошибок проверок.
-- Не подавляй правила Biome без обоснования и не применяй небезопасные автоматические исправления без проверки последствий. После изменений фронтенда запускай `npm run format:check`, `npm run typecheck` и соответствующие тесты из `frontend/`.
+## Frontend and Backend Contracts
 
-- Следуй `ARCHITECTURE.md`: GraphQL для запросов/мутаций, SSE для инвалидации,
-  Next.js + TypeScript для фронтенда.
-- SDL — источник генерации типов, общий контракт ограничений — источник валидации.
-  Не редактируй сгенерированные файлы вручную. Проверяй операции, генерацию и отсутствие
-  рассинхронизации контрактов существующими проверками CI.
-- Общие ограничения полей не дублируй независимо на Go и TypeScript.
-  Проверяй одинаковые примеры валидных и невалидных значений на обеих сторонах.
-- Серверная валидация обязательна. Ошибки полей передавай как path/code/messageKey/params;
-  не используй переведённую строку для программного определения ошибки.
-- События инвалидации публикуй после успешного commit данных, с проверкой
-  области доступа. Проверяй повторные события, reconnect/reset, списки и гонку
-  между запросом и событием. Изменения прав должны очищать недоступные данные.
-- Все пользовательские строки оформляй через i18n. Общие словари Go/TypeScript
-  и параметры переводов проверяй автоматически. Не переводи пользовательский контент.
-- Для фронтенда запускай предусмотренные проектом тесты, проверку типов и сборку;
-  используй команды из README и обновляй их при изменении процесса.
+- For TypeScript/TSX changes, follow `frontend/biome.jsonc`. Do not format files
+  outside the current task, edit generated GraphQL types manually, or use `any`
+  to bypass TypeScript errors.
+- Before each commit, format changed files covered by `frontend/biome.jsonc`
+  with Biome: from `frontend/`, run
+  `./node_modules/.bin/biome check --write <paths>` without `--unsafe`. Do not
+  replace formatting with manual whitespace edits or format unrelated files.
+- The frontend package manager is pinned to Bun 1.4.4 in `frontend/package.json`;
+  use `bun install --frozen-lockfile` and `bun run <script>`. Node.js 24 remains
+  required for unit tests, repository scripts, and the production Next.js server.
+- After cloning and installing dependencies, install the tracked Git hook:
+  `cd frontend && bun install --frozen-lockfile && bun run hooks:install`. It is stored in
+  `.githooks/pre-commit`; the `core.hooksPath` setting is local to each clone
+  and is not automatically transferred through Git. See the README section
+  “Git hooks and formatting” for full instructions.
+- The pre-commit hook checks the Git index, applies safe Biome fixes to fully
+  staged files, and adds the fixed files back to the index. Unstaged changes in
+  partially staged files are preserved; if the staged portion needs fixes, the
+  commit is blocked until it is explicitly formatted and staged again. The hook
+  does not replace required tests, type checks, or builds; do not bypass it to
+  hide check failures.
+- Do not suppress Biome rules without justification or apply unsafe automatic
+  fixes without checking their consequences. After frontend changes, run
+  `bun run format:check`, `bun run typecheck`, and the relevant tests from
+  `frontend/`.
+- Follow `ARCHITECTURE.md`: use GraphQL for queries/mutations, SSE for
+  invalidation, and Next.js + TypeScript for the frontend.
+- SDL is the source for type generation, and the shared constraints contract is
+  the source for validation. Do not edit generated files manually. Use existing
+  CI checks to validate operations, generation, and the absence of contract
+  drift.
+- Do not independently duplicate shared field constraints in Go and TypeScript.
+  Check the same valid and invalid examples on both sides.
+- Server-side validation is required. Pass field errors as
+  `path/code/messageKey/params`; do not use translated text to determine an
+  error programmatically.
+- Publish invalidation events after a successful data commit and check the
+  access scope. Check duplicate events, reconnect/reset, lists, and races between
+  a query and an event. Permission changes must clear inaccessible data.
+- Put all user-facing strings through i18n. Validate the shared Go/TypeScript
+  dictionaries and translation parameters automatically. Do not translate user
+  content.
+- For frontend work, run the project's prescribed tests, type checks, and build;
+  use the commands in the README and update them when the process changes.
 
-## Выбор зависимостей
+## Dependency Selection
 
-- Выбирай зависимости, проверенные сообществом и подходящие для задачи. Оценивай
-  известность и реальное использование, поддержку и активность сопровождающих,
-  документацию, лицензию, происхождение пакета и известных уязвимостей.
-  Число звёзд — один из возможных сигналов, без фиксированного порога.
-- Проверяй прямые и существенные транзитивные зависимости и инструменты сборки;
-  учитывай, какие зависимости входят в приложение, а какие нужны только для
-  тестирования. Используй официальные источники и закрепляй версии.
-- При обнаружении существенных проблем выбирай безопасную альтернативу или
-  документируй оценку и принятые меры в PR. Стандартная библиотека языка
-  не является сторонней зависимостью.
+- Choose dependencies that are community-vetted and suitable for the task.
+  Assess recognition and actual usage, maintainer support and activity,
+  documentation, license, package provenance, and known vulnerabilities. Star
+  counts are one possible signal, with no fixed threshold.
+- Check direct and significant transitive dependencies and build tools; consider
+  which dependencies ship in the application and which are only used for
+  testing. Use official sources and pin versions.
+- If significant issues are found, choose a safe alternative or document the
+  assessment and mitigation in the PR. A language standard library is not a
+  third-party dependency.
 
-## Делегирование субагентам
+## Delegating to Subagents
 
-### Когда делегировать
+### When to Delegate
 
-- Перед сложной работой выдели независимые ограниченные подзадачи и по умолчанию
-  делегируй подходящую из них, если это повысит качество или сократит общее время
-  работы. Если решаешь выполнить всю задачу самостоятельно, кратко сообщи
-  пользователю конкретную причину: например, зависимость от ещё не принятого
-  решения или стоимость передачи контекста и проверки выше ожидаемой пользы.
-  Не делегируй ради числа агентов; само число шагов не делает делегирование обязательным.
-- Делегируй подходящие независимые задачи: поиск по коду, ограниченное ревью,
-  анализ сбоя, тесты, документацию или реализацию отдельного компонента.
-  Простые правки выполняй самостоятельно, если передача контекста и проверка
-  результата потребуют больше усилий, чем сама задача.
-- Разделяй разработку, тестирование и ревью между агентами, когда это полезно.
-  Пока субагент работает, выполняй другую полезную независимую часть задачи;
-  не повторяй порученную ему работу без конкретной причины.
-- Сбор актуальных данных о репозитории можно передавать субагенту Luna:
-  состояния issues и PR, ветки и SHA, результаты GitHub Actions, замечания ревью
-  и другие сведения, необходимые для текущей задачи. Задавай режим только чтения
-  и ограничивай запросы нужными данными; используй пакетные запросы и разумный
-  интервал наблюдения за CI, чтобы сократить затраты и повторные обращения.
-  Luna передаёт основному агенту краткую сводку с источниками, SHA и состоянием
-  на момент проверки, отмечая недоступные или неподтверждённые данные.
-  Основной агент принимает решения и проверяет ключевые факты перед изменением
-  репозитория или слиянием PR.
-- Не повторяй уже завершённое и проверенное ревью неизменившегося кода.
-  Повторная проверка должна иметь конкретное основание: новые изменения,
-  обнаруженный пробел или противоречивый результат. Ограничивай её этим основанием.
+- Before complex work, identify independent, bounded subtasks and by default
+  delegate a suitable one when doing so would improve quality or reduce total
+  time. If you decide to do all the work yourself, briefly tell the user the
+  specific reason, such as dependence on a decision that has not yet been made
+  or the expected cost of context transfer and verification exceeding its
+  benefit. Do not delegate just to increase the agent count; the number of steps
+  alone does not make delegation necessary.
+- Delegate suitable independent tasks: code search, bounded review, failure
+  analysis, tests, documentation, or implementation of a separate component.
+  Do simple edits yourself when the handoff and verification would take more
+  effort than the work. Separate implementation, testing, and review among
+  agents when useful. While a subagent works, do other useful independent work;
+  do not repeat its assigned work without a specific reason.
+- Current repository data may be delegated to Luna: issue and PR states,
+  branches and SHAs, GitHub Actions results, review comments, and other
+  information needed for the task. Specify read-only mode and limit requests to
+  the needed data; use batched requests and reasonable CI polling intervals to
+  reduce cost and duplicate requests. Luna provides the primary agent with a
+  concise summary including sources, SHA, and state at the time of checking,
+  and marks unavailable or unconfirmed data. The primary agent makes decisions
+  and verifies key facts before changing the repository or merging a PR.
+- Do not repeat a completed and verified review of unchanged code. Repeat a
+  check only for a specific reason: new changes, a discovered gap, or
+  contradictory results. Limit the repeat check to that reason.
 
-### Настройка и постановка задачи
+### Subtask Setup and Assignment
 
-- Для всех субагентов используй `model: "gpt-6-luna"` и `fork_turns: "none"`.
-  Если эта модель недоступна, выполни подзадачу самостоятельно и сообщи об ограничении.
-- Передавай контекст явно: цель, критерии готовности, ограничения, нужные файлы,
-  исходный commit и уже выполненные проверки. Укажи ожидаемый результат:
-  например, список подтверждённых дефектов с местами в коде или конкретные правки
-  с результатами тестов.
-- Явно задавай разрешённые действия. Для поиска и ревью — только чтение;
-  для реализации — перечень файлов или модулей, которые разрешено менять.
-  Требования TDD и остальные инструкции репозитория действуют и для субагентов.
-- Назначай непересекающиеся области записи: агенты работают в общей файловой
-  системе. Перед передачей тех же файлов другому исполнителю останови предыдущего
-  и проверь оставленные им изменения.
-- При постановке задачи задавай контрольный срок и требуемый отчёт о прогрессе.
-  По умолчанию проверяй прогресс через 2 минуты для поиска и ограниченного ревью,
-  через 5 минут для реализации и тестов. Для заведомо длительной работы заранее
-  выбирай срок по ожидаемой длительности. Контрольный срок — момент оценки
-  прогресса, а не автоматическое признание результата готовым.
+- Use `model: "gpt-6-luna"` and `fork_turns: "none"` for all subagents. If this
+  model is unavailable, perform the subtask yourself and report the limitation.
+- Provide context explicitly: goal, completion criteria, constraints, relevant
+  files, starting commit, and checks already performed. Specify the expected
+  result, such as a list of confirmed defects with code locations or specific
+  changes and their test results.
+- State the allowed actions explicitly. For search and review, allow read-only
+  actions; for implementation, list the files or modules the agent may change.
+  TDD and all other repository instructions also apply to subagents.
+- Assign non-overlapping write areas because agents share a filesystem. Before
+  assigning the same files to another worker, stop the previous worker and
+  inspect its remaining changes.
+- Set a checkpoint and require a progress report when assigning work. By
+  default, check progress after 2 minutes for search and bounded review, and
+  after 5 minutes for implementation and tests. Set a different checkpoint in
+  advance for work expected to take longer. A checkpoint is a time to assess
+  progress, not an automatic declaration of completion.
 
-### Ожидание и передача работы
+### Waiting and Handoff
 
-- При достижении контрольного срока оцени конкретный прогресс: найденные места
-  в коде, сделанные правки, результаты проверок или выявленное препятствие.
-  Статус «работает» и повторные обещания завершить задачу не подтверждают прогресс.
-- Если результат ещё нужен и прогресс подтверждён, задай новый обоснованный срок.
-  Если прогресса нет или ожидание уже дороже самостоятельного завершения,
-  останови субагента, забери его наработки и продолжи сам либо переназначь задачу.
-  Не продлевай ожидание повторно без новых результатов.
-- Не запускай цикл коротких опросов и повторных сообщений с той же просьбой.
-  Используй ожидание уведомления; сообщай пользователю существенные результаты,
-  задержки и смену подхода.
-- При ошибке или остановке субагента проверь фактическое состояние файлов:
-  частичные изменения могли сохраниться. Поздний ответ после передачи работы
-  проверяй относительно текущего состояния кода.
+- At a checkpoint, assess concrete progress: locations found in code, changes
+  made, check results, or an identified obstacle. A status of “working” and
+  repeated promises to finish do not demonstrate progress.
+- If the result is still needed and progress is confirmed, set a justified new
+  checkpoint. If there is no progress or waiting now costs more than finishing
+  independently, stop the subagent, take over its work, or reassign the task.
+  Do not extend a checkpoint repeatedly without new results.
+- Do not enter a cycle of short polls and repeated messages asking for the same
+  thing. Wait for a notification; tell the user about significant results,
+  delays, and changes in approach.
+- After a subagent fails or stops, inspect the actual files because partial
+  changes may remain. Check any late response against the current code state.
 
-### Ответственность и проверка
+### Accountability and Verification
 
-- Главный агент отвечает за архитектуру, безопасность, интеграцию, итоговые
-  проверки и соответствие задаче. Эти решения не передаются субагенту автоматически.
-- Проверяй выводы ревью по коду, а изменения — по diff и подходящим тестам.
-  Отчёт субагента сам по себе не доказывает корректность или успешное выполнение тестов.
-- После интеграции выполняй необходимые проверки затронутых компонентов.
-  Сохраняй результаты уже выполненных проверок и повторяй их при новых изменениях,
-  сбоях или конкретной непроверенной гипотезе.
+- The primary agent is responsible for architecture, security, integration,
+  final checks, and compliance with the task. These decisions are not
+  automatically delegated to a subagent.
+- Verify review findings against the code, and verify changes against the diff
+  and relevant tests. A subagent's report alone does not prove correctness or
+  successful test execution.
+- After integration, run the necessary checks for affected components. Keep the
+  results of checks already performed and repeat them if there are new changes,
+  failures, or a specific untested hypothesis.
 
 ## GitHub
 
-- Описания milestones оформляй читаемым Markdown: разделяй цель, состав релиза,
-  обязательные условия выпуска и границы объёма заголовками и абзацами.
-  Перечни задач и условий оформляй списками; оставляй пустые строки между
-  заголовками, абзацами и списками. Плановую дату и ключевые условия выделяй
-  жирным, предварительные сроки явно называй предварительными.
-  При отправке через API сохраняй настоящие переносы строк, а не буквальные
-  `\n`; после записи проверяй сохранённое описание.
+- Write GitHub Issue and Pull Request titles, descriptions, review text, and
+  comments in English only. Keep Russian text in documentation, including its
+  required Russian translations; do not duplicate GitHub discussions in Russian.
 
-- CI должен учитывать цель владельца оставаться на GitHub Free: используй
-  стандартные Linux runners, избегай дублирования push/PR-прогонов и отменяй
-  устаревшие запуски. Крупные повторные прогоны запускай по конкретной проверяемой
-  гипотезе, а не для повторения уже подтверждённых результатов.
-- Не подключай платные runners, Packages/registry или увеличение квоты кеша
-  сверх бесплатных 10 ГиБ ради ускорения. Кеш и артефакты имеют разные лимиты;
-  ограничивай хранение артефактов, не загружай ненужные build records.
-- Настройки workflow сокращают расход квоты, но не заменяют блокировку
-  перерасхода в биллинге аккаунта. Не объявляй отсутствие списаний гарантированным,
-  если бюджет и ограничения аккаунта не проверены.
+- Format milestone descriptions in readable Markdown: separate the goal,
+  release contents, required release conditions, and scope boundaries using
+  headings and paragraphs. Use lists for tasks and conditions; leave blank
+  lines between headings, paragraphs, and lists. Bold the target date and key
+  conditions, and label tentative dates explicitly as tentative. When writing
+  through an API, preserve real line breaks rather than literal `\n`; verify
+  the saved description afterward.
+- CI must account for the owner's goal of staying on GitHub Free: use standard
+  Linux runners, avoid duplicate push/PR runs, and cancel obsolete runs. Start
+  large reruns to test a specific hypothesis, not merely to repeat confirmed
+  results.
+- Do not use paid runners, Packages/registries, or cache quota increases beyond
+  the free 10 GiB to speed things up. Cache and artifact limits are separate;
+  limit artifact retention and do not upload unnecessary build records.
+- Workflow settings reduce quota usage but do not replace a billing overage
+  block. Do not guarantee that no charges will occur unless the account budget
+  and limits have been checked.
+- If a PR diff contains only `.md` and `.txt` files, GitHub Actions skip it,
+  except for `requirements*.txt` files in any directory, which trigger CI even
+  on their own. If CI is skipped for a documentation-only PR, review the current
+  diff and run `git diff --check`, then merge with a regular merge commit using
+  `gh pr merge --merge --match-head-commit SHA` without `automerge`, since the
+  merge job will not run either. Do not use `--admin` or wait for absent CI
+  checks. Use the normal required checks and `automerge` process below for
+  `requirements*.txt` and mixed diffs.
+- By default, target ordinary changes to `develop` and create each such PR with
+  the `automerge` label after checking the current diff and required local
+  checks. The user has authorized this workflow in advance; separate merge
+  approval for each PR is not required. After `checks` and `containers` succeed,
+  the final CI job creates a merge commit with two parents, preserving the
+  branch's connection to `develop` in history.
+- Target release-preparation PRs from `develop` to `main` without `automerge`;
+  merge them manually after checking CI, the diff, and release acceptance.
+  `main` remains the default branch. Publish the initial v0.1.0 local MVP
+  prerelease when its release workflow passes on the exact source SHA and no
+  known critical issue remains. Hardware verification is not a publication gate;
+  record hardware evidence and limitations accurately and collect further reports
+  after publication. Documentation and installation fixes may ship in patch releases.
+- If you determine that a PR should not be automatically merged into `develop`
+  (for example, work is unfinished or there is an unresolved defect, risk, or
+  open decision), create it without `automerge` and briefly state the specific
+  reason in the PR description and final report. If an obstacle is found after
+  adding the label, remove it before the job is checked; restore it after the
+  reason is resolved.
+- Before adding `automerge`, confirm that the PR is from a branch in this
+  repository and targets `develop`, and that its workflow already contains the
+  `automerge` job. Update an old branch without this job from current `develop`
+  and push the changes to start new CI; adding the label does not update a
+  completed workflow run. Use this process, not GitHub's built-in auto-merge
+  (`gh pr merge --auto`).
+- The label may be applied while CI is running. If CI has already completed,
+  after adding the label rerun only the `automerge` job with
+  `gh run rerun RUN_ID --job JOB_ID`; obtain `JOB_ID` from the `databaseId`
+  field in `gh run view RUN_ID --json jobs`. Do not rerun all CI just for the
+  label. If the head or base changes, update the branch and wait for checks on
+  the new version; do not use an old successful run.
+- After the job runs, verify the actual PR state (`MERGED`, `mergedAt`, and
+  merge commit); a successful job may mean it skipped the merge. To cancel a
+  pending auto-merge, remove the label before its job checks it. See the README
+  section “Automatic merging after CI” for limitations of this mechanism.
+- For concrete implementation tasks that change code, create a GitHub Issue or
+  use a suitable existing task. Implement each GitHub Issue in a separate Pull
+  Request.
+- Changes to documentation only, including `GOAL.md`, `README.md`, and
+  `AGENTS.md`, do not require a GitHub Issue. If documentation is updated as
+  part of a code-change task, include it in the same task and PR.
 
-- Если весь diff PR состоит только из файлов `.md` и `.txt`, GitHub Actions
-  не запускаются. Проверь актуальный diff и `git diff --check`, затем сливай PR
-  обычным merge commit через `gh pr merge --merge --match-head-commit SHA` без
-  `automerge`: этот job также не запускается. Не используй `--admin` и не жди
-  отсутствующих CI checks. Если есть хотя бы один файл другого формата,
-  применяй обычные обязательные проверки и механизм `automerge` ниже.
+## Workspace and Task Completion
 
-- По умолчанию создавай каждый PR с меткой `automerge` после проверки актуального
-  diff и необходимых локальных проверок. Пользователь заранее разрешил этот
-  порядок: отдельное подтверждение слияния для каждого PR не требуется.
-  Завершающий job CI создаст merge commit с двумя родителями после успешных
-  `checks` и `containers`, сохраняя связь ветки с `main` в истории.
-- Если считаешь, что PR не должен автоматически попасть в `main` (например,
-  работа не завершена, есть нерешённый дефект, риск или открытое решение),
-  создавай его без `automerge` и кратко укажи конкретную причину в описании PR
-  и итоговом отчёте. Если препятствие обнаружено после добавления метки,
-  сними её до проверки job; после устранения причины верни метку.
-- Перед добавлением `automerge` проверь, что PR направлен из ветки этого
-  репозитория в `main` и его workflow уже содержит job `automerge`. Старую ветку
-  без этого job обнови из актуального `main` и отправь изменения для нового CI:
-  добавление метки не обновляет workflow завершённого прогона.
-  Используй этот механизм, а не штатный GitHub auto-merge (`gh pr merge --auto`).
-- Метку можно поставить во время CI. Если CI уже завершился, после добавления
-  метки повтори только job `automerge` через `gh run rerun RUN_ID --job JOB_ID`;
-  `JOB_ID` возьми из `gh run view RUN_ID --json jobs` (поле `databaseId`).
-  Не перезапускай весь CI ради метки. При изменении head или базы обнови ветку
-  и дождись проверок новой версии; не используй старый зелёный прогон.
-- После выполнения job проверь фактическое состояние PR (`MERGED`, `mergedAt`
-  и merge commit): успешный job может означать пропуск без слияния.
-  Для отмены ожидающего автомержа сними метку до её проверки job.
-  Ограничения механизма описаны в README, раздел «Автоматическое слияние после CI».
+- Before starting code work, create a task (GitHub Issue) or select a suitable
+  existing one, and create a separate working branch for it. Documentation-only
+  changes do not require an Issue.
+- Create containers and other temporary resources only when necessary; track
+  which resources you created for the task.
+- After completing the task successfully and closing its PR, clean up after
+  yourself: stop and remove containers created for the task, and remove your
+  temporary files and other temporary resources that are no longer needed.
+  Closing a PR without merging it does not count as successful completion.
+- Leave the workspace free of your own unfinished changes and temporary
+  artifacts. Do not delete or reset other people's changes, shared containers,
+  persistent volumes, data, or model weights as cleanup.
+- After a PR merge is confirmed, delete its working branch without asking
+  separately; the user has authorized this cleanup in advance. Closing a PR
+  without merging is not grounds for deletion. GitHub is configured to delete
+  head branches automatically after merge; verify the result and update remote
+  refs with `git fetch --prune`. This command does not delete local branches.
+- Before deleting a temporary local branch, verify that its commits are included
+  in current `origin/develop` (ordinary PR) or `origin/main` (release PR), or
+  that its HEAD matches the merged PR head SHA whose merge commit is included in
+  the target branch (including after squash or rebase). A branch name or closed
+  PR alone is insufficient; preserve new commits made after the merge.
+- `main` and `develop` are permanent integration branches; never delete them
+  locally or remotely. If GitHub auto-deletes `develop` after a manually accepted
+  release PR, immediately recreate it from the updated `main` and verify it.
+  First switch away from a temporary branch before deleting it. Do not delete
+  branches without confirmed integration, or branches used by another
+  worktree. Preserve worktrees with uncommitted changes and other people's
+  resources; only your own completed, clean worktrees may be removed. Update
+  local `main` only by fast-forward; if it has diverged, preserve its commits
+  and report the divergence instead of resetting it for cleanup.
+- Delete local branches when finishing your work after merge or during the
+  next synchronization: GitHub does not delete branches on the local machine
+  automatically. In the final report, list any branches preserved and why.
+- In the final report, state the cleanup result and any remaining resources,
+  with the reason they had to be kept.
 
-- Для реализации конкретных задач с изменением кода создавай GitHub Issue
-  либо используй подходящую существующую задачу. Каждый GitHub Issue
-  реализуется отдельным Pull Request.
-- Для изменений только документации, включая `GOAL.md`, `README.md`
-  и `AGENTS.md`, создавать GitHub Issue не требуется. Если документация
-  обновляется в рамках задачи с изменением кода, включай её в ту же задачу и PR.
+## Documentation Languages
 
-## Рабочее пространство и завершение задачи
-
-- Перед началом работы над кодом создай задачу (GitHub Issue) либо возьми
-  подходящую ранее созданную и создай отдельную рабочую ветку для её выполнения.
-  Изменения только документации не требуют создания Issue.
-- Создавай контейнеры и другие временные ресурсы только при необходимости;
-  отслеживай, какие ресурсы созданы тобой для конкретной задачи.
-- После успешного завершения задачи и закрытия её PR убери за собой:
-  останови и удали созданные для задачи контейнеры, удали свои временные файлы
-  и другие больше не нужные временные ресурсы. Закрытие PR без слияния
-  само по себе не означает успешного выполнения задачи.
-- Оставляй рабочее пространство чистым от собственных незавершённых изменений
-  и временных артефактов. Не удаляй и не сбрасывай чужие изменения, общие
-  контейнеры, постоянные volumes, данные и веса моделей ради очистки.
-- После подтверждённого слияния PR удаляй его рабочую ветку без отдельного
-  запроса: пользователь заранее разрешил такую очистку. Закрытие PR без merge
-  не является основанием для удаления. В GitHub включено автоматическое
-  удаление head-веток после merge; проверяй результат и обновляй remote refs
-  через `git fetch --prune`. Эта команда не удаляет локальные ветки.
-- Перед удалением локальной ветки проверь, что её коммиты входят в актуальный
-  `origin/main`, либо что её HEAD совпадает с head SHA слитого PR, чей merge
-  commit входит в `origin/main` (в том числе после squash/rebase). Одного имени
-  ветки или закрытого PR недостаточно; новые коммиты после merge сохраняй.
-- Сначала переключись с удаляемой ветки. Не удаляй `main`, ветки без подтверждения
-  интеграции и ветки, занятые другими worktree. Worktree с незакоммиченными
-  изменениями и чужие ресурсы сохраняй; удалять можно только свои завершённые
-  чистые worktree. Локальный `main` обновляй лишь fast-forward; при расхождении
-  сохрани коммиты и сообщи о нём, не применяй reset ради очистки.
-- Удаление локальных веток выполняй при завершении своей работы после merge
-  или при следующей синхронизации: GitHub не удаляет ветки на компьютере
-  автоматически. В итоговом отчёте перечисли сохранённые ветки и причины.
-- В итоговом отчёте укажи результат очистки и оставшиеся ресурсы с причиной,
-  если их пришлось сохранить.
+- Accompany every new document and documentation change with English and Russian
+  versions. Keep requirements, examples, limitations, and verification statuses
+  aligned; link the versions to each other. Do not claim a translation is current
+  until it has been checked against its source.
+- For new documents, use English `<name>.md` and Russian `<name>.ru.md` paths.
+  Existing Russian canonical documents keep their paths; the English version
+  gets the `.en.md` suffix. Keep `AGENTS.md` as the canonical English
+  tool-required instructions; its Russian version is `AGENTS.ru.md`.
+- Place additional languages in `docs/i18n/<language-tag>/`, mirroring the
+  original document's path from the repository root. First add a description of
+  the language and instructions for checking its translation according to
+  `docs/i18n/README.md` and `README.ru.md`.
+- Do not rewrite historical reports to reflect new results. When translating,
+  preserve the original date, SHA, and status; explicitly mark existing
+  untranslated materials.

@@ -27,7 +27,7 @@ export default defineConfig({
       timeout: 120000,
     },
     {
-      command: 'npm run start -- -p 3100',
+      command: 'bun run start -- -p 3100',
       url: 'http://127.0.0.1:3100',
       env: { PROJECT_CREATOR_TOKEN: token },
       reuseExistingServer: false,

@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -115,6 +116,86 @@ func (p SummaryLanguagePolicy) Valid(text string) bool {
 			return false
 		}
 		if !unicode.IsNumber(r) && !unicode.IsPunct(r) && !unicode.IsSymbol(r) && !unicode.IsSpace(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// Technical names are single ASCII word tokens from an otherwise permitted-language
+// source. Internal dots/dashes are part of a name; sentence punctuation is not.
+var summaryWord = regexp.MustCompile(`[\p{L}\p{N}_]+(?:[-.][\p{L}\p{N}_]+)*`)
+
+// ValidForSource preserves isolated source names without enabling foreign prose.
+// This is deliberately a token heuristic, not product-name or language detection.
+func (p SummaryLanguagePolicy) ValidForSource(text, source string) bool {
+	if p.Valid(text) {
+		return true
+	}
+	if !contracts.ValidSummary(text) || !contracts.ValidSummary(source) {
+		return false
+	}
+	identifiers := map[string]bool{}
+	foreignRun := 0
+	for _, span := range summaryWord.FindAllStringIndex(source, -1) {
+		token := source[span[0]:span[1]]
+		if !hasSummaryLetter(token) {
+			continue
+		}
+		if p.Valid(token) {
+			foreignRun = 0
+			continue
+		}
+		// Two adjacent foreign words are not an isolated technical name, even
+		// with punctuation between them. Never whitelist a foreign prose run.
+		foreignRun++
+		if foreignRun > 1 || !asciiSummaryName(token) {
+			return false
+		}
+		identifiers[strings.ToLower(token)] = true
+	}
+	if len(identifiers) == 0 {
+		return false
+	}
+	return p.validWithSourceNames(source, identifiers) && p.validWithSourceNames(text, identifiers)
+}
+
+func (p SummaryLanguagePolicy) validWithSourceNames(text string, identifiers map[string]bool) bool {
+	var masked strings.Builder
+	last := 0
+	for _, span := range summaryWord.FindAllStringIndex(text, -1) {
+		token := text[span[0]:span[1]]
+		if p.Valid(token) {
+			continue
+		}
+		if !asciiSummaryName(token) || !identifiers[strings.ToLower(token)] {
+			return false
+		}
+		masked.WriteString(text[last:span[0]])
+		masked.WriteByte(' ')
+		last = span[1]
+	}
+	masked.WriteString(text[last:])
+	remaining := masked.String()
+	// Require actual configured-language wording, not an identifier-only answer.
+	return hasSummaryLetter(remaining) && p.Valid(remaining)
+}
+
+func hasSummaryLetter(text string) bool {
+	for _, r := range text {
+		if unicode.IsLetter(r) {
+			return true
+		}
+	}
+	return false
+}
+
+func asciiSummaryName(text string) bool {
+	if !hasSummaryLetter(text) {
+		return false
+	}
+	for _, r := range text {
+		if r > unicode.MaxASCII {
 			return false
 		}
 	}

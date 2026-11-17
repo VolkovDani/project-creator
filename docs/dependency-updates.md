@@ -86,7 +86,30 @@ The frontend now pins React 19.3.1, Biome 2.6.7, Playwright 1.65.1, Node types 2
 
 The backend module versions follow #117, and the build image follows the Go 1.27.4 proposal in #114. Compose now uses pgvector 0.8.7. GitHub Actions checkout and artifact actions follow #116 and #118. The NPU export pins include NNCF 3.4.0, ONNX 1.23.2, and Optimum Intel 2.2.0.
 
-The proposed `transformers==5.23.0` from #119 was not retained: the published [Optimum Intel 2.2.0 metadata](https://pypi.org/project/optimum-intel/2.2.0/) requires `transformers>=4.51,<5.6`. PyPI metadata confirms Transformers 5.5.2 satisfies that range, while 5.23.0 does not. A metadata comparison for the direct NPU pins found no additional direct-version conflicts. A full Python 3.12 `pip install --dry-run` did not complete within the local run window while downloading the 59.1 MB OpenVINO wheel, but a subsequent full Python 3.12 resolver run completed successfully, including transitive dependencies. The NPU dependency set also still needs export and hardware inference validation on the supported Intel NPU environment; direct metadata compatibility alone does not establish model compatibility.
+The proposed `transformers==5.23.0` from #119 was not retained: the published [Optimum Intel 2.2.0 metadata](https://pypi.org/project/optimum-intel/2.2.0/) requires `transformers>=4.51,<5.6`. The current pin is **5.5.4**, the latest non-yanked stable version in that range checked on 2026-11-17. The earlier resolver-only check accepted 5.5.2; it did not establish export or inference compatibility.
+
+A fresh install initially selected PyPI `torchvision==0.29.2`: dependency consistency passed, but importing it failed with `operator torchvision::nms does not exist`. The export requirements now also pin the official Linux x86_64 / CPython 3.12 CPU wheel `torchvision==0.29.1+cpu` with its SHA256. This is the newest matching CPU wheel found in the official index on the verification date. A regression test failed before that change and then passed, exercising the native CPU NMS operator and the Optimum exporter import. A fresh install of the existing `main` requirements at `8ff1e0e` did not install torchvision and imported the exporter successfully; this specific failure was introduced by the dependency refresh, not reproduced on that main baseline.
+
+Run the opt-in environment check after installing `runtime/npu/requirements-export.txt` into the separate export environment:
+
+```bash
+uv pip check --python .npu/export-env/bin/python
+NPU_EXPORT_ENV_SMOKE=1 .npu/export-env/bin/python -m unittest discover -s runtime/npu -p test_export_environment.py -v
+```
+
+Ordinary unit tests skip this check and do not install model libraries. Passing it proves native-op/import compatibility, not model quality; export and NPU inference still require explicit hardware checks.
+
+**Temporary security limitation:** Transformers 5.5.4 remains affected by [GHSA-xrqw-3rrv-vx5w](https://github.com/advisories/GHSA-xrqw-3rrv-vx5w) and [GHSA-x9r9-c232-4q39](https://github.com/advisories/GHSA-x9r9-c232-4q39). On 2026-11-17 the owner chose compatible stable releases while awaiting a released Optimum Intel supporting patched Transformers. Follow-up [#144](https://github.com/VolkovDani/project-creator/issues/144) tracks replacement and validation; alerts are not dismissed and security PR #142 is not superseded. Until then, export only reviewed, pinned local model snapshots in an isolated environment without credentials or networking and with only the dedicated output directory writable. These precautions reduce exposure but do not fix the library vulnerabilities. The export environment is separate from the application's OpenVINO GenAI runtime.
+
+### Hardware verification of the export refresh (2026-11-17)
+
+Application/runtime code: `bd8bdd0288a337257a7b2ef0558f434e33b8f8f4`, with the export pins above. Host: Core Ultra 7 268V, Intel AI Boost, 32 GB RAM, Linux `7.0.0-43-generic`; Intel NPU driver/compiler/firmware `1.38.0.20260910-34487311128~ubuntu26.04`. Python 3.12.14; OpenVINO/GenAI/tokenizers 2026.4.1/2026.4.1.0/2026.4.1.0; smoke test binary built with Go 1.27.3.
+
+A new offline export of `Qwen/Qwen2.5-7B-Instruct` revision `a09a35458c702b33eeacc393d103063234e8bc28` used `text-generation-with-past`, INT4 symmetric weights, ratio 1.0, group size -1. It completed in **44.44 seconds**, peak RSS **18.44 GiB**, producing about **4.1 GiB** of model files. The exporter ran with network access disabled, home directories hidden, and persistent writes confined to the test output, under a 20 GiB memory / 2 GiB swap limit. Source weights and the existing application model were not overwritten.
+
+The new runtime profile is `a31f6d86ee327e8fd8a0283868fd4a000ec8efda30e637577d37d192eff418fc` (2048 prompt / 512 output tokens). Cold NPU load took **33.84 seconds**; a full restart loaded the cached model in **2.40 seconds** and passed a new collision comparison; all **14 fixed pair comparisons** passed expected verdict/source checks. The NPU busy counter increased by **111.46 seconds** during that suite. Cancellation followed by worker recovery and new generation passed in **13.21 seconds**. The first cancellation test was interrupted because an old root-owned diagnostic file prevented lifecycle logging; its contents were preserved and write access restored before the successful retry.
+
+Local evidence is in root `logs/npu/issue137/` (`export.log`, `smoke.log`, `cancel.log`, environment/import checks and device counters); model files, profile and dependency freeze are in `.npu/issue137/`. Logs and weights are not committed. These fixed examples demonstrate this export/runtime configuration, not general model accuracy, a CPU/GPU comparison, or resolution of the remaining security advisories.
 
 ## Schedule and pull request volume
 

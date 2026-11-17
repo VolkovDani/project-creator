@@ -45,7 +45,7 @@ test(`Intel override preserves DRM access with ${capacity} loaded models`, () =>
   assert.equal(o.environment.OLLAMA_MAX_LOADED_MODELS, capacity);
   assert.equal(o.environment.OLLAMA_NUM_PARALLEL, '1');
   assert.equal(o.build.dockerfile, 'Dockerfile.ollama-intel');
-  assert.equal(o.image, 'project-creator-ollama-intel:0.40.11');
+  assert.equal(o.image, 'project-creator-ollama-intel:0.40.16');
   assert.equal(o.pull_policy, 'build');
   assert.deepEqual(o.devices.map(d => [d.source, d.target]), [['/dev/dri', '/dev/dri']]);
   assert.ok(!o.privileged);

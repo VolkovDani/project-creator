@@ -51,7 +51,7 @@ Desktop с Linux-контейнерами. Go и Node.js на хосте для 
 не обязателен, но на медленном CPU анализ может превысить timeout.
 
 В конфигурации закреплены Go 1.26.10, Node.js 24.22.1 на Debian Bookworm,
-PostgreSQL 16 с pgvector 0.8.0 и Ollama 0.40.11. Модели загружаются отдельно:
+PostgreSQL 16 с pgvector 0.8.0 и Ollama 0.40.16. Модели загружаются отдельно:
 
 | Назначение | Модель | Размер загрузки весов |
 | --- | --- | --- |
@@ -207,23 +207,23 @@ CLI поддерживает нативный Linux x86_64, Python 3.12 и Docke
 
 | Режим CLI | Устройство и runtime | Подготовка / статус |
 | --- | --- | --- |
-| `cpu` | Ollama 0.40.11 на CPU | Базовый вариант, GPU не нужен. |
-| `arc` | Intel Arc dGPU/iGPU, в том числе Core Ultra 7 268V; Ollama 0.40.11/Vulkan | Intel Linux graphics, доступ к `/dev/dri`; [инструкция Arc](docs/intel-arc.md). Intel ICD изолирован от AMD/NVIDIA. Новая логика выбора проверена тестами без GPU. |
-| `nvidia` | Поддерживаемая NVIDIA GPU; Ollama 0.40.11/CUDA | NVIDIA driver и Container Toolkit, `nvidia-smi`; аппаратная проверка новой CLI-интеграции ещё не выполнена. |
-| `amd` (ROCm) | Только AMD dGPU/iGPU из матрицы Ollama 0.40.11; `ollama/ollama:0.40.11-rocm` | ROCm 7, `rocminfo`, `/dev/kfd` и `/dev/dri`. Строгая проверка GFX target; аппаратная приёмка не проведена. |
-| `amd-vulkan` (RADV) | AMD dGPU/iGPU с работоспособным Vulkan; Ollama 0.40.11 + Mesa RADV | `amdgpu`, доступный `/dev/dri/renderD*` и поддержка Vulkan в драйвере. ROCm и `/dev/kfd` не требуются. Более широкий, но **не универсальный** вариант; аппаратная приёмка не проведена. |
+| `cpu` | Ollama 0.40.16 на CPU | Базовый вариант, GPU не нужен. |
+| `arc` | Intel Arc dGPU/iGPU, в том числе Core Ultra 7 268V; Ollama 0.40.16/Vulkan | Intel Linux graphics, доступ к `/dev/dri`; [инструкция Arc](docs/intel-arc.md). Intel ICD изолирован от AMD/NVIDIA. Новая логика выбора проверена тестами без GPU. |
+| `nvidia` | Поддерживаемая NVIDIA GPU; Ollama 0.40.16/CUDA | NVIDIA driver и Container Toolkit, `nvidia-smi`; аппаратная проверка новой CLI-интеграции ещё не выполнена. |
+| `amd` (ROCm) | Только AMD dGPU/iGPU из матрицы Ollama 0.40.16; `ollama/ollama:0.40.16-rocm` | ROCm 7, `rocminfo`, `/dev/kfd` и `/dev/dri`. Строгая проверка GFX target; аппаратная приёмка не проведена. |
+| `amd-vulkan` (RADV) | AMD dGPU/iGPU с работоспособным Vulkan; Ollama 0.40.16 + Mesa RADV | `amdgpu`, доступный `/dev/dri/renderD*` и поддержка Vulkan в драйвере. ROCm и `/dev/kfd` не требуются. Более широкий, но **не универсальный** вариант; аппаратная приёмка не проведена. |
 | `npu` | Intel NPU; OpenVINO GenAI, embeddings на CPU | Фиксированные аппаратные примеры на Core Ultra 7 268V проходят; результаты и ограничения — в [инструкции NPU](docs/intel-npu.md). |
 
 **Нельзя гарантировать работу на любой AMD GPU или любом Ryzen APU.** Для ROCm
 проверьте модель, ОС и драйвер по [матрице AMD](https://rocm.docs.amd.com/en/latest/compatibility/compatibility-matrix.html)
-и [матрице Ollama 0.40.11](https://github.com/ollama/ollama/blob/v0.40.11/docs/gpu.mdx).
+и [матрице Ollama 0.40.16](https://github.com/ollama/ollama/blob/v0.40.16/docs/gpu.mdx).
 Даже если новая версия ROCm поддерживает iGPU, это не расширяет возможности
 закреплённого контейнера Ollama автоматически. Пример ROCm:
 `./project-creator setup --device amd --gpu-id GPU-...`, где UUID берётся из
 `rocminfo`. CLI принимает targets
 `gfx908`, `gfx90a`, `gfx942`, `gfx950`, `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`,
 `gfx1150`, `gfx1151`, `gfx1200`, `gfx1201` из
-[матрицы Ollama v0.40.11](https://github.com/ollama/ollama/blob/v0.40.11/docs/gpu.mdx).
+[матрицы Ollama v0.40.16](https://github.com/ollama/ollama/blob/v0.40.16/docs/gpu.mdx).
 Это upstream-матрица, не список проверенных проектом видеокарт. Неизвестный target
 отклоняется; подмена `HSA_OVERRIDE_GFX_VERSION` не применяется.
 

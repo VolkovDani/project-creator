@@ -178,11 +178,11 @@ NVIDIA Container Toolkit предварительно настраивается
 [официальной инструкции](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 CLI проверяет наличие NVIDIA runtime в Docker и драйвера 550+; некоторые старые
 карты требуют 570+. Совместимость самой карты проверяйте по
-[документации закреплённой версии Ollama](https://github.com/ollama/ollama/blob/v0.40.11/docs/gpu.mdx).
+[документации закреплённой версии Ollama](https://github.com/ollama/ollama/blob/v0.40.16/docs/gpu.mdx).
 Для `amd` требуется [ROCm 7 Linux driver](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/)
-и `rocminfo`; используется официальный образ `ollama/ollama:0.40.11-rocm`.
+и `rocminfo`; используется официальный образ `ollama/ollama:0.40.16-rocm`.
 Сверьте **именно устройство и ОС** по [матрице AMD](https://rocm.docs.amd.com/en/latest/compatibility/compatibility-matrix.html)
-и GFX target по [Ollama v0.40.11](https://github.com/ollama/ollama/blob/v0.40.11/docs/gpu.mdx).
+и GFX target по [Ollama v0.40.16](https://github.com/ollama/ollama/blob/v0.40.16/docs/gpu.mdx).
 Даже официально поддерживаемая новой ROCm iGPU может отсутствовать в
 закреплённой версии Ollama. Системные драйверы CLI не устанавливает.
 
@@ -199,7 +199,7 @@ CLI проверяет наличие NVIDIA runtime в Docker и драйвер
 при запуске через CLI сохраняйте исходное имя Compose-проекта.
 Если выбранный Vulkan backend не поддерживает модель либо доступную GPU-память,
 `setup` завершится ошибкой; не обещаем работу на любой Radeon/Ryzen APU.
-Подробности: [Vulkan в Ollama v0.40.11](https://github.com/ollama/ollama/blob/v0.40.11/docs/gpu.mdx)
+Подробности: [Vulkan в Ollama v0.40.16](https://github.com/ollama/ollama/blob/v0.40.16/docs/gpu.mdx)
 и [Mesa RADV](https://docs.mesa3d.org/drivers/radv.html).
 Проект не проводил аппаратную приёмку AMD/NVIDIA на этой версии CLI.
 

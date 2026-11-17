@@ -1,7 +1,7 @@
 # Native Linux, supported AMD ROCm GPU/iGPU only. Do not combine GPU overrides.
 services:
   ollama:
-    image: ollama/ollama:0.40.11-rocm
+    image: ollama/ollama:0.40.16-rocm
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri

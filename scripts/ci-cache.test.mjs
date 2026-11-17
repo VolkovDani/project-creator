@@ -51,14 +51,14 @@ test('Compose consumes the already loaded cached build outputs without rebuildin
   }
   const intel = builds.find((step) => step.includes('file: Dockerfile.ollama-intel'));
   assert.ok(intel);
-  assert.match(intel, /tags: project-creator-ollama-intel:0\.40\.11/);
+  assert.match(intel, /tags: project-creator-ollama-intel:0\.40\.16/);
 });
 
 test('cache hits still run smoke verification and disposable-stack cleanup', () => {
   assert.match(containers, /run: node scripts\/compose-smoke\.mjs/);
   assert.match(containers, /name: Remove disposable containers and data\n        if: always\(\)/);
   assert.match(containers, /down --volumes --remove-orphans/);
-  assert.match(containers, /docker run --rm --entrypoint sh project-creator-ollama-intel:0\.40\.11/);
+  assert.match(containers, /docker run --rm --entrypoint sh project-creator-ollama-intel:0\.40\.16/);
   for (const step of builds) assert.doesNotMatch(step, /\n        if:/);
 });
 
@@ -68,7 +68,7 @@ test('large Intel layers have disk budget and are released before application bu
   const prepare = steps.find((step) => step.includes('Free space for large Docker layers'));
   assert.ok(prepare && release);
   assert.match(prepare, /sudo rm -rf \/usr\/share\/dotnet \/usr\/local\/lib\/android/);
-  assert.match(release, /docker image rm project-creator-ollama-intel:0\.40\.11/);
+  assert.match(release, /docker image rm project-creator-ollama-intel:0\.40\.16/);
   assert.match(release, /docker buildx prune --all --force/);
   assert.ok(steps.indexOf(prepare) < steps.indexOf(builds[0]));
   assert.ok(steps.indexOf(release) > steps.findIndex((step) => step.includes('name: Verify Intel Vulkan runtime')));
@@ -107,8 +107,8 @@ test('AMD Vulkan is verified and released before application builds without anot
   const amd = steps.find((step) => step.includes('name: Build and verify AMD RADV Vulkan runtime'));
   assert.ok(amd);
   assert.match(amd, /docker buildx build --load -f Dockerfile.ollama-amd-vulkan/);
-  assert.match(amd, /docker run --rm --entrypoint sh project-creator-ollama-amd-vulkan:0\.40\.11/);
-  assert.match(amd, /docker image rm project-creator-ollama-amd-vulkan:0\.40\.11/);
+  assert.match(amd, /docker run --rm --entrypoint sh project-creator-ollama-amd-vulkan:0\.40\.16/);
+  assert.match(amd, /docker image rm project-creator-ollama-amd-vulkan:0\.40\.16/);
   assert.match(amd, /docker buildx prune --all --force/);
   assert.ok(steps.indexOf(amd) > steps.findIndex((step) => step.includes('Release verified Intel image')));
   assert.ok(steps.indexOf(amd) < steps.indexOf(builds[1]));

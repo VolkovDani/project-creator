@@ -8,7 +8,7 @@ DEVICES = ('cpu', *GPU_DEVICES, 'npu')
 OVERRIDES = {'arc': 'compose.intel.yml', 'nvidia': 'compose.gpu.yml',
              'amd': 'compose.amd.yml', 'amd-vulkan': 'compose.amd-vulkan.yml',
              'npu': 'compose.npu.yml'}
-# Ollama v0.40.11 docs/gpu.mdx, Linux ROCm targets. Never spoof a target.
+# Ollama v0.40.16 docs/gpu.mdx, Linux ROCm targets. Never spoof a target.
 AMD_TARGETS = frozenset(('gfx908', 'gfx90a', 'gfx942', 'gfx950', 'gfx1030',
                          'gfx1100', 'gfx1101', 'gfx1102', 'gfx1150', 'gfx1151',
                          'gfx1200', 'gfx1201'))
@@ -54,5 +54,5 @@ def select(devices, identifier):
     if selected.get('target') and selected['target'] not in AMD_TARGETS:
         raise GPUError('GPU_UNSUPPORTED', 'AMD target is outside the pinned ROCm matrix; no target override or CPU fallback enabled.')
     if selected.get('driver') and (not re.fullmatch(r'[0-9]+(?:\.[0-9]+)*', selected['driver']) or int(selected['driver'].split('.')[0]) < 550):
-        raise GPUError('DEVICE_DRIVER', 'Ollama v0.40.11 needs NVIDIA driver 550+; some older GPUs require 570+. See the pinned hardware matrix.')
+        raise GPUError('DEVICE_DRIVER', 'Ollama v0.40.16 needs NVIDIA driver 550+; some older GPUs require 570+. See the pinned hardware matrix.')
     return selected

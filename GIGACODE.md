@@ -2,6 +2,9 @@
 
 ## Команды
 
+Фронтенд использует Bun 1.4.4 как менеджер пакетов и для `next build`; Node.js 24 остаётся для тестов и production-сервера.
+
+
 **Go (из корня):**
 ```
 go test -p 1 ./...     # интеграционные тесты — строго последовательно (общая блокировка модели)
@@ -12,14 +15,14 @@ go run ./cmd/codegen   # генерация graph/models_gen.go из SDL
 
 **Frontend (из `frontend/`):**
 ```
-npm ci
-npm test                # unit (Node, без LLM)
-npm run codegen         # генерация lib/generated.ts из graph/schema.graphqls
-npm run typecheck
-npm run build
-npm run e2e             # Playwright — требует E2E_DATABASE_URL и отдельную БД
-npm run test:ux         # Playwright UX-регрессии
-npm run format:check    # Biome lint
+bun install --frozen-lockfile
+bun run test                # unit (Node, без LLM)
+bun run codegen         # генерация lib/generated.ts из graph/schema.graphqls
+bun run typecheck
+bun run build
+bun run e2e             # Playwright — требует E2E_DATABASE_URL и отдельную БД
+bun run test:ux         # Playwright UX-регрессии
+bun run format:check    # Biome lint
 ```
 
 **Локальная разработка (хост):**
@@ -30,9 +33,9 @@ set -a && . ./.env && set +a
 go run ./cmd/server
 
 # Фронтенд
-cd frontend && npm ci
+cd frontend && bun install --frozen-lockfile
 export PROJECT_CREATOR_TOKEN='…'
-npm run dev -- -H 127.0.0.1
+bun run dev -- -H 127.0.0.1
 ```
 
 **Docker Compose (весь стек):**
@@ -70,9 +73,9 @@ docker compose up -d --build --wait
 ## Тесты
 
 - **Go unit/integration:** `go test -p 1 ./...` — параллельный запуск блокирует общую advisory lock модели; без `TEST_DATABASE_URL` интеграционные тесты пропускаются
-- **Frontend unit:** `npm test` — Node, детерминированные стабы
-- **E2E:** `npm run e2e` — требует `E2E_DATABASE_URL`, отдельная БД, Go + Next.js серверы
-- **UX:** `npm run test:ux` — Playwright desktop/narrow регрессии
+- **Frontend unit:** `bun run test` — Node, детерминированные стабы
+- **E2E:** `bun run e2e` — требует `E2E_DATABASE_URL`, отдельная БД, Go + Next.js серверы
+- **UX:** `bun run test:ux` — Playwright desktop/narrow регрессии
 - **Smoke:** `scripts/compose-smoke.mjs` — полный HTTP-путь через Docker Compose со стабом Ollama
 - **Реальные модели:** только явно через `REAL_MODEL_SMOKE=1` или hardware smoke-тесты; не включены в обычный CI
 - **Hooks:** `node --test scripts/git-hooks.test.mjs`
@@ -82,14 +85,14 @@ docker compose up -d --build --wait
 - **TDD Red→Green→Refactor.** Сначала падающий тест, потом реализация, потом рефакторинг.
 - **Go:** модуль `github.com/VolkovDani/project-creator`, Go 1.26.10. Пакеты: `internal/api`, `internal/analysis`, `internal/rag`, `internal/project`, `internal/requirement`, `internal/storage`, `internal/codegen`, `graph`, `contracts`, `cmd/`
 - **Frontend:** Biome (`frontend/biome.jsonc`) — single quotes, double jsx quotes, semicolons, trailing commas. Scope: `frontend/**/*.{ts,tsx,json,jsonc}`. Исключены: `.next`, `lib/generated.ts`, `node_modules`
-- **Codegen:** `go run ./cmd/codegen` (SDL → `graph/models_gen.go`), `npm run codegen` (SDL → `frontend/lib/generated.ts`). Сгенерированные файлы не редактировать вручную
+- **Codegen:** `go run ./cmd/codegen` (SDL → `graph/models_gen.go`), `bun run codegen` (SDL → `frontend/lib/generated.ts`). Сгенерированные файлы не редактировать вручную
 - **Валидация:** общий контракт `contracts/{project,requirement}.json` + fixtures. Go и TS проверяют один набор примеров. Ошибки: `path`/`code`/`messageKey`/`params`
 - **i18n:** все пользовательские строки через ключи из `contracts/i18n/`. Пользовательский контент не переводится
 - **SSE:** `cache.invalidate` с тегами `projects`, `project:<id>`, `project:<id>:requirements`. workspace-изоляция до выдачи событий
 - **RAG/Analysis:** локальные модели приоритет. Ollama (CPU/GPU/Intel Arc) и экспериментальный OpenVINO NPU. Веса в volume `ollama_data`, БД в `postgres_data`
 - **GPU-профили:** `compose.yml` (CPU), `compose.gpu.yml` (NVIDIA), `compose.intel.yml` (Arc/Vulkan), `compose.amd.yml` (ROCm), `compose.npu.yml` (Intel NPU), `compose.smoke.yml` (тестовая заглушка), `compose.postgres.yml` (только БД)
 - **Logs:** корневой `logs/` (исключён из Git и Docker), NPU — `logs/npu/`
-- **Git hooks:** `.githooks/pre-commit` через `npm run hooks:install` в `frontend/`
+- **Git hooks:** `.githooks/pre-commit` через `bun run hooks:install` в `frontend/`
 
 ## CI (`.github/workflows/ci.yml`)
 

@@ -53,8 +53,11 @@
   with Biome: from `frontend/`, run
   `./node_modules/.bin/biome check --write <paths>` without `--unsafe`. Do not
   replace formatting with manual whitespace edits or format unrelated files.
+- The frontend package manager is pinned to Bun 1.4.4 in `frontend/package.json`;
+  use `bun install --frozen-lockfile` and `bun run <script>`. Node.js 24 remains
+  required for unit tests, repository scripts, and the production Next.js server.
 - After cloning and installing dependencies, install the tracked Git hook:
-  `cd frontend && npm ci && npm run hooks:install`. It is stored in
+  `cd frontend && bun install --frozen-lockfile && bun run hooks:install`. It is stored in
   `.githooks/pre-commit`; the `core.hooksPath` setting is local to each clone
   and is not automatically transferred through Git. See the README section
   “Git hooks and formatting” for full instructions.
@@ -66,7 +69,7 @@
   hide check failures.
 - Do not suppress Biome rules without justification or apply unsafe automatic
   fixes without checking their consequences. After frontend changes, run
-  `npm run format:check`, `npm run typecheck`, and the relevant tests from
+  `bun run format:check`, `bun run typecheck`, and the relevant tests from
   `frontend/`.
 - Follow `ARCHITECTURE.md`: use GraphQL for queries/mutations, SSE for
   invalidation, and Next.js + TypeScript for the frontend.

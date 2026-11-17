@@ -14,7 +14,7 @@
 | Экосистема | Настроенные каталоги | Отслеживаемые файлы |
 | --- | --- | --- |
 | Go modules (`gomod`) | `/` | `go.mod`, `go.sum` |
-| npm | `/frontend` | `package.json`, `package-lock.json` |
+| Bun | `/frontend` | `package.json`, `bun.lock` |
 | pip | `/runtime/npu` | `requirements.txt`, `requirements-export.txt` |
 | Docker | `/`, `/frontend` | Корневой `Dockerfile`, корневые `Dockerfile.*` и `frontend/Dockerfile` |
 | Docker Compose | `/` | Корневые файлы `compose*.yml` |
@@ -28,6 +28,55 @@
 В частности, файл export-зависимостей содержит прямую ссылку на wheel, локальные
 теги образов в Compose исключены, а разбор Docker-образов имеет ограничения,
 описанные ниже.
+
+## Оценка менеджера пакетов Bun
+
+В `frontend/package.json` закреплён Bun 1.4.4, в репозитории хранится
+`frontend/bun.lock`. GitHub указывает поддержку [экосистемы Dependabot `bun`](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories) для
+Bun версии 1.1.39 и новее. В [списке экосистем dependency graph](https://docs.github.com/en/code-security/reference/supply-chain-security/dependency-graph-supported-package-ecosystems)
+Bun пока отсутствует. Набор имён пакетов и версий после переноса с npm не
+изменился: совпали все 317 пар имени и версии, включая override
+`graphql-config` → `minimatch@11.0.1`. Это сравнение не доказывает идентичную
+топологию peer-зависимостей и hoisting; результат проверяется frontend-тестами,
+проверкой типов, сборками и container smoke. 17 ноября 2026 года `bun audit` не
+сообщил advisory в 295 пакетах Bun lockfile.
+
+Поэтому нельзя полагаться на dependency-graph alerts для сканирования `bun.lock`;
+CI и проверка выпуска запускают [`bun audit`](https://bun.sh/docs/pm/cli/audit) по
+зафиксированному графу, а еженедельный/manual workflow проверяет default branch.
+Bun отправляет список пакетов в npm advisory endpoint; при ошибке или неразбираемом
+ответе проверка завершается ошибкой. Она не заменяет просмотр уведомлений
+upstream-проектов.
+
+Bun распространяется по [лицензии MIT](https://github.com/oven-sh/bun/blob/main/docs/project/license.mdx); на официальной странице лицензирования
+также перечислены компоненты JavaScriptCore/WebKit по LGPL-2 и лицензии
+встроенных библиотек. Bun используется только для управления зависимостями
+фронтенда и этапа сборки Next.js. Production-образ и сервер остаются на Node.js,
+поэтому исполняемый файл Bun и его библиотеки не входят в распространяемый
+runtime-образ фронтенда. Решение оставить production на Node соответствует
+[руководству Next.js по развёртыванию](https://nextjs.org/docs/app/guides/deploying-to-platforms),
+где указан сервер Node.js.
+
+На дату перехода Bun 1.4.4 был [последним выпуском](https://github.com/oven-sh/bun/releases/tag/bun-v1.4.4); его GitHub tag указывает на
+проверенный подписанный release commit. В этой версии исправлена
+[уязвимость высокого уровня HTTP/3 QPACK header amplification](https://github.com/oven-sh/bun/security/advisories/GHSA-cf8x-9m69-3gg3), затрагивавшая Bun 1.4.3 и
+старше. npm проверяет целостность [platform-specific пакета](https://www.npmjs.com/package/@oven/bun-linux-x64/v/1.4.4); поля `os`/`cpu`
+указывают Linux x64, но текстовое описание ошибочно называет macOS arm64.
+Установленный бинарный файл сообщил Linux x64 и revision `1.4.4+38afee6c8`, что
+подтверждает ограничение несоответствия только метаданными описания пакета.
+
+Поле `trustedDependencies` задано пустым, поэтому Bun не запускает install-скрипты
+сторонних зависимостей. Текущим зависимостям фронтенда эти скрипты не нужны;
+frontend-тесты, проверка типов, сборки и container smoke обнаружат зависимость,
+для которой они понадобятся в будущем. GitHub Actions кеширует только registry
+package cache Bun по ключу из `frontend/bun.lock`; квота кеша репозитория не меняется.
+
+На локальной Linux x64-системе с Node 24.21.0, Bun 1.4.4 и Next.js 16.4.6 медиана
+трёх чистых сборок составила 4.31 секунды на Node и 3.88 секунды на Bun. Медиана
+трёх сборок с кешем составила 1.98 и 1.51 секунды соответственно. Все сборки
+завершились успешно. Это локальные измерения, а не гарантия на другом оборудовании.
+Под Bun выполняется только `next build`; unit-тесты и production-сервер остаются
+на Node.
 
 ## Расписание и число PR
 

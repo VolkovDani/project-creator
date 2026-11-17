@@ -10,6 +10,7 @@ on:
     paths-ignore:
       - '**/*.md'
       - '**/*.txt'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -17,6 +18,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   checks:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
@@ -98,6 +100,7 @@ jobs:
 
 
   containers:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -196,6 +199,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'develop' &&
       needs.checks.result == 'success' && needs.containers.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 2

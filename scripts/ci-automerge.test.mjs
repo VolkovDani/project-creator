@@ -13,11 +13,11 @@ function fixture() {
   const pr = { state: 'open', draft: false, mergeable: true,
     labels: [{ name: 'automerge' }],
     head: { sha: head, repo: { full_name: repository } },
-    base: { ref: 'main', repo: { full_name: repository } } };
+    base: { ref: 'develop', repo: { full_name: repository } } };
   const replies = {
     [`repos/${repository}/pulls/81`]: pr,
     [`repos/${repository}/git/commits/${merge}`]: { parents: [{ sha: base }, { sha: head }] },
-    [`repos/${repository}/git/ref/heads/main`]: { object: { sha: base } },
+    [`repos/${repository}/git/ref/heads/develop`]: { object: { sha: base } },
     [`repos/${repository}/pulls/81/merge`]: { merged: true, sha: 'd'.repeat(40) },
   };
   const calls = [];
@@ -56,11 +56,12 @@ for (const [name, change] of [
   ['closed PR', (f) => { f.pr.state = 'closed'; }],
   ['fork', (f) => { f.pr.head.repo.full_name = 'someone/fork'; }],
   ['deleted head repository', (f) => { f.pr.head.repo = null; }],
+  ['main target', (f) => { f.pr.base.ref = 'main'; }],
   ['different target', (f) => { f.pr.base.ref = 'release'; }],
   ['new head commit', (f) => { f.pr.head.sha = 'e'.repeat(40); }],
   ['conflict', (f) => { f.pr.mergeable = false; }],
   ['unknown mergeability', (f) => { f.pr.mergeable = null; }],
-  ['main advanced', (f) => { f.replies[`repos/${repository}/git/ref/heads/main`].object.sha = 'e'.repeat(40); }],
+  ['develop advanced', (f) => { f.replies[`repos/${repository}/git/ref/heads/develop`].object.sha = 'e'.repeat(40); }],
   ['wrong tested head', (f) => { f.replies[`repos/${repository}/git/commits/${merge}`].parents[1].sha = 'e'.repeat(40); }],
 ]) {
   test(`does not merge: ${name}`, async () => {
@@ -105,6 +106,7 @@ test('workflow runs merge only after both jobs and grants write only to merge jo
   assert.match(job, /needs.containers.result == 'success'/);
   assert.match(job, /github.event_name == 'pull_request'/);
   assert.match(job, /github.event.pull_request.head.repo.full_name == github.repository/);
+  assert.match(job, /github.event.pull_request.base.ref == 'develop'/);
   assert.match(job, /contents: write/);
   assert.match(job, /pull-requests: read/);
   assert.match(job, /persist-credentials: false/);

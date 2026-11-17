@@ -315,3 +315,120 @@ func TestSummaryLanguageConfigurationChangesProfileAndValidation(t *testing.T) {
 		t.Fatal("missing language provenance")
 	}
 }
+
+func TestSummaryOllamaPreservesSourceTechnicalIdentifiersOnly(t *testing.T) {
+	tests := []struct {
+		name, source, output string
+		wantErr              bool
+		wantCalls            int
+	}{
+		{
+			name:      "preserve source technical names including lowercase Excel",
+			source:    "Требование: выгрузить в excel через API в PDF.",
+			output:    "Нужно выгрузить Excel через API в PDF.",
+			wantCalls: 1,
+		},
+		{
+			name:      "reject English prose around a permitted identifier",
+			source:    "Требование: сохранить Excel и API.",
+			output:    "Save the Excel API.",
+			wantErr:   true,
+			wantCalls: 2,
+		},
+		{
+			name:      "reject a novel foreign name",
+			source:    "Требование: сохранить Excel и API.",
+			output:    "Нужно сохранить Excel и Acme.",
+			wantErr:   true,
+			wantCalls: 2,
+		},
+		{
+			name:      "do not whitelist names from a source foreign prose run",
+			source:    "Описание: export all records, сохранить Excel.",
+			output:    "Нужно сохранить Excel.",
+			wantErr:   true,
+			wantCalls: 2,
+		},
+		{
+			name:      "preserve source PascalCase technical names without a catalog",
+			source:    "Требование: сохранить LibreOffice через ZetaTool.",
+			output:    "Нужно сохранить LibreOffice через ZetaTool.",
+			wantCalls: 1,
+		},
+		{
+			name:      "reject Unicode lookalike letters",
+			source:    "Требование: сохранить Excel.",
+			output:    "Нужно сохранить Excеl.", // The fourth character is Cyrillic small ie.
+			wantErr:   true,
+			wantCalls: 2,
+		},
+		{
+			name:      "reject output made only of identifiers",
+			source:    "Требование: сохранить Excel и API.",
+			output:    "Excel API",
+			wantErr:   true,
+			wantCalls: 2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/tags" {
+					summaryTags(w, summaryDigest)
+					return
+				}
+				calls++
+				content, err := json.Marshal(map[string]string{"summary": tc.output})
+				if err != nil {
+					t.Error(err)
+				}
+				json.NewEncoder(w).Encode(map[string]any{"done": true, "done_reason": "stop", "message": map[string]any{"role": "assistant", "content": string(content)}})
+			}))
+			defer server.Close()
+
+			g, err := NewSummaryOllamaWithLanguages(server.URL, summaryModel, summaryDigest, "ru")
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := g.Summarize(context.Background(), summarySource(tc.source))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("summary=%q err=%v wantErr=%v", got, err, tc.wantErr)
+			}
+			if calls != tc.wantCalls {
+				t.Fatalf("generation calls=%d want=%d", calls, tc.wantCalls)
+			}
+			if !tc.wantErr && got != tc.output {
+				t.Fatalf("summary=%q want=%q", got, tc.output)
+			}
+			if !tc.wantErr && g.ValidateSummary(got) == nil {
+				t.Fatal("source-less validation accepted technical identifiers")
+			}
+			if !strings.Contains(g.prompt, "technical names from the source") || !strings.Contains(g.prompt, "all other wording") {
+				t.Fatalf("prompt omits technical-name policy: %s", g.prompt)
+			}
+		})
+	}
+}
+
+func TestSummaryOllamaRejectsNULEvenWithSourceTechnicalNames(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/tags" {
+			summaryTags(w, summaryDigest)
+			return
+		}
+		calls++
+		json.NewEncoder(w).Encode(map[string]any{"done": true, "done_reason": "stop", "message": map[string]any{"role": "assistant", "content": `{"summary":"Сохранить Excel\u0000"}`}})
+	}))
+	defer server.Close()
+	g, err := NewSummaryOllamaWithLanguages(server.URL, summaryModel, summaryDigest, "ru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = g.Summarize(context.Background(), summarySource("Требование: сохранить Excel."))
+	if err != ErrInvalidSummary || calls != 2 {
+		t.Fatalf("err=%v calls=%d", err, calls)
+	}
+}

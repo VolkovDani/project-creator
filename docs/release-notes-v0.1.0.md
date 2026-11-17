@@ -14,6 +14,8 @@ claim is made.
 - Local embeddings and explicit semantic search scoped to a project.
 - Explicit local-model pair analysis with versioned sources, cancellation,
   retries, recovery, progress updates, and cached results.
+- Russian-only summaries preserve isolated source technical names such as Excel, API,
+  and PDF without enabling arbitrary English prose (issue #136).
 - Docker Compose deployment with CPU as the default and optional Intel, NVIDIA,
   AMD ROCm, and AMD Vulkan configurations where host drivers support them.
 

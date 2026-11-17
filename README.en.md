@@ -1308,6 +1308,16 @@ letter from an allowed alphabet. Alphabet checks cannot distinguish languages
 that share letters, so the model instructions also specify the language constraint.
 The new rule does not restrict original requirements.
 
+A restricted-language summary may preserve isolated ASCII technical identifiers
+from the same source (for example, `Excel`, `API`, or `PDF` in a Russian
+requirement). This exception does not enable English prose: unrelated names and
+foreign-language sentences are still rejected. The summary must retain text in
+the configured alphabet. This is a conservative token check, not recognition of
+arbitrary product names or language detection. Multiword foreign names are not
+covered by this exception. Source-less validation stays strict.
+The policy is recorded in the generation profile, so changed policy creates new
+summaries while previous profiles remain in history.
+
 With `PROJECT_CREATOR_SUMMARY_MODEL` and a full `PROJECT_CREATOR_SUMMARY_DIGEST`
 explicitly set, requirements automatically enter a local background queue after
 saving. `PROJECT_CREATOR_SUMMARY_URL` selects a separate Ollama runtime. CRUD and

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"net/url"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -146,6 +147,49 @@ func TestInvalidSummaryFailsWithoutTruncation(t *testing.T) {
 	v := waitState(t, s, "a", "p", "r", "failed")
 	if v.Text != "" || v.ErrorCode != "INVALID_OUTPUT" {
 		t.Fatalf("invalid accepted %+v", v)
+	}
+}
+
+type sourceAwareFakeGenerator struct {
+	fakeGenerator
+	validated atomic.Int32
+}
+
+func (*sourceAwareFakeGenerator) ValidateSummary(string) error { return analysis.ErrInvalidSummary }
+func (g *sourceAwareFakeGenerator) ValidateSummaryForSource(source analysis.Source, text string) error {
+	g.validated.Add(1)
+	if strings.Contains(strings.ToLower(source.Text), "excel") && strings.Contains(text, "Excel") {
+		return nil
+	}
+	return analysis.ErrInvalidSummary
+}
+
+func TestSummaryPublicationUsesSourceAwareValidation(t *testing.T) {
+	db := testDB(t)
+	if _, err := db.Exec(`UPDATE requirements SET text='Требование: сохранить excel.',version=2 WHERE id='r'`); err != nil {
+		t.Fatal(err)
+	}
+	g := &sourceAwareFakeGenerator{fakeGenerator: fakeGenerator{text: "Нужно сохранить Excel."}}
+	s := New(db, g)
+	defer s.Close()
+	if err := s.Start([]string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	var state State
+	for time.Now().Before(deadline) {
+		rows, err := s.ByIDs(context.Background(), "a", "p", []string{"r"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		state = rows[0]
+		if state.Status == "ready" || state.Status == "failed" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if state.Text != g.text || state.ErrorCode != "" || g.validated.Load() != 1 {
+		t.Fatalf("source-aware summary was not published: status=%s code=%s validations=%d", state.Status, state.ErrorCode, g.validated.Load())
 	}
 }
 

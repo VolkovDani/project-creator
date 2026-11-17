@@ -817,6 +817,12 @@ attempts preserve versions and snapshots of the sources used. Editing a requirem
 requires reindexing and makes previous analyses stale. These mechanisms are
 implemented and described in the RAG and analysis sections below.
 
+Editing opens a modal dialog; saving closes it, while Cancel and Escape discard
+the edit draft. Clicking the backdrop does not close the dialog, and an in-flight
+save cannot be dismissed. Adding a requirement keeps its own draft. A global
+Back to top button appears after scrolling more than 400 pixels and respects the
+operating system's reduced-motion setting.
+
 ## Keeping two open clients current (SSE, MVP 5)
 
 The Go server provides an authenticated `GET /events`. Next.js forwards the stream

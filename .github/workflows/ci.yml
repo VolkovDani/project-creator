@@ -132,22 +132,22 @@ jobs:
           load: true
           push: false
           provenance: false
-          tags: project-creator-ollama-intel:0.40.11
+          tags: project-creator-ollama-intel:0.40.16
           cache-from: type=gha,version=2,scope=ci-intel-v1
           cache-to: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'type=gha,version=2,scope=ci-intel-v1,mode=max,ignore-error=true,timeout=60s' || '' }}
       - name: Verify Intel Vulkan runtime
-        run: docker run --rm --entrypoint sh project-creator-ollama-intel:0.40.11 -c 'test -s /etc/project-creator-intel-vulkan.json && cat /etc/project-creator-intel-vulkan.json && ollama --version'
+        run: docker run --rm --entrypoint sh project-creator-ollama-intel:0.40.16 -c 'test -s /etc/project-creator-intel-vulkan.json && cat /etc/project-creator-intel-vulkan.json && ollama --version'
       - name: Release verified Intel image and builder data
         # The Intel image is already verified and its cache export has finished.
         run: |
-          docker image rm project-creator-ollama-intel:0.40.11
+          docker image rm project-creator-ollama-intel:0.40.16
           docker buildx prune --all --force
       - name: Build and verify AMD RADV Vulkan runtime (no GPU required)
         # Keep the three existing remote caches; release this image before the app builds.
         run: |
-          docker buildx build --load -f Dockerfile.ollama-amd-vulkan -t project-creator-ollama-amd-vulkan:0.40.11 .
-          docker run --rm --entrypoint sh project-creator-ollama-amd-vulkan:0.40.11 -c 'test -s /etc/project-creator-amd-vulkan.json && ollama --version'
-          docker image rm project-creator-ollama-amd-vulkan:0.40.11
+          docker buildx build --load -f Dockerfile.ollama-amd-vulkan -t project-creator-ollama-amd-vulkan:0.40.16 .
+          docker run --rm --entrypoint sh project-creator-ollama-amd-vulkan:0.40.16 -c 'test -s /etc/project-creator-amd-vulkan.json && ollama --version'
+          docker image rm project-creator-ollama-amd-vulkan:0.40.16
           docker buildx prune --all --force
       - name: Build backend with cached layers
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0

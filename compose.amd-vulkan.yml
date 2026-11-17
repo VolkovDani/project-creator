@@ -2,7 +2,7 @@
 # Do not combine this override with other GPU profiles.
 services:
   ollama:
-    image: project-creator-ollama-amd-vulkan:0.40.11
+    image: project-creator-ollama-amd-vulkan:0.40.16
     pull_policy: build
     build:
       context: .

@@ -95,12 +95,23 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
   await stream(page);
   let current = snapshot();
   const requests: string[] = [];
+  let technicalFailures = 0;
+  let technicalGate:
+    | {
+        started: () => void;
+        startedPromise: Promise<void>;
+        wait: Promise<void>;
+        release: () => void;
+      }
+    | undefined;
   let pair = {
     id: 'pair-1',
     position: 0,
     status: 'completed',
     verdict: 'collision',
     explanation: 'Confirmed explanation',
+    detailsVersion: 'detail-v1',
+    isExactDuplicate: false,
     errorCode: '',
     checkedAt: '2026-11-05',
     resultOrigin: 'model',
@@ -117,7 +128,8 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
   };
   await page.route('**/api/graphql', async (route) => {
     const { query } = route.request().postDataJSON();
-    requests.push(query.match(/(?:query|mutation) (\w+)/)?.[1] || 'unknown');
+    const operation = query.match(/(?:query|mutation) (\w+)/)?.[1] || 'unknown';
+    requests.push(operation);
     let data: unknown;
     if (query.includes('analysisPairsConnection('))
       data = {
@@ -128,8 +140,26 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
           totalCount: current.processedPairs,
         },
       };
-    else if (query.includes('analysisPair(')) data = { analysisPair: pair };
-    else if (query.includes('analysisRunMetadata('))
+    else if (query.includes('analysisPairs('))
+      data = {
+        scope: { projectId: 'demo' },
+        analysisPairs: current.processedPairs ? [pair] : [],
+      };
+    else if (query.includes('analysisPair(')) {
+      const pairResponse = structuredClone(pair);
+      if (operation === 'AnalysisPairTechnical' && technicalFailures > 0) {
+        technicalFailures--;
+        await route.fulfill({ json: { errors: [{ message: 'temporary failure' }] } });
+        return;
+      }
+      if (operation === 'AnalysisPairTechnical' && technicalGate) {
+        const gate = technicalGate;
+        technicalGate = undefined;
+        gate.started();
+        await gate.wait;
+      }
+      data = { analysisPair: pairResponse };
+    } else if (query.includes('analysisRunMetadata('))
       data = {
         projectAnalysis: {
           id: current.id,
@@ -167,6 +197,21 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
     setPair(value: Omit<typeof pair, 'layaErrorCode'> & { layaErrorCode?: string }) {
       pair = { ...value, layaErrorCode: value.layaErrorCode ?? '' };
     },
+    failNextTechnical() {
+      technicalFailures++;
+    },
+    delayNextTechnical() {
+      let started!: () => void;
+      let release!: () => void;
+      const startedPromise = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const wait = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      technicalGate = { started: () => started(), startedPromise, wait, release };
+      return { startedPromise, release };
+    },
   };
 }
 test('compact push updates twenty pairs without GraphQL progress refetch and preserves form focus', async ({
@@ -198,18 +243,143 @@ test('group loads compact rows and only an opened pair fetches texts; reopen reu
   expect(live.requests).not.toContain('AnalysisPairConnection');
   await group.locator(':scope > summary').click();
   await expect(group.getByRole('article')).toHaveCount(1);
-  expect(live.requests).not.toContain('AnalysisPairDetail');
+  expect(live.requests).not.toContain('AnalysisPairSources');
+  expect(live.requests).not.toContain('AnalysisPairTechnical');
+  await expect(group.getByText('Confirmed explanation', { exact: true })).toBeVisible();
+  await expect(
+    group.getByText('Предложение модели; проверьте его, прежде чем полагаться на вывод.', {
+      exact: true,
+    }),
+  ).toBeVisible();
   const details = group.getByRole('group', { name: 'Тексты и объяснение' });
   await details.locator('summary').click();
-  await expect(details.getByText('Confirmed explanation', { exact: true })).toBeVisible();
   await details.locator('summary').click();
   await details.locator('summary').click();
   await expect(details.getByText('Saved left source', { exact: true })).toBeVisible();
-  expect(live.requests.filter((name) => name === 'AnalysisPairDetail')).toHaveLength(1);
+  expect(live.requests.filter((name) => name === 'AnalysisPairSources')).toHaveLength(1);
+  expect(live.requests).not.toContain('AnalysisPairTechnical');
+  const technical = group.getByRole('group', { name: 'Техническая информация' });
+  await technical.locator('summary').click();
+  await expect(
+    technical.getByText('Источник: модель; вывод требует проверки человеком'),
+  ).toBeVisible();
+  await technical.locator('summary').click();
+  await technical.locator('summary').click();
+  expect(live.requests.filter((name) => name === 'AnalysisPairTechnical')).toHaveLength(1);
   const oldCount = live.requests.length;
   await push(page, snapshot('3', 1));
   await expect(group).toHaveAttribute('open', '');
   expect(live.requests.length).toBe(oldCount);
+});
+test('paged results include explanations without loading technical metadata', async ({ page }) => {
+  const live = await fixture(page);
+  live.set(snapshot('2', 1));
+  await page.goto('/projects/demo/analysis?listMode=pages&page=1');
+  const group = page.getByRole('group', { name: 'Возможные противоречия: 1', exact: true });
+  await group.locator(':scope > summary').click();
+  await expect(group.getByText('Confirmed explanation', { exact: true })).toBeVisible();
+  expect(live.requests).toContain('AnalysisPairPage');
+  expect(live.requests).not.toContain('AnalysisPairConnection');
+  expect(live.requests).not.toContain('AnalysisPairTechnical');
+  expect(live.requests).not.toContain('AnalysisPairSources');
+});
+test('technical information can retry after an error and reopen uses the current version', async ({
+  page,
+}) => {
+  const live = await fixture(page);
+  live.set(snapshot('2', 1));
+  live.failNextTechnical();
+  await page.goto('/projects/demo/analysis');
+  const group = page.getByRole('group', { name: 'Возможные противоречия: 1', exact: true });
+  await group.locator(':scope > summary').click();
+  const technical = group.getByRole('group', { name: 'Техническая информация' });
+  await technical.locator(':scope > summary').click();
+  await expect(technical.getByRole('alert')).toBeVisible();
+  await technical.getByRole('button').click();
+  await expect(
+    technical.getByText('Источник: модель; вывод требует проверки человеком'),
+  ).toBeVisible();
+  expect(live.requests.filter((name) => name === 'AnalysisPairTechnical')).toHaveLength(2);
+  await technical.locator(':scope > summary').click();
+  live.setPair({
+    id: 'pair-1',
+    position: 0,
+    status: 'completed',
+    verdict: 'collision',
+    explanation: 'Confirmed explanation',
+    detailsVersion: 'detail-v2',
+    isExactDuplicate: false,
+    errorCode: '',
+    checkedAt: '2026-11-06',
+    resultOrigin: 'exact_text_v1',
+    reusedFrom: '',
+    selectionReasons: [],
+    similarityScore: null,
+    generatorProfile: 'new-profile',
+    layaStatus: '',
+    layaErrorCode: '',
+    preclassification: null,
+    layaCheckedAt: null,
+    left: { id: 'a', version: 2, text: 'Updated left source' },
+    right: { id: 'b', version: 2, text: 'Updated right source' },
+  });
+  await page.evaluate(() =>
+    (window as unknown as StreamWindow).analysisPush(
+      'event: cache.reset\ndata: {"schemaVersion":1,"keys":[]}\n\n',
+    ),
+  );
+  await expect(group.getByText('Confirmed explanation', { exact: true })).toBeVisible();
+  await technical.locator(':scope > summary').click();
+  await expect(
+    technical.getByText('Источник: алгоритм exact_text_v1; без вызова модели'),
+  ).toBeVisible();
+  expect(
+    live.requests.filter((name) => name === 'AnalysisPairTechnical').length,
+  ).toBeGreaterThanOrEqual(3);
+});
+test('late technical response cannot replace the pair details after reset', async ({ page }) => {
+  const live = await fixture(page);
+  live.set(snapshot('2', 1));
+  const gate = live.delayNextTechnical();
+  await page.goto('/projects/demo/analysis');
+  const group = page.getByRole('group', { name: 'Возможные противоречия: 1', exact: true });
+  await group.locator(':scope > summary').click();
+  const technical = group.getByRole('group', { name: 'Техническая информация' });
+  await technical.locator(':scope > summary').click();
+  await gate.startedPromise;
+  live.setPair({
+    id: 'pair-1',
+    position: 0,
+    status: 'completed',
+    verdict: 'collision',
+    explanation: 'Updated explanation',
+    detailsVersion: 'detail-v2',
+    isExactDuplicate: false,
+    errorCode: '',
+    checkedAt: '2026-11-06',
+    resultOrigin: 'model',
+    reusedFrom: '',
+    selectionReasons: [],
+    similarityScore: null,
+    generatorProfile: 'new-profile',
+    layaStatus: 'failed',
+    layaErrorCode: 'LAYA_SUMMARY_FAILED',
+    preclassification: null,
+    layaCheckedAt: null,
+    left: { id: 'a', version: 2, text: 'Updated left source' },
+    right: { id: 'b', version: 2, text: 'Updated right source' },
+  });
+  await page.evaluate(() =>
+    (window as unknown as StreamWindow).analysisPush(
+      'event: cache.reset\ndata: {"schemaVersion":1,"keys":[]}\n\n',
+    ),
+  );
+  await expect(technical.getByText('ошибка классификации')).toBeVisible();
+  expect(
+    live.requests.filter((name) => name === 'AnalysisPairTechnical').length,
+  ).toBeGreaterThanOrEqual(2);
+  gate.release();
+  await expect(technical.getByText('ошибка классификации')).toBeVisible();
 });
 test('Laya classification pools advance over SSE while final verdict groups remain intact', async ({
   page,
@@ -265,6 +435,8 @@ test('Laya classification pools advance over SSE while final verdict groups rema
     status: 'completed',
     verdict: 'collision',
     explanation: 'Confirmed explanation',
+    detailsVersion: 'detail-v2',
+    isExactDuplicate: false,
     errorCode: '',
     checkedAt: '2026-11-05',
     resultOrigin: 'model',
@@ -291,12 +463,12 @@ test('Laya classification pools advance over SSE while final verdict groups rema
   const group = page.getByRole('group', { name: 'Возможные противоречия: 1', exact: true });
   await expect(group).toBeVisible();
   await group.locator(':scope > summary').click();
-  const details = group.getByRole('group', { name: 'Тексты и объяснение' });
-  await details.locator('summary').click();
-  await expect(details.getByText('Предложение классификатора Laya')).toBeVisible();
-  await expect(details.getByText('Предложение: связаны')).toBeVisible();
-  await expect(details.getByText(/не вероятность правильности/)).toBeVisible();
-  await expect(page.getByText('Возможная коллизия в паре')).toBeVisible();
+  await expect(group.getByText('Confirmed explanation', { exact: true })).toBeVisible();
+  const technical = group.getByRole('group', { name: 'Техническая информация' });
+  await technical.locator('summary').click();
+  await expect(technical.getByText('Предложение классификатора Laya')).toBeVisible();
+  await expect(technical.getByText('Предложение: связаны')).toBeVisible();
+  await expect(technical.getByText(/не вероятность правильности/)).toBeVisible();
 });
 test('oversized previews skip Laya while the comparison model completes the pair', async ({
   page,
@@ -316,6 +488,8 @@ test('oversized previews skip Laya while the comparison model completes the pair
     status: 'completed',
     verdict: 'collision',
     explanation: 'Model completed using original source texts.',
+    detailsVersion: 'detail-v3',
+    isExactDuplicate: false,
     errorCode: '',
     checkedAt: '',
     resultOrigin: '',
@@ -336,11 +510,13 @@ test('oversized previews skip Laya while the comparison model completes the pair
   await expect(group).toBeVisible();
   await group.locator(':scope > summary').click();
   const pairCard = group.getByRole('article', { name: 'Пара 1', exact: true });
-  await expect(pairCard.getByText('Возможная коллизия в паре')).toBeVisible();
-  const details = pairCard.getByRole('group', { name: 'Тексты и объяснение' });
-  await details.locator(':scope > summary').click();
-  await expect(details.getByText(/Laya пропустила эту пару.*350 байт UTF-8/)).toBeVisible();
-  await expect(details.getByText(/сравнительная модель|модель сравнения проверит/i)).toBeVisible();
+  await expect(pairCard.getByText('Model completed using original source texts.')).toBeVisible();
+  const technical = pairCard.getByRole('group', { name: 'Техническая информация' });
+  await technical.locator(':scope > summary').click();
+  await expect(technical.getByText(/Laya пропустила эту пару.*350 байт UTF-8/)).toBeVisible();
+  await expect(
+    technical.getByText(/сравнительная модель|модель сравнения проверит/i),
+  ).toBeVisible();
 });
 test('reset recovers a missed terminal snapshot without hiding the current result', async ({
   page,

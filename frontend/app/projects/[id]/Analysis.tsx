@@ -22,8 +22,9 @@ import {
   type AnalysisHistoryQuery,
   AnalysisPairConnectionDocument,
   type AnalysisPairConnectionQuery,
-  AnalysisPairDetailDocument,
   AnalysisPairPageDocument,
+  AnalysisPairSourcesDocument,
+  AnalysisPairTechnicalDocument,
   AnalysisRunMetadataDocument,
   CancelProjectAnalysisDocument,
   ProjectAnalysisSummaryDocument,
@@ -56,12 +57,6 @@ const reasonCodes = new Set([
   'NO_CANDIDATES',
   'MODEL_INSUFFICIENT',
 ]);
-const verdicts: Record<string, string> = {
-  collision: 'analysis.verdict.collision',
-  insufficient: 'analysis.verdict.insufficient',
-  compatible: 'analysis.verdict.compatible',
-  duplicate: 'analysis.verdict.duplicate',
-};
 const stages = new Set(['checking_index', 'finding_pairs', 'comparing']);
 const analysisErrorMessages: Record<string, string> = {
   TIMEOUT: 'analysis.error.TIMEOUT',
@@ -202,7 +197,7 @@ function AnalysisProvenance({
   );
 }
 
-function PairDetails({
+function PairSources({
   pairId,
   runId,
   projectId,
@@ -221,7 +216,62 @@ function PairDetails({
     async () =>
       (
         await query(
-          AnalysisPairDetailDocument,
+          AnalysisPairSourcesDocument,
+          { projectId, analysisId: runId, pairId },
+          { tags: [`project:${projectId}:analysis:${runId}:pair:${pairId}`], version },
+        )
+      ).analysisPair,
+    [projectId, runId, pairId, version],
+  );
+  const resource = useResource(load, [`project:${projectId}:analysis:${runId}:pair:${pairId}`]);
+  const pair = resource.data;
+  return (
+    <>
+      <ResourceState
+        locale={locale}
+        loading={resource.loading}
+        error={resource.error}
+        hasData={pair !== undefined}
+        retry={() => void resource.reload()}
+      />
+      {pair && (
+        <>
+          <SavedSource
+            projectId={projectId}
+            source={pair.left}
+            locale={locale}
+            onSource={onSource}
+          />
+          <SavedSource
+            projectId={projectId}
+            source={pair.right}
+            locale={locale}
+            onSource={onSource}
+          />
+        </>
+      )}
+    </>
+  );
+}
+
+function PairTechnical({
+  pairId,
+  runId,
+  projectId,
+  locale,
+  version,
+}: {
+  pairId: string;
+  runId: string;
+  projectId: string;
+  locale: Locale;
+  version: string;
+}) {
+  const load = useCallback(
+    async () =>
+      (
+        await query(
+          AnalysisPairTechnicalDocument,
           { projectId, analysisId: runId, pairId },
           { tags: [`project:${projectId}:analysis:${runId}:pair:${pairId}`], version },
         )
@@ -272,35 +322,6 @@ function PairDetails({
               </p>
             </div>
           )}
-          <SavedSource
-            projectId={projectId}
-            source={pair.left}
-            locale={locale}
-            onSource={onSource}
-          />
-          <SavedSource
-            projectId={projectId}
-            source={pair.right}
-            locale={locale}
-            onSource={onSource}
-          />
-          {pair.verdict === 'duplicate' && (
-            <p>
-              {t(
-                locale,
-                pair.resultOrigin === 'exact_text_v1'
-                  ? 'analysis.duplicate.exact'
-                  : 'analysis.duplicate.possible',
-              )}
-            </p>
-          )}
-          {pair.explanation && (
-            <p>
-              {pair.resultOrigin === 'exact_text_v1'
-                ? t(locale, 'analysis.exactDuplicateExplanation')
-                : pair.explanation}
-            </p>
-          )}
           {pair.selectionReasons.length > 0 && (
             <p>
               {t(locale, 'analysis.selectionReasons')}{' '}
@@ -335,6 +356,11 @@ function PairDetails({
           )}
           {pair.checkedAt && (
             <p className="muted">{t(locale, 'analysis.checkedAt', { time: pair.checkedAt })}</p>
+          )}
+          {pair.generatorProfile && (
+            <p className="muted">
+              {t(locale, 'analysis.pair.modelProfile', { profile: pair.generatorProfile })}
+            </p>
           )}
           {pair.reusedFrom && (
             <p className="muted">{t(locale, 'analysis.reusedFrom', { id: pair.reusedFrom })}</p>
@@ -484,7 +510,16 @@ function PairList({
           >
             <h4>{t(locale, 'analysis.pair.position', { number: pair.position + 1 })}</h4>
             {pair.status === 'completed' && (
-              <p>{t(locale, verdicts[pair.verdict] || 'analysis.verdict.insufficient')}</p>
+              <>
+                <p>
+                  {pair.isExactDuplicate
+                    ? t(locale, 'analysis.exactDuplicateExplanation')
+                    : pair.explanation || t(locale, 'analysis.pair.noExplanation')}
+                </p>
+                {!pair.isExactDuplicate && (
+                  <p className="muted">{t(locale, 'analysis.pair.modelSuggestion')}</p>
+                )}
+              </>
             )}
             {(pair.status === 'pending' || pair.status === 'running') && (
               <p role="status">{t(locale, `analysis.pair.${pair.status}`)}</p>
@@ -508,13 +543,29 @@ function PairList({
               lazy
               defaultOpen={false}
             >
-              <PairDetails
+              <PairSources
+                key={pair.detailsVersion}
                 pairId={pair.id}
                 runId={run.id}
                 projectId={projectId}
                 locale={locale}
-                version={`${pair.status}:${pair.checkedAt}:${pair.errorCode}:${pair.layaStatus}:${pair.layaCheckedAt}`}
+                version={pair.detailsVersion}
                 onSource={onSource}
+              />
+            </Group>
+            <Group
+              id={`analysis-pair-technical:${run.id}:${pair.id}`}
+              title={t(locale, 'analysis.technicalInfo')}
+              lazy
+              defaultOpen={false}
+            >
+              <PairTechnical
+                key={pair.detailsVersion}
+                pairId={pair.id}
+                runId={run.id}
+                projectId={projectId}
+                locale={locale}
+                version={pair.detailsVersion}
               />
             </Group>
           </article>

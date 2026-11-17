@@ -2,8 +2,10 @@ package graph
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/VolkovDani/project-creator/contracts"
 	"github.com/VolkovDani/project-creator/internal/analysis"
@@ -141,6 +143,8 @@ func (r *Resolver) RetryProjectAnalysis(ctx context.Context, args RetryProjectAn
 }
 
 func analysisPair(pair analysis.PairResult) *AnalysisPair {
+	encoded, _ := json.Marshal(pair)
+	detailsVersion := fmt.Sprintf("%x", sha256.Sum256(encoded))
 	reasons := append([]string{}, pair.SelectionReasons...)
 	var preclassification *string
 	if pair.Preclassification != nil {
@@ -152,7 +156,7 @@ func analysisPair(pair analysis.PairResult) *AnalysisPair {
 	if pair.LayaCheckedAt != "" {
 		checkedAt = &pair.LayaCheckedAt
 	}
-	return &AnalysisPair{LayaErrorCode: pair.LayaErrorCode, LayaStatus: pair.LayaStatus, Preclassification: preclassification, LayaCheckedAt: checkedAt, SelectionReasons: reasons, SimilarityScore: pair.SimilarityScore, ResultOrigin: pair.ResultOrigin, ID: graphql.ID(pair.ID), Position: int32(pair.Position), Status: pair.Status,
+	return &AnalysisPair{DetailsVersion: detailsVersion, IsExactDuplicate: pair.Verdict == "duplicate" && pair.ResultOrigin == "exact_text_v1", LayaErrorCode: pair.LayaErrorCode, LayaStatus: pair.LayaStatus, Preclassification: preclassification, LayaCheckedAt: checkedAt, SelectionReasons: reasons, SimilarityScore: pair.SimilarityScore, ResultOrigin: pair.ResultOrigin, ID: graphql.ID(pair.ID), Position: int32(pair.Position), Status: pair.Status,
 		Left:    &AnalysisSource{ID: graphql.ID(pair.Left.ID), Version: int32(pair.Left.Version), Text: pair.Left.Text},
 		Right:   &AnalysisSource{ID: graphql.ID(pair.Right.ID), Version: int32(pair.Right.Version), Text: pair.Right.Text},
 		Verdict: pair.Verdict, Explanation: pair.Explanation, ErrorCode: pair.ErrorCode,

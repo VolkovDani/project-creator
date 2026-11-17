@@ -609,12 +609,13 @@ Prepare a release through a separate PR from `develop` to `main`, without this
 label; merge it manually after reviewing the diff, CI status, and release readiness.
 A release PR does not publish a version.
 
-Changes consisting only of `.md` and `.txt` files do not trigger GitHub Actions for
-PRs or pushes to `main`: the `paths-ignore` filter applies to the entire workflow.
-If the diff contains at least one other file, CI runs as usual. After reviewing a
-documentation-only PR and running `git diff --check`, merge it with a regular merge
-commit using `gh pr merge --merge --match-head-commit SHA`, without the
-`automerge` label: the merge job does not run in this case either. Do not make a
+Changes consisting only of `.md` and `.txt` files are skipped by the GitHub Actions
+path filter, except for `requirements*.txt` files in any directory, which trigger
+CI even on their own. Mixed changes containing code also trigger CI. After
+reviewing a documentation-only PR whose workflow was skipped and running
+`git diff --check`, merge it with a regular merge commit using
+`gh pr merge --merge --match-head-commit SHA`, without the `automerge` label: the
+merge job does not run in this case either. Do not make a
 skipped workflow a required condition for such PRs: GitHub may leave required
 checks Pending. Do not bypass branch protection with `--admin`; when adding
 required checks, ensure they are compatible with this rule. See GitHub's

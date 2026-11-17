@@ -3,13 +3,17 @@ on:
   push:
     branches:
       - main
-    paths-ignore:
-      - '**/*.md'
-      - '**/*.txt'
+    paths:
+      - '**'
+      - '!**/*.md'
+      - '!**/*.txt'
+      - '**/requirements*.txt'
   pull_request:
-    paths-ignore:
-      - '**/*.md'
-      - '**/*.txt'
+    paths:
+      - '**'
+      - '!**/*.md'
+      - '!**/*.txt'
+      - '**/requirements*.txt'
   workflow_dispatch:
 permissions:
   contents: read

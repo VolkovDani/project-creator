@@ -24,6 +24,9 @@ import urllib.request
 
 import gpu
 
+UV_MIN_VERSION = (0, 12, 13)
+UV_MIN_VERSION_TEXT = '.'.join(map(str, UV_MIN_VERSION))
+
 MESSAGES = {
     'en': {
         'title': 'Install and run Project Creator on native Linux x86_64.',
@@ -126,7 +129,9 @@ ERROR_MESSAGES = {
     'NPU_SOCKET': ('NPU-сокет недоступен или его владелец не подтверждён. Проверьте logs/npu/runtime.log, права и инструкцию восстановления сокета.', 'The NPU socket is unavailable or its owner is unverified. Check logs/npu/runtime.log, permissions and the socket recovery guide.'),
     'PLATFORM': ('Эта конфигурация не поддерживается. Нужен нативный Linux x86_64 с Docker Engine; подробная матрица приведена в инструкции.', 'This configuration is unsupported. Native Linux x86_64 with Docker Engine is required; see the support matrix.'),
     'PROJECT_CHANGE': ('Имя Compose-проекта отличается от сохранённого. Используйте прежнее имя, чтобы сохранить доступ к существующим томам.', 'The Compose project name differs from saved state. Use the original name to preserve access to existing volumes.'),
-    'PYTHON': ('Для NPU нужен Python 3.12 с venv/pip либо установленный uv. Подготовьте его отдельно, не заменяя системный Python.', 'NPU requires Python 3.12 with venv/pip or an installed uv. Prepare it separately without replacing system Python.'),
+    'PYTHON': ('Для NPU нужны Python 3.12 и uv. Установите их отдельно, не заменяя системный Python.', 'NPU requires Python 3.12 and uv. Install them explicitly without replacing system Python.'),
+    'UV_MISSING': ('Для окружений NPU нужен установленный uv. Установите uv отдельно по docs/setup-cli.md и повторите setup.', 'NPU environments require uv. Install uv separately as documented in docs/setup-cli.en.md, then repeat setup.'),
+    'UV_VERSION': (f'Для окружений NPU нужен uv версии не ниже {UV_MIN_VERSION_TEXT}. Обновите uv по официальной инструкции и повторите setup.', f'NPU environments require uv {UV_MIN_VERSION_TEXT} or newer. Update uv using its official instructions, then repeat setup.'),
     'RESOURCES': ('Недостаточно RAM, swap или свободного диска. Освободите ресурсы по таблице в инструкции; измерения приведены в технической диагностике.', 'RAM, swap or free disk is insufficient. Free resources using the guide; measured values appear in technical diagnostics.'),
     'SOURCE_MANIFEST': ('Манифест исходных весов отсутствует или повреждён. Проверьте source.json и сохранённый revision перед повтором.', 'The source-weight manifest is missing or invalid. Inspect source.json and the saved revision before retrying.'),
     'UI': ('Интерфейс приложения недоступен. Проверьте Compose-сервисы, APP_PORT и логи frontend/backend.', 'The application UI is unavailable. Check Compose services, APP_PORT and frontend/backend logs.'),
@@ -135,8 +140,8 @@ ERROR_MESSAGES = {
     'MODEL_DOWNLOAD': ('Загрузка модели прервана или завершилась ошибкой. Проверьте сеть и повторите setup: готовые файлы кеша сохраняются.', 'The model download was interrupted or failed. Check the network and repeat setup; completed cache files are retained.'),
     'SOURCE_DOWNLOAD': ('Не удалось скачать или проверить исходные веса NPU. Проверьте сеть, source revision и контрольные суммы; повтор использует кеш.', 'Could not download or verify NPU source weights. Check the network, source revision and checksums; retry reuses the cache.'),
     'PYTHON_DOWNLOAD': ('Не удалось подготовить локальный Python 3.12. Проверьте uv, сеть и свободное место, затем повторите setup.', 'Could not prepare local Python 3.12. Check uv, network and free disk, then repeat setup.'),
-    'PYTHON_ENV': ('Не удалось подготовить изолированное Python-окружение. Проверьте venv/pip и права на .npu.', 'Could not prepare an isolated Python environment. Check venv/pip and .npu permissions.'),
-    'PYTHON_INSTALL': ('Установка закреплённых NPU-зависимостей завершилась ошибкой. Проверьте сеть, Python 3.12 и отчёт установки.', 'Pinned NPU dependency installation failed. Check network, Python 3.12 and the installation report.'),
+    'PYTHON_ENV': ('Не удалось подготовить изолированное Python-окружение через uv. Проверьте Python и права на .npu.', 'Could not prepare an isolated Python environment with uv. Check Python and permissions on .npu.'),
+    'PYTHON_INSTALL': ('Установка закреплённых NPU-зависимостей через uv завершилась ошибкой. Проверьте сеть, Python и logs/npu/*-install.json.', 'Pinned NPU dependency installation with uv failed. Check network, Python and logs/npu/*-install.json.'),
     'TOOLS_DOWNLOAD': ('Не удалось загрузить контейнер диагностического инструмента. Проверьте Docker registry и сеть, затем повторите setup.', 'Could not download the diagnostic tools container. Check Docker registry access and network, then repeat setup.'),
     'INTERRUPTED': ('Команда прервана. Повторите её: завершённые загрузки, экспорт и checkpoint сохранены.', 'The command was interrupted. Repeat it; completed downloads, exports and checkpoints are preserved.'),
     'LOCAL_STATE': ('Локальная операция завершилась ошибкой. Проверьте текущий шаг, права и приватное состояние установки.', 'A local operation failed. Check the current step, permissions and private installation state.'),
@@ -525,45 +530,102 @@ class Installer:
         self.config.save()
         self.config.update_env({'PROJECT_CREATOR_'+role+'_MODEL': model, 'PROJECT_CREATOR_'+role+'_DIGEST': actual})
 
-    def python_npu(self):
+    def uv_cli(self):
+        executable = shutil.which('uv')
+        if not executable:
+            raise Failure('UV_MISSING', 'Install uv >= '+UV_MIN_VERSION_TEXT+' using the official uv instructions; the CLI does not install uv.')
+        version = self.runner.run([executable, '--version'], capture=True, env=self.environment(), code='UV_VERSION').strip()
+        match = re.match(r'^uv\s+(\d+)\.(\d+)\.(\d+)', version)
+        if not match or tuple(map(int, match.groups())) < UV_MIN_VERSION:
+            raise Failure('UV_VERSION', f'Requires uv >= {UV_MIN_VERSION_TEXT}; found {version or "an unrecognized version"}.')
+        return executable, version
+
+    def python_npu(self, uv=None):
         executable = shutil.which('python3.12')
         if executable:
             return executable
         python = self.npu / 'python/cpython-3.12.14-linux-x86_64-gnu/bin/python3.12'
         if not python.exists():
-            if not shutil.which('uv'):
-                raise Failure('PYTHON', 'Install Python 3.12 with venv/pip or uv before NPU setup; do not replace the system Python.')
-            self.runner.run(['uv', 'python', 'install', '3.12.14', '--install-dir', self.npu/'python', '--no-bin', '--cache-dir', self.npu/'uv-cache'], timeout=1200, code='PYTHON_DOWNLOAD')
+            uv = uv or self.uv_cli()[0]
+            self.runner.run([uv, 'python', 'install', '3.12.14', '--install-dir', self.npu/'python', '--no-bin', '--cache-dir', self.npu/'uv-cache'], timeout=1200, code='PYTHON_DOWNLOAD')
         return str(python)
 
     def environments_npu(self, prepare_export=True):
         self.logs.mkdir(parents=True, exist_ok=True, mode=0o700)
-        python = self.python_npu()
         environments = [('runtime-env', 'requirements.txt')]
         if prepare_export:
             environments.insert(0, ('export-env', 'requirements-export.txt'))
+        plans = []
         for name, requirement in environments:
             folder = self.npu/name
             requirements = self.root/'runtime/npu'/requirement
             digest = hashlib.sha256(requirements.read_bytes()).hexdigest()
             marker = folder/'project-creator-requirements.sha256'
-            if not (folder/'bin/python').exists():
-                self.runner.run([python, '-m', 'venv', folder], code='PYTHON_ENV')
-            if not marker.exists() or marker.read_text().strip() != digest:
-                # Reuse uv-created environments, which do not include pip by default.
-                self.runner.run([folder/'bin/python', '-m', 'ensurepip', '--upgrade'], env=self.npu_environment(), code='PYTHON_ENV')
-                self.runner.run([folder/'bin/python', '-m', 'pip', 'install', '--report', self.logs/(name+'-install.json'), '-r', requirements], timeout=7200, env=self.npu_environment(), code='PYTHON_INSTALL')
-                self.runner.run([folder/'bin/opt_in_out', '--opt_out'], env=self.npu_environment(), code='PYTHON_ENV')
-                freeze = self.runner.run([folder/'bin/python', '-m', 'pip', 'freeze'], capture=True, code='PYTHON_ENV')
-                atomic(self.npu/(name+'-freeze.txt'), freeze)
-                atomic(marker, digest+'\n')
+            try:
+                marker_data = json.loads(marker.read_text()) if marker.exists() else None
+            except (OSError, ValueError):
+                marker_data = None
+            expected_marker = {'schema_version': 1, 'installer': 'uv', 'requirements_sha256': digest}
+            plans.append((name, folder, requirements, digest, marker, (folder/'bin/python').exists(), marker_data == expected_marker))
+
+        if any(not environment_exists or not marker_matches
+               for _, _, _, _, _, environment_exists, marker_matches in plans):
+            uv, uv_version = self.uv_cli()
+            python = self.python_npu(uv=uv) if any(not plan[5] for plan in plans) else None
+        else:
+            uv = uv_version = python = None
+
+        for name, folder, requirements, digest, marker, environment_exists, marker_matches in plans:
+            environment_python = folder/'bin/python'
+            if not environment_exists:
+                self.runner.run([uv, 'venv', '--no-project', '--no-config', '--allow-existing', '--python', python,
+                                 '--no-python-downloads', folder],
+                                env=self.npu_environment(), code='PYTHON_ENV')
+            expected_marker = {'schema_version': 1, 'installer': 'uv', 'requirements_sha256': digest}
+            if not environment_exists or not marker_matches:
+                report_path = self.logs/(name+'-install.json')
+                freeze_path = self.npu/(name+'-freeze.txt')
+                install_command = [uv, 'pip', 'install', '--python', environment_python,
+                                   '--no-python-downloads', '--no-config', '--cache-dir', self.npu/'uv-cache',
+                                   '--requirements', requirements]
+                report = {
+                    'schema_version': 1,
+                    'report_format': 'project-creator.uv-install-diagnostics.v1',
+                    'installer': 'uv',
+                    'uv_version': uv_version,
+                    'status': 'installing',
+                    'python': str(environment_python),
+                    'requirements_file': str(requirements.relative_to(self.root)),
+                    'requirements_sha256': digest,
+                    'install_command': list(map(str, install_command)),
+                    'started_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                }
+                atomic(report_path, json.dumps(report, indent=2)+'\n')
+                try:
+                    self.runner.run(install_command, timeout=7200, env=self.npu_environment(), code='PYTHON_INSTALL')
+                    self.runner.run([folder/'bin/opt_in_out', '--opt_out'], env=self.npu_environment(), code='PYTHON_ENV')
+                    freeze = self.runner.run([uv, 'pip', 'freeze', '--python', environment_python,
+                                              '--no-python-downloads', '--no-config'], capture=True, env=self.npu_environment(), code='PYTHON_ENV')
+                    atomic(freeze_path, freeze)
+                except Failure as error:
+                    report.update(status='failed', failure_code=error.code,
+                                  finished_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+                    atomic(report_path, json.dumps(report, indent=2)+'\n')
+                    raise
+                report.update(status='installed', freeze_file=str(freeze_path.relative_to(self.root)),
+                              freeze_sha256=hashlib.sha256(freeze.encode()).hexdigest(),
+                              installed_package_count=sum(bool(line.strip()) for line in freeze.splitlines()),
+                              finished_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+                atomic(report_path, json.dumps(report, indent=2)+'\n')
+                atomic(marker, json.dumps(expected_marker, sort_keys=True)+'\n')
         # Check userspace driver/runtime before downloading 15 GB of source weights.
         self.runner.run([self.npu/'runtime-env/bin/python', '-c', "import openvino as ov; c=ov.Core(); assert 'NPU' in c.available_devices, 'NPU unavailable'; print(c.get_property('NPU','FULL_DEVICE_NAME'))"], code='DEVICE_DRIVER', env=self.npu_environment())
 
     def npu_environment(self):
         result = self.environment()
         result.update(HF_HOME=str(self.npu/'huggingface'), HF_HUB_DISABLE_TELEMETRY='1', HF_HUB_DISABLE_IMPLICIT_TOKEN='1',
-                      TMPDIR=str(self.npu/'export-tmp'), HF_HUB_DISABLE_PROGRESS_BARS='0')
+                      TMPDIR=str(self.npu/'export-tmp'), HF_HUB_DISABLE_PROGRESS_BARS='0',
+                      UV_CACHE_DIR=str(self.npu/'uv-cache'), UV_NO_PROGRESS='1')
         (self.npu/'export-tmp').mkdir(parents=True, exist_ok=True)
         return result
 

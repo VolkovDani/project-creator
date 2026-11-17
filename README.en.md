@@ -4,7 +4,8 @@
 
 ## One-command setup
 
-On native Linux x86_64 with Python 3.12 and Docker Engine/Compose:
+On native Linux x86_64 with Python 3 for the CLI and Docker Engine/Compose
+(NPU additionally requires Python 3.12 and installed uv):
 
 ```bash
 ./project-creator setup --device cpu  # or arc, nvidia, amd, amd-vulkan, npu
@@ -17,7 +18,7 @@ On native Linux x86_64 with Python 3.12 and Docker Engine/Compose:
 selected, starts the application, and checks a real AI workflow. Existing
 `.env`, the Compose project name, data, and model weights are preserved. System
 prerequisites, diagnostics, resuming after interruption, and hardware limitations
-are described in the [CLI guide](docs/setup-cli.md). Driver installation is done
+are described in the [CLI guide](docs/setup-cli.en.md). Driver installation is done
 separately.
 
 A product knowledge system and business-requirement collision checker.
@@ -183,7 +184,7 @@ insufficient data and source reordering, passed on 2026-10-30. Full acceptance
 with CPU/GPU comparison remains a separate task. CLI `setup --device npu`, stop,
 repeat `up`, and `doctor` were checked while preserving the database and prepared
 weights. Commands, results, and the way back to Ollama are in the
-[NPU guide](docs/intel-npu.md).
+[NPU guide](docs/intel-npu.en.md).
 
 The `.npu/` directory is created separately by NPU setup commands, excluded from
 Git and Docker builds, and is not created automatically by ordinary
@@ -214,7 +215,8 @@ options are described in the [Ollama Docker documentation](https://docs.ollama.c
 
 ### GPU and integrated graphics: startup matrix
 
-The CLI supports native Linux x86_64, Python 3.12, and Docker Engine/Compose 2.20+.
+The CLI supports native Linux x86_64, Python 3, and Docker Engine/Compose 2.20+;
+the NPU profile additionally uses Python 3.12 and installed uv.
 A profile indicates configuration support; compatibility with specific hardware
 is confirmed by a separate real `setup`/`up` run.
 
@@ -225,7 +227,7 @@ is confirmed by a separate real `setup`/`up` run.
 | `nvidia` | Supported NVIDIA GPU; Ollama 0.40.16/CUDA | NVIDIA driver and Container Toolkit, `nvidia-smi`; hardware check of the new CLI integration not yet completed. |
 | `amd` (ROCm) | Only AMD dGPU/iGPU in the Ollama 0.40.16 matrix; `ollama/ollama:0.40.16-rocm` | ROCm 7, `rocminfo`, `/dev/kfd` and `/dev/dri`. Strict GFX target check; hardware acceptance not performed. |
 | `amd-vulkan` (RADV) | AMD dGPU/iGPU with working Vulkan; Ollama 0.40.16 + Mesa RADV | `amdgpu`, available `/dev/dri/renderD*`, and Vulkan support in the driver. ROCm and `/dev/kfd` are not required. Broader, but **not universal**; hardware acceptance not performed. |
-| `npu` | Intel NPU; OpenVINO GenAI, embeddings on CPU | Fixed hardware examples pass on Core Ultra 7 268V; results and limitations are in the [NPU guide](docs/intel-npu.md). |
+| `npu` | Intel NPU; OpenVINO GenAI, embeddings on CPU | Fixed hardware examples pass on Core Ultra 7 268V; results and limitations are in the [NPU guide](docs/intel-npu.en.md). |
 
 **Operation on every AMD GPU or Ryzen APU cannot be guaranteed.** For ROCm,
 check the model, OS, and driver in the [AMD matrix](https://rocm.docs.amd.com/en/latest/compatibility/compatibility-matrix.html)
@@ -254,7 +256,7 @@ embeddings and the generator; zero offload is an error instead of a successful
 CPU fallback. The displayed GPU memory bytes allow partial offload and do not
 prove full execution on the GPU. `doctor` does not run inference and reports that
 no measurement is available for an unloaded model. More about selection, manual
-startup, and hardware checks is in the [CLI guide](docs/setup-cli.md#gpu-и-выбор-адаптера).
+startup, and hardware checks is in the [CLI guide](docs/setup-cli.en.md#gpu-and-adapter-selection).
 
 ### Stop, update, and back up
 
@@ -937,7 +939,7 @@ Analysis starts only by clicking the button on a project card. Indexing is neede
 for semantic search and selecting related pairs; it is not required for the
 explicit “All pairs” mode. Below is Ollama generator setup for host processes; in
 full Compose, set the same MODEL/DIGEST values in `.env` and recreate the backend.
-For OpenVINO NPU, use the [separate guide](docs/intel-npu.md).
+For OpenVINO NPU, use the [separate guide](docs/intel-npu.en.md).
 
 ```bash
 ollama pull qwen2.5:7b
@@ -1224,7 +1226,7 @@ with its pinned weights and profile checked again. Recovery failure does not tri
 automatic retries. `NPU_RECOVERY_FAILED`, `NPU_WORKER_EXIT`, `NPU_UNAVAILABLE`,
 `TIMEOUT`, `PROFILE_CHANGED`, and `INVALID_OUTPUT` are distinct from user cancellation.
 Timeout, device failure, or changed files require operator recovery following the
-[NPU guide](docs/intel-npu.md); there is no automatic cloud fallback. Technical
+[NPU guide](docs/intel-npu.en.md); there is no automatic cloud fallback. Technical
 events without source requirements or responses are saved in `logs/npu/`.
 
 Deterministic replacement acceptance (a separate test database is required):

@@ -29,6 +29,12 @@ so do not infer that this configuration provides dependency-graph alerts or
 security-update PRs for `bun.lock` dependencies. An npm advisory may concern a
 package also used through Bun, but the advisory's existence alone does not add
 that dependency to GitHub's graph or establish alert coverage for Bun installs.
+After #125 puts `bun.lock` on `develop`, maintainers can run `bun audit` from
+`frontend/` as a separate manual check. Bun reads the lockfile and sends package
+data to the npm advisory endpoint; see the [official Bun audit documentation](https://bun.sh/docs/pm/cli/audit).
+This activation PR does not add `bun audit` to CI, and the command is not a
+guarantee of complete vulnerability coverage. Until an automated check is
+separately implemented and verified, run it manually when reviewing Bun updates.
 
 The Python updater supports `.txt` dependency files. The Docker updater recognizes
 Dockerfile names containing `dockerfile` (including the repository's

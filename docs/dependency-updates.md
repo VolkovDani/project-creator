@@ -14,7 +14,7 @@ prepared.
 | Ecosystem | Configured locations | Tracked files |
 | --- | --- | --- |
 | Go modules (`gomod`) | `/` | `go.mod`, `go.sum` |
-| npm | `/frontend` | `package.json`, `package-lock.json` |
+| Bun | `/frontend` | `package.json`, `bun.lock` |
 | pip | `/runtime/npu` | `requirements.txt`, `requirements-export.txt` |
 | Docker | `/`, `/frontend` | Root `Dockerfile`, root `Dockerfile.*`, and `frontend/Dockerfile` |
 | Docker Compose | `/` | Root `compose*.yml` files |
@@ -27,6 +27,56 @@ case-insensitive `dockerfile|containerfile` filename matcher. This is intended
 coverage, not a guarantee that every pin will be updated. In particular, the
 export requirements include a direct wheel URL, local image tags in Compose are
 excluded, and Docker dependency parsing has limits described below.
+
+## Bun package manager assessment
+
+The frontend pins Bun 1.4.4 in `frontend/package.json` and commits
+`frontend/bun.lock`. GitHub documents [Dependabot's `bun` ecosystem](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories)
+for Bun 1.1.39 and newer. The [dependency graph ecosystem list](https://docs.github.com/en/code-security/reference/supply-chain-security/dependency-graph-supported-package-ecosystems)
+does not currently list Bun. The name/version set migrated from npm is unchanged: all 317 resolved
+package-name/version entries match, including the
+`graphql-config` → `minimatch@11.0.1` override. This comparison does not prove
+identical peer or hoisting topology; frontend tests, type checking, builds, and
+container smoke checks validate the resulting installation. On 2026-11-17,
+`bun audit` reported no advisories among the 295 packages in the Bun lockfile.
+
+Dependency-graph alerts therefore cannot be relied on to scan `bun.lock`. CI and
+release validation run [`bun audit`](https://bun.sh/docs/pm/cli/audit) against the
+locked graph, and a weekly/manual audit workflow checks the default branch. Bun
+sends the package list to the npm advisory endpoint; a failed or unreadable
+response fails the audit. This check does not replace review of upstream notices.
+
+Bun is [MIT-licensed](https://github.com/oven-sh/bun/blob/main/docs/project/license.mdx);
+its official licensing page also lists LGPL-2 JavaScriptCore/WebKit components
+and the licenses of bundled libraries. Bun is used for frontend
+dependency management and the Next.js build stage only. The production image and
+server remain on Node.js, so the Bun executable and its libraries are not included
+in the shipped frontend runtime image. The production-runtime choice follows
+[Next.js deployment guidance](https://nextjs.org/docs/app/guides/deploying-to-platforms),
+which specifies a Node.js server.
+
+Bun 1.4.4 was the [latest release](https://github.com/oven-sh/bun/releases/tag/bun-v1.4.4)
+on the migration date and its GitHub tag points to a verified, signed release
+commit. It fixes the [high-severity HTTP/3 QPACK header amplification issue](https://github.com/oven-sh/bun/security/advisories/GHSA-cf8x-9m69-3gg3)
+affecting Bun 1.4.3 and earlier. The platform-specific
+[npm package](https://www.npmjs.com/package/@oven/bun-linux-x64/v/1.4.4) is integrity-checked by npm and its `os`/`cpu` fields identify Linux
+x64; its human-readable description incorrectly says macOS arm64. The installed
+binary itself reported Linux x64 and revision `1.4.4+38afee6c8`, confirming that
+the mismatch is limited to package description metadata.
+
+`trustedDependencies` is explicitly empty, so Bun does not run third-party
+dependency installation scripts. The current locked frontend dependencies do
+not need those scripts; frontend tests, type checking, builds, and container
+smoke checks are used to detect a future dependency that changes this requirement.
+GitHub Actions caches only Bun's registry package cache under a key derived from
+`frontend/bun.lock`; the repository cache quota is unchanged.
+
+On local Linux x64, with Node 24.21.0, Bun 1.4.4, and Next.js 16.4.6, three clean
+builds had medians of 4.31 seconds with Node and 3.88 seconds with Bun. Three
+cached builds had medians of 1.98 and 1.51 seconds, respectively. Each build
+succeeded. These are local measurements rather than a guarantee across hardware.
+The change runs only `next build` under Bun; unit tests and the production server
+continue to use Node.
 
 ## Schedule and pull request volume
 

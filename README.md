@@ -666,6 +666,29 @@ MVP используйте `v0.1.0`. Workflow повторяет проверк�
 [на английском](docs/release-notes-v0.1.0.md). Фактические проверки и оставшиеся
 условия перечислены [в отчёте от 17 ноября 2026 года](docs/release-verification-2026-11-17.md).
 
+## Менеджер пакетов фронтенда и сборка/runtime
+
+Менеджер пакетов фронтенда — Bun 1.4.4, версия закреплена в
+`frontend/package.json`; зафиксированный граф зависимостей хранится в
+`frontend/bun.lock`. Из каталога `frontend/` устанавливай зависимости командой
+`bun install --frozen-lockfile`, скрипты запускай через `bun run <script>`.
+Список `trustedDependencies` намеренно пуст: install-скрипты зависимостей
+отключены, закреплённому графу фронтенда они не нужны. `bun audit` проверяет
+зависимости из `bun.lock` по advisory npm.
+
+Production-сборка Next.js выполняется Bun: в повторных локальных измерениях она
+была быстрее, чем сборка на Node при одинаковых условиях. На Linux x64 с Node
+24.21.0, Bun 1.4.4 и Next.js 16.4.6 медиана трёх чистых сборок составила 4.31 с
+на Node и 3.88 с на Bun; трёх сборок с кешем — 1.98 с и 1.51 с соответственно.
+Это измерения на одной локальной системе, а не гарантия производительности.
+Node.js 24 остаётся для unit-тестов и production-сервера. Production-образ
+использует Node согласно [руководству Next.js по развёртыванию](https://nextjs.org/docs/app/guides/deploying-to-platforms).
+Для запуска всего стека Docker Compose устанавливает Bun в образ сборки; на
+хосте Bun не нужен.
+
+[Руководство по обновлению зависимостей](docs/dependency-updates.ru.md) содержит
+оценку пакетного менеджера Bun, происхождения, безопасности и замеры.
+
 ## Git hooks и форматирование
 
 Hook хранится в отслеживаемой папке `.githooks/pre-commit`, а его реализация —
@@ -675,8 +698,8 @@ Hook хранится в отслеживаемой папке `.githooks/pre-co
 ```bash
 git clone https://github.com/VolkovDani/project-creator.git
 cd project-creator/frontend
-npm ci
-npm run hooks:install
+bun install --frozen-lockfile
+bun run hooks:install
 ```
 
 Для уже существующего клона достаточно последних двух команд из `frontend/`.
@@ -691,7 +714,7 @@ npm run hooks:install
 ```bash
 cd frontend
 ./node_modules/.bin/biome check --write 'app/projects/[id]/IndexProgress.tsx'
-npm run format:check
+bun run format:check
 ```
 
 Pre-commit автоматически обрабатывает подготовленные `.ts`, `.tsx`, `.json`,
@@ -711,10 +734,10 @@ Hook не следует по симлинкам поддерживаемых ф
 
 Hook не заменяет `typecheck`, тесты, сборку или CI. Изменения Go и документации
 без поддерживаемых frontend-файлов не требуют установленного Biome.
-Тесты hooks: после `npm ci` в `frontend/` выполните из корня
+Тесты hooks: после `bun install --frozen-lockfile` в `frontend/` выполните из корня
 `node --test scripts/git-hooks.test.mjs`.
-В исходном checkout `npm test` также запускает эту интеграционную проверку после
-установки зависимостей. Ранний запуск Node-тестов в CI без `npm ci` проверяет
+В исходном checkout `bun run test` также запускает эту интеграционную проверку после
+установки зависимостей. Ранний запуск Node-тестов в CI без `bun install --frozen-lockfile` проверяет
 установщик, а сценарии с настоящим Biome выполняются позже через frontend-тесты.
 В Docker-сборке приложения Git tooling отсутствует, поэтому эта проверка hooks
 пропускается; остальные frontend-тесты выполняются как обычно.
@@ -726,9 +749,9 @@ Hook не заменяет `typecheck`, тесты, сборку или CI. Из
 
 ```bash
 cd frontend
-npm ci
+bun install --frozen-lockfile
 export PROJECT_CREATOR_TOKEN='тот-же-секрет-что-у-сервера'
-npm run dev -- -H 127.0.0.1
+bun run dev -- -H 127.0.0.1
 ```
 
 Откройте `http://127.0.0.1:3000`. Сервер Next.js пересылает GraphQL-запросы
@@ -744,16 +767,16 @@ npm run dev -- -H 127.0.0.1
 
 ```bash
 cd frontend
-npm run codegen
-npm test
-npm run typecheck
-npm run build
-npx playwright install chromium
-npm run e2e
+bun run codegen
+bun run test
+bun run typecheck
+bun run build
+bunx playwright install chromium
+bun run e2e
 ```
 
 Для E2E создайте отдельную пустую одноразовую базу с pgvector и задайте
-`E2E_DATABASE_URL` перед `npm run e2e`. Playwright запускает отдельные Go и
+`E2E_DATABASE_URL` перед `bun run e2e`. Playwright запускает отдельные Go и
 Next.js серверы. Тесты создают данные: для повторного чистого прогона пересоздайте
 именно E2E-базу; никогда не указывайте URL рабочей базы. Пример подготовки:
 
@@ -761,7 +784,7 @@ Next.js серверы. Тесты создают данные: для повт�
 createdb -h 127.0.0.1 -U project_creator project_creator_e2e
 export E2E_DATABASE_URL='postgresql://project_creator:ваш-пароль@127.0.0.1:5432/project_creator_e2e?sslmode=disable'
 cd frontend
-npm run e2e
+bun run e2e
 ```
 
 ## Бизнес-требования
@@ -1116,9 +1139,9 @@ go test ./internal/analysis -run TestRealAnalysisSmoke -v -count=1
 
 ```sh
 cd frontend
-npm run build
-npx playwright install chromium
-npm run test:ux
+bun run build
+bunx playwright install chromium
+bun run test:ux
 ```
 
 Сценарии проверяют desktop 1920×1080 и узкий экран 390×844, медленные запросы,
@@ -1222,7 +1245,7 @@ go test ./internal/analysis -run 'TestReplacement|TestCancelWaiting' -count=1
 go test ./internal/api -run TestGraphQLReplacement -count=1
 python3 -m unittest discover -s runtime/npu -v
 cd frontend
-E2E_CHROMIUM_PATH=/path/to/chrome npm run test:ux -- --grep 'replacing an analysis'
+E2E_CHROMIUM_PATH=/path/to/chrome bun run test:ux -- --grep 'replacing an analysis'
 ```
 
 Эти проверки используют заглушки и не доказывают аппаратную готовность NPU.

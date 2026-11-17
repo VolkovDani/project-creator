@@ -681,6 +681,28 @@ and [in English](docs/release-acceptance.md); release notes are available
 [in English](docs/release-notes-v0.1.0.md). Actual checks and remaining conditions
 are listed in the [report dated November 17, 2026](docs/release-verification-2026-11-17.md).
 
+## Frontend package manager and build/runtime
+
+The frontend package manager is Bun 1.4.4, pinned in `frontend/package.json`;
+the resolved graph is recorded in `frontend/bun.lock`. From `frontend/`, install
+with `bun install --frozen-lockfile` and run scripts with `bun run <script>`.
+`trustedDependencies` is deliberately empty, so dependency install scripts are
+disabled; the pinned frontend graph does not require them. `bun audit` checks the
+dependencies in `bun.lock` for npm advisories.
+
+The Next.js production build runs with Bun because repeated local builds were
+faster than Node under matched conditions. On Linux x64 with Node 24.21.0, Bun
+1.4.4, and Next.js 16.4.6, three clean builds had median times of 4.31 seconds
+with Node and 3.88 seconds with Bun; three cached builds had medians of 1.98 and
+1.51 seconds. These are local measurements, not a performance guarantee. Node.js
+24 remains in use for unit tests and the production server. The production image
+uses Node, following [Next.js deployment guidance](https://nextjs.org/docs/app/guides/deploying-to-platforms).
+For Docker Compose, Bun is installed in the build image; the host does not need
+Bun to start the full stack.
+
+The [dependency update guide](docs/dependency-updates.md) records the Bun package
+manager, provenance, security, and benchmark assessment.
+
 ## Git hooks and formatting
 
 The hook is stored in the tracked `.githooks/pre-commit` directory, and its
@@ -691,8 +713,8 @@ Node.js 24:
 ```bash
 git clone https://github.com/VolkovDani/project-creator.git
 cd project-creator/frontend
-npm ci
-npm run hooks:install
+bun install --frozen-lockfile
+bun run hooks:install
 ```
 
 For an existing clone, the last two commands from `frontend/` are sufficient.
@@ -707,7 +729,7 @@ Before every commit, format changed files with the pinned Biome version:
 ```bash
 cd frontend
 ./node_modules/.bin/biome check --write 'app/projects/[id]/IndexProgress.tsx'
-npm run format:check
+bun run format:check
 ```
 
 Pre-commit automatically handles staged `.ts`, `.tsx`, `.json`, and `.jsonc` files
@@ -727,9 +749,9 @@ refuses to process them.
 
 The hook does not replace `typecheck`, tests, build, or CI. Go and documentation
 changes with no supported frontend files do not require Biome. To test hooks, after
-`npm ci` in `frontend/`, run `node --test scripts/git-hooks.test.mjs` from the
-repository root. In a source checkout, `npm test` also runs this integration check
-after dependencies are installed. An early Node test in CI before `npm ci` checks
+`bun install --frozen-lockfile` in `frontend/`, run `node --test scripts/git-hooks.test.mjs` from the
+repository root. In a source checkout, `bun run test` also runs this integration check
+after dependencies are installed. An early Node test in CI before `bun install --frozen-lockfile` checks
 the installer; scenarios using real Biome run later in frontend tests. The
 application Docker build does not include Git tooling, so hook tests are skipped
 there; other frontend tests run as usual.
@@ -742,9 +764,9 @@ above. In another terminal:
 
 ```bash
 cd frontend
-npm ci
+bun install --frozen-lockfile
 export PROJECT_CREATOR_TOKEN='the-same-secret-as-the-server'
-npm run dev -- -H 127.0.0.1
+bun run dev -- -H 127.0.0.1
 ```
 
 Open `http://127.0.0.1:3000`. The Next.js server forwards GraphQL requests to
@@ -760,16 +782,16 @@ process are described in the [codegen dependency assessment](docs/codegen-depend
 
 ```bash
 cd frontend
-npm run codegen
-npm test
-npm run typecheck
-npm run build
-npx playwright install chromium
-npm run e2e
+bun run codegen
+bun run test
+bun run typecheck
+bun run build
+bunx playwright install chromium
+bun run e2e
 ```
 
 For E2E, create a separate empty temporary database with pgvector and set
-`E2E_DATABASE_URL` before `npm run e2e`. Playwright starts separate Go and Next.js
+`E2E_DATABASE_URL` before `bun run e2e`. Playwright starts separate Go and Next.js
 servers. Tests create data: for another clean run, recreate only the E2E database;
 never point it at the working database. Example setup:
 
@@ -777,7 +799,7 @@ never point it at the working database. Example setup:
 createdb -h 127.0.0.1 -U project_creator project_creator_e2e
 export E2E_DATABASE_URL='postgresql://project_creator:your-password@127.0.0.1:5432/project_creator_e2e?sslmode=disable'
 cd frontend
-npm run e2e
+bun run e2e
 ```
 
 ## Business requirements
@@ -1131,9 +1153,9 @@ Deterministic browser regressions without PostgreSQL or models:
 
 ```sh
 cd frontend
-npm run build
-npx playwright install chromium
-npm run test:ux
+bun run build
+bunx playwright install chromium
+bun run test:ux
 ```
 
 Scenarios check desktop 1920×1080 and narrow 390×844 screens, slow requests,
@@ -1238,7 +1260,7 @@ go test ./internal/analysis -run 'TestReplacement|TestCancelWaiting' -count=1
 go test ./internal/api -run TestGraphQLReplacement -count=1
 python3 -m unittest discover -s runtime/npu -v
 cd frontend
-E2E_CHROMIUM_PATH=/path/to/chrome npm run test:ux -- --grep 'replacing an analysis'
+E2E_CHROMIUM_PATH=/path/to/chrome bun run test:ux -- --grep 'replacing an analysis'
 ```
 
 These checks use stubs and do not prove NPU hardware readiness. Hardware testing

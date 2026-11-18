@@ -1,6 +1,32 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+
+function closingIssues(body = '') {
+  const issues = new Set();
+  let fence = '';
+  let comment = false;
+  for (const line of (body ?? '').split(/\r?\n/)) {
+    if (fence) {
+      const closing = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
+      if (closing?.[1].startsWith(fence)) fence = '';
+      continue;
+    }
+    if (comment || line.includes('<!--')) {
+      comment = line.lastIndexOf('<!--') > line.lastIndexOf('-->') ||
+        (comment && !line.includes('-->'));
+      continue;
+    }
+    const opening = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (opening) {
+      fence = opening[1];
+      continue;
+    }
+    const directive = /^ {0,3}(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?):?[ \t]+#([1-9]\d*)\.?[ \t]*$/i.exec(line);
+    if (directive) issues.add(directive[1]);
+  }
+  return [...issues];
+}
 
 // GitHub's needs gate is repeated here so a manual job rerun fails closed too.
 export async function autoMerge(context, request) {
@@ -33,7 +59,7 @@ export async function autoMerge(context, request) {
   // The API rejects a head change racing this request; never retry another SHA.
   const result = await request(`${root}/pulls/${number}/merge`, { sha: head, merge_method: 'merge' });
   if (result.merged !== true) throw new Error('GitHub did not confirm the merge.');
-  return { merged: true, sha: result.sha };
+  return { merged: true, sha: result.sha, issues: closingIssues(pr.body) };
 }
 
 function githubRequest(path, body) {
@@ -57,6 +83,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       event: process.env.GITHUB_EVENT_NAME,
       needs: JSON.parse(process.env.NEEDS_JSON),
     }, githubRequest);
+    if (result.merged) appendFileSync(process.env.GITHUB_OUTPUT, `issues=${result.issues.join(' ')}\n`);
     console.log(result.merged ? `Merged: ${result.sha}` : `Auto-merge skipped: ${result.reason}`);
   } catch (error) {
     console.error(`Auto-merge failed: ${error.message}`);

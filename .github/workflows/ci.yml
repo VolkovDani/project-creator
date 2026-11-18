@@ -209,6 +209,8 @@ jobs:
 
 
   automerge:
+    outputs:
+      issues: ${{ steps.merge.outputs.issues }}
     needs: [checks, containers]
     if: >-
       github.event_name == 'pull_request' &&
@@ -228,7 +230,30 @@ jobs:
         with:
           node-version: '26.13.1'
       - name: Merge an explicitly labeled PR at the tested SHA
+        id: merge
         env:
           GH_TOKEN: ${{ github.token }}
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: node scripts/ci-automerge.mjs
+
+  close-issues:
+    needs: automerge
+    if: needs.automerge.outputs.issues != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      issues: write
+    steps:
+      - name: Close designated issues as completed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBERS: ${{ needs.automerge.outputs.issues }}
+        shell: bash
+        run: |
+          for number in $ISSUE_NUMBERS; do
+            path="repos/$GITHUB_REPOSITORY/issues/$number"
+            state=$(gh api "$path" --jq 'if .pull_request then "pull_request" else .state end')
+            if [[ "$state" == open ]]; then
+              gh api --method PATCH "$path" -f state=closed -f state_reason=completed --silent
+            fi
+          done

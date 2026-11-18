@@ -13,8 +13,7 @@ import (
 // SummaryLanguagePolicy limits model summaries to the configured language alphabets.
 // Alphabet checks are intentionally approximate and do not identify a language.
 type SummaryLanguagePolicy struct {
-	codes   []string
-	allowed map[string]bool
+	codes []string
 }
 
 var summaryLanguageCatalog = map[string]func(rune) bool{
@@ -59,13 +58,11 @@ func NewSummaryLanguagePolicy(csv string) (SummaryLanguagePolicy, error) {
 		seen[code] = true
 	}
 	canonical := make([]string, 0, len(seen))
-	allowed := make(map[string]bool, len(seen))
 	for code := range seen {
 		canonical = append(canonical, code)
-		allowed[code] = true
 	}
 	sort.Strings(canonical)
-	return SummaryLanguagePolicy{codes: canonical, allowed: allowed}, nil
+	return SummaryLanguagePolicy{codes: canonical}, nil
 }
 
 func (p SummaryLanguagePolicy) Codes() []string { return append([]string(nil), p.codes...) }
@@ -87,7 +84,7 @@ func (p SummaryLanguagePolicy) validAlphabet(text string) bool {
 	for _, r := range text {
 		if unicode.IsLetter(r) {
 			ok := false
-			for code := range p.allowed {
+			for _, code := range p.codes {
 				if summaryLanguageCatalog[code](r) {
 					ok = true
 					break
@@ -126,6 +123,26 @@ func (p SummaryLanguagePolicy) validAlphabet(text string) bool {
 // Technical names are single ASCII word tokens from an otherwise permitted-language
 // source. Internal dots/dashes are part of a name; sentence punctuation is not.
 var summaryWord = regexp.MustCompile(`[\p{L}\p{N}_]+(?:[-.][\p{L}\p{N}_]+)*`)
+
+// forSource narrows the configured alphabets to those that can represent the
+// source prose, including isolated technical names. Overlapping alphabets may
+// yield several candidates. Mixed or unsupported prose keeps the configured set.
+func (p SummaryLanguagePolicy) forSource(source string) SummaryLanguagePolicy {
+	if len(p.codes) <= 1 || !hasSummaryLetter(source) {
+		return p
+	}
+	var matching []string
+	for _, code := range p.codes {
+		single := SummaryLanguagePolicy{codes: []string{code}}
+		if single.ValidForSource(source, source) {
+			matching = append(matching, code)
+		}
+	}
+	if len(matching) == 0 || len(matching) == len(p.codes) {
+		return p
+	}
+	return SummaryLanguagePolicy{codes: matching}
+}
 
 // ValidForSource preserves isolated source names without enabling foreign prose.
 // This is deliberately a token heuristic, not product-name or language detection.

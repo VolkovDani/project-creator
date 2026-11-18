@@ -471,6 +471,12 @@ letter from an allowed alphabet. Alphabet checks cannot distinguish languages
 that share letters, so the model instructions also specify the language constraint.
 The new rule does not restrict original requirements.
 
+For each requirement, the server narrows the configured alphabets to those that
+cover its source text, allowing isolated ASCII identifiers. With `ru,en`, an
+English translation of Russian prose therefore triggers one correction attempt.
+If several alphabets match, they remain eligible. When none covers the source
+(e.g. mixed-language prose), the configured list applies.
+
 A restricted-language summary may preserve isolated ASCII technical identifiers
 from the same source (for example, `Excel`, `API`, or `PDF` in a Russian
 requirement). This exception does not enable English prose: unrelated names and

@@ -153,7 +153,7 @@ The socket has mode 660 and the directory mode 750, with the group of the user w
 
 ## 4. Connect the application
 
-Use the existing `.env`, Compose project name, and volumes as described in the root README. BGE-M3 embeddings must be explicitly downloaded and pinned by digest according to the README first-run instructions (CPU) or Intel Arc. NPU generation does not require downloading Qwen through Ollama: it uses the IR weights exported above. Do not change `PROJECT_CREATOR_GENERATOR_DIGEST` for NPU; that Ollama digest is ignored by the selected NPU adapter.
+Use the existing `.env`, Compose project name, and volumes as described in the [Compose guide](compose.md). BGE-M3 embeddings must be explicitly downloaded and pinned by digest according to the [first-run instructions](compose.md#first-run-and-model-download) (CPU) or Intel Arc. NPU generation does not require downloading Qwen through Ollama: it uses the IR weights exported above. Do not change `PROJECT_CREATOR_GENERATOR_DIGEST` for NPU; that Ollama digest is ignored by the selected NPU adapter.
 
 ```bash
 export PROJECT_CREATOR_NPU_PROFILE="$(cat .npu/profile.sha256)"
@@ -253,4 +253,4 @@ go vet ./...
 
 From detecting client disconnect to `worker_stopped` took 0.349 s; from cancellation to the next result took 14.71 s, including recovery and generation. The repeated generation itself took 9.508 s. This is one scenario on an otherwise idle runtime, not a load benchmark or CPU/GPU comparison. It does not confirm verdict quality on arbitrary requirements. The separate runtime was stopped and its temporary socket removed; weights and shared compiled cache were preserved.
 
-Local technical artifacts: `logs/npu/issue45-hardware-acceptance.json`, `logs/npu/issue45-cancel-then-generate.log`, `logs/npu/issue45-hardware-runtime.log`, and lifecycle journals. Logs are excluded from Git and Docker build context. The reproducible command is in the README section on replacing an analysis.
+Local technical artifacts: `logs/npu/issue45-hardware-acceptance.json`, `logs/npu/issue45-cancel-then-generate.log`, `logs/npu/issue45-hardware-runtime.log`, and lifecycle journals. Logs are excluded from Git and Docker build context. The reproducible command is in the [analysis replacement guide](requirement-analysis.md#replacing-parameters-of-a-running-analysis).

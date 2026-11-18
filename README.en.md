@@ -20,6 +20,10 @@ selected, starts the application, and checks a real AI workflow. Existing
 prerequisites, diagnostics, resuming after interruption, and hardware limitations
 are described in the [CLI guide](docs/setup-cli.en.md). Driver installation is done
 separately.
+For local model setup, inference verification, and diagnostics, see the
+[AI installation guide](docs/ai-installation.md). The proposed, unimplemented
+MCP integration for external assistants is described in the
+[MCP proposal](docs/mcp-integration.md).
 
 A product knowledge system and business-requirement collision checker.
 See [GOAL.md](GOAL.md) for project goals and [ARCHITECTURE.md](ARCHITECTURE.md)

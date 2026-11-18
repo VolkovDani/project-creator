@@ -18,6 +18,17 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(result["confusion"]["a"]["abstained"], 1)
         self.assertAlmostEqual(result["classes"]["b"]["f1"], 2/3)
 
+    def test_scheme_comparison_joins_by_id_and_rejects_missing_predictions(self):
+        rows = [{"id": "a", "semantic": "feature", "representation": "story"},
+                {"id": "b", "semantic": "rule", "representation": "statement"}]
+        contract = {"semantic": ["feature", "rule"], "representation": ["story", "statement"]}
+        result = evaluator.evaluate(rows, {"reverse": rows[::-1]}, contract)
+        self.assertEqual(result["reverse"]["semantic"]["accuracy"], 1)
+        with self.assertRaises(ValueError):
+            evaluator.evaluate(rows, {"missing": rows[:1]}, contract)
+        with self.assertRaises(ValueError):
+            evaluator.evaluate(rows, {"duplicate": [rows[0], rows[0]]}, contract)
+
     def test_bad_predictions_rejected(self):
         with self.assertRaises(ValueError):
             evaluator.score_axis(["a"], ["made_up"], ["a"])

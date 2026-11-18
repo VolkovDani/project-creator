@@ -16,7 +16,14 @@ export function useProject() {
   if (!context) throw Error('Project context unavailable');
   return context;
 }
-export const sections = ['overview', 'requirements', 'indexing', 'search', 'analysis'] as const;
+export const sections = [
+  'overview',
+  'requirements',
+  'indexing',
+  'search',
+  'analysis',
+  'glossary',
+] as const;
 export default function ProjectShell({ children }: { children: React.ReactNode }) {
   const { id } = useParams<{ id: string }>();
   return (

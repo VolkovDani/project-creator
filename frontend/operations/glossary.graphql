@@ -1,0 +1,20 @@
+fragment GlossaryFields on GlossaryTerm {
+  id name definition context variants { text kind } version sourceId sourceVersion createdAt updatedAt
+}
+query GlossaryList($projectId: ID!, $search: String!, $limit: Int!, $offset: Int!) {
+  glossaryTerms(projectId: $projectId, search: $search, limit: $limit, offset: $offset) { ...GlossaryFields }
+}
+query GlossaryCandidates($projectId: ID!, $limit: Int!, $offset: Int!) {
+  glossaryCandidates(projectId: $projectId, limit: $limit, offset: $offset) { hasMore items { name abbreviation sourceId sourceVersion } }
+}
+query RequirementGlossary($projectId: ID!, $requirementId: ID!, $version: Int!) {
+  requirementGlossary(projectId: $projectId, requirementId: $requirementId, version: $version) {
+    version matches { start end text terms { ...GlossaryFields } }
+  }
+}
+mutation SaveTerm($input: GlossaryInput!) {
+  saveGlossaryTerm(input: $input) { term { ...GlossaryFields } fieldErrors { path code messageKey params { key value } } }
+}
+mutation DeleteTerm($projectId: ID!, $id: ID!, $version: Int!) {
+  deleteGlossaryTerm(projectId: $projectId, id: $id, version: $version) { deleted }
+}

@@ -315,6 +315,13 @@ connection to `develop` remain in history. The script checks the base again and
 rejects PRs targeting `main`. This is a separate ordinary CI job, without paid
 built-in GitHub auto-merge, a PAT, or additional dependencies.
 
+After GitHub confirms the merge, the `close-issues` job closes the designated
+issues as completed. Put `Closes #123` on its own line in the PR description
+for each issue in this repository. The job also accepts the GitHub closing
+keywords `Fixes` and `Resolves` and their verb forms. For an issue already on
+the Development Roadmap, its **Item closed** workflow sets the card to **Done**.
+If the close step fails, rerun the failed job to finish processing open issues.
+
 The repository setting **Automatically delete head branches** is enabled. GitHub
 deletes the remote head branch after a successful PR merge (including automerge).
 Closing a PR without merging does not trigger this cleanup. Local branches remain

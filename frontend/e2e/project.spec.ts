@@ -144,3 +144,51 @@ test('two tabs receive project and requirement invalidations without reload', as
   await expect(watcher.getByText('Требований пока нет')).toBeVisible({ timeout: 15000 });
   await watcher.close();
 });
+
+test('an abbreviation candidate becomes a glossary term only after confirmation', async ({
+  page,
+}) => {
+  await page.goto('/projects/new');
+  await page.getByLabel('Название').fill('Глоссарий');
+  await page.getByLabel('Цель').fill('Проверить сокращения');
+  await page.getByRole('button', { name: 'Создать проект' }).click();
+  await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
+  await page
+    .getByLabel('Текст требования')
+    .fill('Генеральный подрядчик (ГП), также Генподрядчик, проверяет документы.');
+  await page.getByRole('button', { name: 'Добавить требование' }).click();
+  await revealOriginal(page);
+  await page.getByRole('link', { name: 'Словарь проекта', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Генеральный подрядчик (ГП)', exact: true }).click();
+  await expect(page.getByLabel('Название понятия')).toHaveValue('Генеральный подрядчик');
+  await page.getByLabel('Определение', { exact: true }).fill('Исполнитель работ');
+  await page.getByRole('button', { name: 'Подтвердить и сохранить' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Генеральный подрядчик', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
+  await revealOriginal(page);
+  await page.getByRole('button', { name: 'ГП', exact: true }).click();
+  await expect(page.getByText('Исполнитель работ', { exact: true })).toBeVisible();
+  const original = page.locator('details[open] p.user-content').filter({ hasText: 'Генподрядчик' });
+  const before = await original.textContent();
+  await original.evaluate((paragraph) => {
+    const node = paragraph.lastChild;
+    if (!node?.textContent) throw new Error('Missing original text');
+    const start = node.textContent.indexOf('Генподрядчик');
+    const selection = window.getSelection();
+    selection?.setBaseAndExtent(node, start, node, start + 'Генподрядчик'.length);
+  });
+  const add = page.getByRole('button', { name: 'Добавить выделение в словарь' });
+  await expect(add).toBeVisible();
+  await add.focus();
+  await page.keyboard.press('Enter');
+  await page.getByLabel('Найти существующее понятие для варианта').fill('подрядчик');
+  await page
+    .getByRole('form')
+    .getByRole('button', { name: 'Генеральный подрядчик', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Подтвердить и сохранить' }).click();
+  await expect(original.getByRole('button', { name: 'Генподрядчик', exact: true })).toBeVisible();
+  await expect(original).toHaveText(before ?? '');
+});

@@ -1,0 +1,6 @@
+{
+  "version": "1",
+  "semantic": ["business_requirement", "stakeholder_requirement", "functional_requirement", "non_functional_requirement", "transition_requirement", "business_rule", "constraint", "other", "unknown"],
+  "representation": ["statement", "user_story", "use_case", "scenario", "acceptance_criterion", "other", "unknown"],
+  "states": ["unclassified", "queued", "classifying", "suggested", "needs_review", "confirmed", "failed", "stale"]
+}

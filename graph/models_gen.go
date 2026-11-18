@@ -86,6 +86,53 @@ type AnalysisPairConnection struct {
 	PageInfo   *PageInfo
 	TotalCount int32
 }
+type ClassificationAlternative struct {
+	SemanticType       string
+	RepresentationType string
+	Score              *float64
+}
+type RequirementClassification struct {
+	RequirementId      graphql.ID
+	TextVersion        int32
+	Revision           int32
+	Status             string
+	SemanticType       string
+	RepresentationType string
+	Source             string
+	RulesVersion       string
+	Model              string
+	CreatedAt          string
+	Alternatives       []*ClassificationAlternative
+}
+type ConfirmClassificationInput struct {
+	ProjectId          graphql.ID
+	RequirementId      graphql.ID
+	TextVersion        int32
+	Revision           int32
+	SemanticType       string
+	RepresentationType string
+}
+type ClassificationPayload struct {
+	Classification *RequirementClassification
+	FieldErrors    []*FieldError
+}
+type RequirementClassificationArgs struct {
+	ProjectId     graphql.ID
+	RequirementId graphql.ID
+}
+type RequirementClassificationHistoryArgs struct {
+	ProjectId     graphql.ID
+	RequirementId graphql.ID
+	Limit         int32
+	Offset        int32
+}
+type ClassifiedRequirementsArgs struct {
+	ProjectId          graphql.ID
+	SemanticType       *string
+	RepresentationType *string
+	Limit              int32
+	Offset             int32
+}
 type RequirementSummariesByIdsArgs struct {
 	ProjectId      graphql.ID
 	RequirementIds []graphql.ID
@@ -165,6 +212,9 @@ type ProjectsArgs struct {
 type ProjectsConnectionArgs struct {
 	First *int32
 	After *string
+}
+type ConfirmRequirementClassificationArgs struct {
+	Input ConfirmClassificationInput
 }
 type RetryRequirementSummaryArgs struct {
 	ProjectId     graphql.ID

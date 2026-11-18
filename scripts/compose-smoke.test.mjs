@@ -26,7 +26,7 @@ const mode = process.env.SMOKE_TEST_MODE;
 let clock = 0, starts = 0, polls = 0;
 Object.defineProperty(globalThis, 'performance', {value: {now: () => clock}});
 childProcess.execFileSync = () => Buffer.from('fixture');
-timers.setTimeout = async milliseconds => { clock += mode === 'timeout' ? 2_700_001 : milliseconds; };
+timers.setTimeout = async milliseconds => { clock += (mode === 'timeout' || mode === 'index-timeout') ? 2_700_001 : milliseconds; };
 syncBuiltinESMExports();
 const requirements = [];
 let project;
@@ -63,7 +63,7 @@ globalThis.fetch = async (_url, options) => {
     requirements.push(requirement);
     data = {createRequirement: {requirement, fieldErrors: []}};
   } else if (query.includes('indexRequirement(')) {
-    data = {indexRequirement: {requirementId: variables.requirement, status: mode === 'complete' ? 'running' : 'ready', version: 1, errorCode: ''}};
+    data = {indexRequirement: {requirementId: variables.requirement, status: mode === 'index-timeout' ? 'pending' : mode === 'complete' ? 'running' : 'ready', version: 1, errorCode: ''}};
   } else if (query.includes('requirementIndexByIds(')) {
     assert.equal(variables.project, 'p');
     assert.ok(requirements.some(row => row.id === variables.requirement));
@@ -81,7 +81,7 @@ function asyncSmoke(mode) {
     env: {...process.env, COMPOSE_PROJECT_NAME: 'project-creator-smoke', COMPOSE_FILE: 'compose.yml:compose.smoke.yml', SMOKE_TEST_MODE: mode}});
   assert.ifError(result.error);
   const counts = JSON.parse(result.stdout.match(/FIXTURE_COUNTS (\{[^\n]+\})/)[1]);
-  assert.equal(counts.starts, 1, result.stderr);
+  assert.equal(counts.starts, mode === 'index-timeout' ? 0 : 1, result.stderr);
   return {...result, counts};
 }
 test('container smoke waits for the same analysis to complete and validates its persisted snapshots', () => {
@@ -119,4 +119,9 @@ test('container smoke bounds the asynchronous wait using monotonic time', () => 
   assert.equal(result.status, 1);
   assert.ok(result.counts.polls <= 1);
   assert.match(result.stderr, /timed out/i);
+});
+test('container smoke stops before analysis when indexing remains pending past its deadline', () => {
+  const result = asyncSmoke('index-timeout');
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Indexing timed out for r1/);
 });

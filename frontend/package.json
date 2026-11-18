@@ -10,7 +10,7 @@
     "start": "next start -H 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "codegen": "graphql-codegen --config codegen.ts",
+    "codegen": "node codegen.ts",
     "e2e": "playwright test",
     "prebuild": "node --experimental-strip-types --test tests/*.test.ts",
     "test:ux": "playwright test --config ux.playwright.config.ts",
@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.7",
-    "@graphql-codegen/cli": "8.0.0",
+    "@graphql-codegen/core": "7.0.0",
     "@graphql-codegen/typed-document-node": "8.0.0",
     "@graphql-codegen/typescript-operations": "7.0.1",
     "@playwright/test": "1.65.1",
@@ -37,10 +37,5 @@
     "@types/react-dom": "19.3.0",
     "typescript": "7.0.2"
   },
-  "type": "module",
-  "overrides": {
-    "graphql-config": {
-      "minimatch": "11.0.1"
-    }
-  }
+  "type": "module"
 }

@@ -457,8 +457,7 @@ bun run dev -- -H 127.0.0.1
 
 Проверка после изменения GraphQL-схемы и операций:
 
-Версии codegen, причина точечного override `minimatch` и порядок его удаления
-описаны в [оценке зависимостей генератора](codegen-dependencies.md).
+Генератор читает локальную SDL и `operations/*.graphql` через GraphQL Code Generator Core и два закреплённых плагина TypeScript. CI проверяет операции и сравнивает сгенерированный файл с версией в Git.
 
 ```bash
 cd frontend

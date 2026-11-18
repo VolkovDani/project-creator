@@ -2,9 +2,10 @@
 
 [Russian version](intel-npu.md)
 
-Branch `feat/22-intel-npu`, a separate PR for #22; **do not merge until hardware acceptance is complete**. This configuration targets native Linux, Python 3.12, and Docker Engine/Compose v2. The initial hardware check on 2026-10-29 confirmed Qwen generation on the NPU, but one of three examples failed the quality check. After the CLI fix on 2026-10-30, the fixed hardware examples pass; comparison against CPU/GPU remains open for full acceptance. Results are below. The design and dependencies are recorded in [ADR-002](adr/002-openvino-npu.md).
+This configuration targets native Linux, Python 3.12 and Docker Engine/Compose v2.
+The implementation shipped through PR #24. The dated sections below preserve the initial acceptance results and subsequent fixes. The [device verification report](intel-device-verification.md) covers CPU/GPU/NPU generation and BGE-M3 static windows. The design and dependencies are recorded in [ADR-002](adr/002-openvino-npu.md).
 
-Generation uses OpenVINO GenAI strictly on `NPU`. Embeddings continue to use BGE-M3/1024 in local Ollama on CPU or Intel Arc (`compose.intel.yml`). BGE-M3 compatibility with NPU is unconfirmed; neither model nor dimension is changed. Tokenization runs on CPU. The NPU runtime is a host process owned by the user; the backend connects through a Unix socket, without opening a network port or passing the NPU device to a container.
+Generation uses OpenVINO GenAI strictly on `NPU`. Embeddings continue to use BGE-M3/1024 in local Ollama on CPU or Intel Arc (`compose.intel.yml`). Standalone BGE-M3 encoder inference was verified on NPU at 128 and 512 tokens. Tokenization runs on CPU. The NPU runtime is a host process owned by the user; the backend connects through a Unix socket, without opening a network port or passing the NPU device to a container.
 
 The local `.npu/` directory is prepared by this guide, not by ordinary `docker compose up`. It is excluded from Git and the Docker build context. Each user creates their own artifacts rather than copying environments from another laptop. Runtime source and pinned requirements live in the repository under `runtime/npu/`. `.npu/` is unnecessary when running only Ollama on CPU/Arc.
 

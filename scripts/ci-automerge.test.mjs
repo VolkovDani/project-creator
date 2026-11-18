@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { autoMerge } from './ci-automerge.mjs';
@@ -38,6 +39,19 @@ test('creates a merge commit for the tested head only, without deleting the bran
     body: { sha: head, merge_method: 'merge' } }]);
 });
 
+test('hands off distinct local issue directives from the merged PR only', async () => {
+  const f = fixture();
+  f.pr.body = [
+    'Related #8, owner/elsewhere#9', 'Closes #42.', 'Fixes #42', 'Resolves #17',
+    '> Closes #2', '    Closes #3', 'Closes other/repo#4', 'See #5',
+    '````md', '```', 'Closes #6', '````', '~~~', 'Closes #7', '~~~',
+    '<!--', 'Closes #8', '-->', 'Closes #9 in a later PR', 'Closes #0',
+  ].join('\r\n');
+  assert.deepEqual((await autoMerge(f.context, f.request)).issues, ['42', '17']);
+  f.pr.labels = [];
+  assert.equal((await autoMerge(f.context, f.request)).issues, undefined);
+});
+
 for (const result of ['failure', 'cancelled', 'skipped', '']) {
   for (const job of ['checks', 'containers']) {
     test(`does not merge when ${job} result is ${result || 'unknown'}`, async () => {
@@ -66,8 +80,11 @@ for (const [name, change] of [
 ]) {
   test(`does not merge: ${name}`, async () => {
     const f = fixture();
+    f.pr.body = 'Closes #195';
     change(f);
-    assert.equal((await autoMerge(f.context, f.request)).merged, false);
+    const result = await autoMerge(f.context, f.request);
+    assert.equal(result.merged, false);
+    assert.equal(result.issues, undefined);
     assert.equal(writes(f).length, 0);
   });
 }
@@ -93,14 +110,14 @@ test('merge SHA race is not retried against a new untested head', async () => {
   assert.equal(writes(f)[0].body.sha, head);
 });
 
-test('workflow runs merge only after both jobs and grants write only to merge job', () => {
+test('workflow requires both CI jobs and separates merge and issue write permissions', () => {
   const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
-  const job = workflow.split('\n  automerge:\n')[1];
+  const [job, close] = workflow.split('\n  automerge:\n')[1].split('\n  close-issues:\n');
   assert.ok(job);
   assert.match(job, /needs: \[checks, containers\]/);
   const dependencies = job.match(/needs: \[([^\]]+)\]/)[1].split(',').map((name) => name.trim());
   const otherJobs = [...workflow.split('\njobs:\n')[1].matchAll(/^  ([a-z][a-z_-]*):$/gm)]
-    .map((match) => match[1]).filter((name) => name !== 'automerge');
+    .map((match) => match[1]).filter((name) => !['automerge', 'close-issues'].includes(name));
   assert.deepEqual(dependencies.sort(), otherJobs.sort(), 'Every CI job must gate auto-merge');
   assert.match(job, /needs.checks.result == 'success'/);
   assert.match(job, /needs.containers.result == 'success'/);
@@ -108,10 +125,34 @@ test('workflow runs merge only after both jobs and grants write only to merge jo
   assert.match(job, /github.event.pull_request.head.repo.full_name == github.repository/);
   assert.match(job, /github.event.pull_request.base.ref == 'develop'/);
   assert.match(job, /contents: write/);
+  assert.doesNotMatch(job, /issues: write/);
+  assert.match(close, /needs: automerge/);
+  assert.match(close, /if: needs.automerge.outputs.issues != ''/);
+  assert.match(close, /issues: write/);
+  assert.doesNotMatch(close, /contents: write|pull-requests: write/);
   assert.match(job, /pull-requests: read/);
   assert.match(job, /persist-credentials: false/);
   assert.match(job, /node scripts\/ci-automerge.mjs/);
   assert.match(job, /NEEDS_JSON: \$\{\{ toJSON\(needs\) \}\}/);
   assert.doesNotMatch(workflow.split('\n  automerge:\n')[0], /: write/);
   assert.doesNotMatch(workflow, /pull_request_target|types:.*labeled/);
+});
+
+test('close step updates only open issues in this repository', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const step = workflow.split('\n  close-issues:\n')[1].split('        run: |\n')[1];
+  const script = step.trimEnd().split('\n').map((line) => line.slice(10)).join('\n');
+  const stub = `gh() {
+    case "$*" in
+      "api repos/owner/repo/issues/17 --jq "*) echo open ;;
+      "api repos/owner/repo/issues/18 --jq "*) echo closed ;;
+      "api repos/owner/repo/issues/19 --jq "*) echo pull_request ;;
+      "api --method PATCH "*) echo "$*" ;;
+      *) return 1 ;;
+    esac
+  }`;
+  const env = { ...process.env, GITHUB_REPOSITORY: repository, ISSUE_NUMBERS: '17 18 19' };
+  const output = execFileSync('bash', ['-eu', '-o', 'pipefail', '-c', stub + '\n' + script], { env });
+  assert.equal(output.toString().trim(),
+    'api --method PATCH repos/owner/repo/issues/17 -f state=closed -f state_reason=completed --silent');
 });

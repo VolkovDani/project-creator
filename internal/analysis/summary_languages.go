@@ -80,9 +80,10 @@ func (p SummaryLanguagePolicy) Instruction() string {
 }
 
 func (p SummaryLanguagePolicy) Valid(text string) bool {
-	if !contracts.ValidSummary(text) {
-		return false
-	}
+	return contracts.ValidSummary(text) && p.validAlphabet(text)
+}
+
+func (p SummaryLanguagePolicy) validAlphabet(text string) bool {
 	for _, r := range text {
 		if unicode.IsLetter(r) {
 			ok := false

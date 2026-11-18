@@ -405,6 +405,9 @@ test('dynamic requirement cards keep the load button outside their content', asy
     '\nДлинное условие с пояснениями и ограничениями.'.repeat(20),
   );
   await page.goto('/projects/demo/requirements');
+  await expect(page.locator('#requirement-r0')).toBeVisible();
+  // Keep the first page mounted while measuring its expanded final card.
+  const release = api.delay();
   const last = page.locator('#requirement-r39');
   const more = page.getByRole('button', { name: 'Загрузить ещё', exact: true });
   await more.scrollIntoViewIfNeeded();
@@ -412,9 +415,7 @@ test('dynamic requirement cards keep the load button outside their content', asy
   await expect
     .poll(async () => {
       return page.evaluate(() => {
-        const button = [...document.querySelectorAll('button')].find(
-          (el) => el.textContent === 'Загрузить ещё',
-        );
+        const button = document.querySelector('details.data-group > button');
         if (!button) return false;
         const top = button.getBoundingClientRect().top;
         return [...document.querySelectorAll('[data-virtual-id] section')].every(
@@ -423,6 +424,8 @@ test('dynamic requirement cards keep the load button outside their content', asy
       });
     })
     .toBe(true);
+  release();
+  await expect(more).toBeEnabled();
   const before = api.connectionReads().length;
   await more.click();
   await expect.poll(() => api.connectionReads().length).toBeGreaterThan(before);

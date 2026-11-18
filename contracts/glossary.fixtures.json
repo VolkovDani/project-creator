@@ -1,0 +1,6 @@
+[
+  {"name":"valid","term":{"name":"Генеральный подрядчик","definition":"","context":"","variants":[{"kind":"abbreviation","text":"ГП"}]},"code":""},
+  {"name":"empty","term":{"name":"  ","definition":"","context":"","variants":[]},"code":"REQUIRED"},
+  {"name":"duplicate spelling","term":{"name":"API","definition":"","context":"","variants":[{"kind":"spelling","text":"api"}]},"code":"INVALID_VARIANT"},
+  {"name":"unknown kind","term":{"name":"Role","definition":"","context":"","variants":[{"kind":"guess","text":"R"}]},"code":"INVALID_VARIANT"}
+]

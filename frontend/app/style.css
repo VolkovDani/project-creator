@@ -260,3 +260,19 @@ select {
     max-width: min(160px, 100%);
   }
 }
+
+.user-content button.glossary-match,
+.ui-panel .user-content button.glossary-match {
+  display: inline;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: inherit;
+  background: #f4ebff;
+  font: inherit;
+  text-decoration: underline dotted;
+  user-select: text;
+}

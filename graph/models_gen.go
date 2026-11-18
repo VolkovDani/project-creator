@@ -133,6 +133,22 @@ type ClassifiedRequirementsArgs struct {
 	Limit              int32
 	Offset             int32
 }
+type GlossaryCandidatesArgs struct {
+	ProjectId graphql.ID
+	Limit     int32
+	Offset    int32
+}
+type GlossaryTermsArgs struct {
+	ProjectId graphql.ID
+	Search    string
+	Limit     int32
+	Offset    int32
+}
+type RequirementGlossaryArgs struct {
+	ProjectId     graphql.ID
+	RequirementId graphql.ID
+	Version       int32
+}
 type RequirementSummariesByIdsArgs struct {
 	ProjectId      graphql.ID
 	RequirementIds []graphql.ID
@@ -215,6 +231,14 @@ type ProjectsConnectionArgs struct {
 }
 type ConfirmRequirementClassificationArgs struct {
 	Input ConfirmClassificationInput
+}
+type SaveGlossaryTermArgs struct {
+	Input GlossaryInput
+}
+type DeleteGlossaryTermArgs struct {
+	ProjectId graphql.ID
+	ID        graphql.ID
+	Version   int32
 }
 type RetryRequirementSummaryArgs struct {
 	ProjectId     graphql.ID
@@ -426,4 +450,63 @@ type RequirementSummary struct {
 	Provenance    string
 	CreatedAt     string
 	ErrorCode     string
+}
+type GlossaryVariant struct {
+	Text string
+	Kind string
+}
+type GlossaryVariantInput struct {
+	Text string
+	Kind string
+}
+type GlossaryInput struct {
+	ProjectId     graphql.ID
+	ID            *graphql.ID
+	Version       *int32
+	Name          string
+	Definition    string
+	Context       string
+	Variants      []GlossaryVariantInput
+	SourceId      *graphql.ID
+	SourceVersion *int32
+}
+type GlossaryTerm struct {
+	ID            graphql.ID
+	Name          string
+	Definition    string
+	Context       string
+	Variants      []*GlossaryVariant
+	Version       int32
+	SourceId      graphql.ID
+	SourceVersion int32
+	CreatedAt     string
+	UpdatedAt     string
+}
+type GlossaryPayload struct {
+	Term        *GlossaryTerm
+	FieldErrors []*FieldError
+}
+type DeleteGlossaryPayload struct {
+	Deleted bool
+}
+type GlossaryMatch struct {
+	Start int32
+	End   int32
+	Text  string
+	Terms []*GlossaryTerm
+}
+type GlossaryCandidatePage struct {
+	Items   []*GlossaryCandidate
+	HasMore bool
+}
+type GlossaryCandidate struct {
+	SourceId      graphql.ID
+	SourceVersion int32
+	Name          string
+	Abbreviation  string
+}
+type RequirementGlossary struct {
+	Version    int32
+	Matches    []*GlossaryMatch
+	Candidates []*GlossaryCandidate
 }

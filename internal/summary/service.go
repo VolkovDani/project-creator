@@ -6,7 +6,9 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"github.com/VolkovDani/project-creator/internal/glossary"
 	"sync"
 	"time"
 
@@ -84,7 +86,7 @@ func (s *Service) Start(workspaces []string) error {
 		} else {
 			_, e = tx.ExecContext(s.ctx, `INSERT INTO summary_profiles VALUES($1,$2,$3) ON CONFLICT(workspace) DO UPDATE SET profile=excluded.profile,provenance=excluded.provenance`, w, s.Profile(), s.generator.Provenance())
 			if e == nil {
-				_, e = tx.ExecContext(s.ctx, `INSERT INTO requirement_summaries(workspace,project_id,requirement_id,version,profile,provenance,status) SELECT workspace,project_id,id,version,$2,$3,'queued' FROM requirements WHERE workspace=$1 ON CONFLICT DO NOTHING`, w, s.Profile(), s.generator.Provenance())
+				_, e = tx.ExecContext(s.ctx, `INSERT INTO requirement_summaries(workspace,project_id,requirement_id,version,profile,provenance,status) SELECT workspace,project_id,id,version,$2,$3,'queued' FROM requirements WHERE workspace=$1 ON CONFLICT(workspace,project_id,requirement_id,version,profile) DO UPDATE SET status='queued',text='',attempt='',error_code='',provenance=excluded.provenance WHERE requirement_summaries.status='stale'`, w, s.Profile(), s.generator.Provenance())
 			}
 		}
 		if e != nil {
@@ -174,6 +176,7 @@ func (s *Service) Cancel(ctx context.Context, w, p, id string) (State, error) {
 type job struct {
 	workspace, project, profile, attempt string
 	source                               analysis.Source
+	hints                                []glossary.Hint
 }
 
 func (s *Service) claim() (*job, error) {
@@ -203,6 +206,11 @@ func (s *Service) claim() (*job, error) {
 		if e != nil {
 			return nil, e
 		}
+		terms, e := glossary.List(s.ctx, tx, j.workspace, j.project)
+		if e != nil {
+			return nil, e
+		}
+		j.hints = glossary.SummaryHints(j.source.Text, terms)
 		_, e = tx.ExecContext(s.ctx, `UPDATE requirement_summaries SET status='running',attempt=$5,lease_until=clock_timestamp()+interval '150 seconds' WHERE workspace=$1 AND project_id=$2 AND requirement_id=$3 AND version=$4 AND profile=$6`, w, j.project, j.source.ID, j.source.Version, j.attempt, j.profile)
 		if e != nil {
 			return nil, e
@@ -239,7 +247,23 @@ func (s *Service) process(j *job) {
 			}
 		}
 	}()
-	text, e := s.generator.Summarize(ctx, j.source)
+	var text string
+	var e error
+	provenance := s.generator.Provenance()
+	if len(j.hints) == 0 {
+		text, e = s.generator.Summarize(ctx, j.source)
+	} else if g, ok := s.generator.(interface {
+		SummarizeWithGlossary(context.Context, analysis.Source, []glossary.Hint) (string, error)
+	}); ok {
+		data, _ := json.Marshal(struct {
+			Generator string          `json:"generator"`
+			Glossary  []glossary.Hint `json:"confirmedGlossaryV1"`
+		}{provenance, j.hints})
+		provenance = string(data)
+		text, e = g.SummarizeWithGlossary(ctx, j.source, j.hints)
+	} else {
+		e = ErrUnavailable
+	}
 	code := ""
 	if e != nil {
 		code = "GENERATION_FAILED"
@@ -288,7 +312,7 @@ func (s *Service) process(j *job) {
 		status = "failed"
 		text = ""
 	}
-	_, e = tx.ExecContext(s.ctx, `UPDATE requirement_summaries SET status=$7,text=$8,error_code=$9,created_at=clock_timestamp(),attempt='' WHERE workspace=$1 AND project_id=$2 AND requirement_id=$3 AND version=$4 AND profile=$5 AND attempt=$6 AND status='running' AND lease_until>clock_timestamp()`, j.workspace, j.project, j.source.ID, j.source.Version, j.profile, j.attempt, status, text, code)
+	_, e = tx.ExecContext(s.ctx, `UPDATE requirement_summaries SET status=$7,text=$8,error_code=$9,provenance=$10,created_at=clock_timestamp(),attempt='' WHERE workspace=$1 AND project_id=$2 AND requirement_id=$3 AND version=$4 AND profile=$5 AND attempt=$6 AND status='running' AND lease_until>clock_timestamp()`, j.workspace, j.project, j.source.ID, j.source.Version, j.profile, j.attempt, status, text, code, provenance)
 	if e == nil {
 		_ = tx.Commit()
 	}

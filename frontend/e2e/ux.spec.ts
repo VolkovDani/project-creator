@@ -951,3 +951,30 @@ for (const { width, zoom } of layoutCases) {
     }
   });
 }
+
+for (const route of ['requirements', 'analysis']) {
+  test(`pilot actions on ${route} show hover and keyboard focus`, async ({ page }, testInfo) => {
+    const renderingErrors: string[] = [];
+    page.on('pageerror', (error) => renderingErrors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error' && /hydrat/i.test(message.text())) {
+        renderingErrors.push(message.text());
+      }
+    });
+    await fixture(page, 3);
+    await page.goto(`/projects/demo/${route}?listMode=pages`);
+    const section = page.locator('main section[aria-labelledby]').last();
+    const button = section.locator('button:enabled').first();
+    await expect(button).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`${route}.png`) });
+    const rest = await button.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await button.hover();
+    await expect(button).not.toHaveCSS('background-color', rest);
+    await button.focus();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(button).toBeFocused();
+    await expect(button).toHaveCSS('outline-style', 'solid');
+    expect(renderingErrors).toEqual([]);
+  });
+}

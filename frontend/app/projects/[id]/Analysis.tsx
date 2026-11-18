@@ -843,7 +843,7 @@ export default function Analysis({
         run.layaSkippedPairs >
         0);
   return (
-    <section aria-labelledby={heading}>
+    <section className="ui-panel" aria-labelledby={heading}>
       <h2 id={heading}>{t(locale, 'analysis.title')}</h2>
       <p>{t(locale, 'analysis.help')}</p>
       <p>{t(locale, 'analysis.disclaimer')}</p>
@@ -880,6 +880,7 @@ export default function Analysis({
         </p>
       ))}
       <button
+        className="primary-action"
         type="button"
         disabled={!validSelection || busy || run?.status === 'running'}
         onClick={() => void changeAnalysis()}

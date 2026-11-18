@@ -10,6 +10,7 @@ import {
 import { type Locale, t } from '../../../lib/i18n';
 import { Latest } from '../../../lib/latest';
 import { useInvalidation } from '../../../lib/live';
+import GlossaryOriginal from './GlossaryOriginal';
 
 type Summary = RequirementSummariesByIdsQuery['requirementSummariesByIds'][number];
 
@@ -182,10 +183,13 @@ export default function RequirementSummary({
           {t(locale, 'summary.cancel')}
         </button>
       )}
-      <details>
-        <summary>{t(locale, 'summary.original')}</summary>
-        <p>{original}</p>
-      </details>
+      <GlossaryOriginal
+        projectId={projectId}
+        requirementId={requirementId}
+        version={requirementVersion}
+        original={original}
+        locale={locale}
+      />
     </section>
   );
 }

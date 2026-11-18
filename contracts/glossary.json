@@ -1,0 +1,8 @@
+{
+  "nameMax": 120,
+  "definitionMax": 1000,
+  "contextMax": 500,
+  "variantMax": 120,
+  "variantLimit": 24,
+  "kinds": ["abbreviation", "synonym", "spelling"]
+}

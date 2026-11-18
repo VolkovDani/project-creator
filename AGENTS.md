@@ -54,13 +54,12 @@
   `./node_modules/.bin/biome check --write <paths>` without `--unsafe`. Do not
   replace formatting with manual whitespace edits or format unrelated files.
 - The frontend package manager is pinned to Bun 1.4.4 in `frontend/package.json`;
-  use `bun install --frozen-lockfile` and `bun run <script>`. Node.js 24 remains
+  use `bun install --frozen-lockfile` and `bun run <script>`. Node.js 26 remains
   required for unit tests, repository scripts, and the production Next.js server.
 - After cloning and installing dependencies, install the tracked Git hook:
   `cd frontend && bun install --frozen-lockfile && bun run hooks:install`. It is stored in
   `.githooks/pre-commit`; the `core.hooksPath` setting is local to each clone
-  and is not automatically transferred through Git. See the README section
-  “Git hooks and formatting” for full instructions.
+  and is not automatically transferred through Git. See [Git hooks and formatting](docs/development.md#git-hooks-and-formatting) for full instructions.
 - The pre-commit hook checks the Git index, applies safe Biome fixes to fully
   staged files, and adds the fixed files back to the index. Unstaged changes in
   partially staged files are preserved; if the staged portion needs fixes, the
@@ -89,7 +88,7 @@
   dictionaries and translation parameters automatically. Do not translate user
   content.
 - For frontend work, run the project's prescribed tests, type checks, and build;
-  use the commands in the README and update them when the process changes.
+  use the commands in the [development guide](docs/development.md#nextjs-interface) and update them when the process changes.
 
 ## Dependency Selection
 
@@ -244,8 +243,7 @@
   the new version; do not use an old successful run.
 - After the job runs, verify the actual PR state (`MERGED`, `mergedAt`, and
   merge commit); a successful job may mean it skipped the merge. To cancel a
-  pending auto-merge, remove the label before its job checks it. See the README
-  section “Automatic merging after CI” for limitations of this mechanism.
+  pending auto-merge, remove the label before its job checks it. See [Automatic merge after CI](docs/development.md#automatic-merge-after-ci) for limitations of this mechanism.
 - For concrete implementation tasks that change code, create a GitHub Issue or
   use a suitable existing task. Implement each GitHub Issue in a separate Pull
   Request.

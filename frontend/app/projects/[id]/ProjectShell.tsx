@@ -41,7 +41,7 @@ function ProjectContent({ id, children }: { id: string; children: React.ReactNod
         <Language />
       </div>
       <header className="project-header">
-        <h1>{project?.name || t(locale, 'ui.project')}</h1>
+        <h1 tabIndex={-1}>{project?.name || t(locale, 'ui.project')}</h1>
       </header>
       <ResourceState
         locale={locale}

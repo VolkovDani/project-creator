@@ -30,7 +30,7 @@ func NewOpenVINO(socket, profile string) (*OpenVINO, error) {
 	transport := &http.Transport{Proxy: nil, MaxConnsPerHost: 1, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}
-	provenance, key := encodeGenerationProvenance(generationProvenance{Adapter: "openvino-npu-unix-v1", RuntimeProfile: profile, SystemPrompt: systemPrompt, ResponseSchema: findingSchema(), Normalization: "source-aliases-v2:text-order"})
+	provenance, key := encodePairProvenance(generationProvenance{Adapter: "openvino-npu-unix-v1", RuntimeProfile: profile, SystemPrompt: systemPrompt, ResponseSchema: findingSchema(), Normalization: "source-aliases-v2:text-order"})
 	return &OpenVINO{pinnedProfile: profile, profile: key, provenance: provenance, client: &http.Client{Transport: transport, Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirects disabled") }}}, nil
 }
 
@@ -127,22 +127,9 @@ func (o *OpenVINO) Compare(ctx context.Context, pair Pair) (Finding, error) {
 	if aliases.Right.Text < aliases.Left.Text {
 		aliases.Left.Text, aliases.Right.Text = aliases.Right.Text, aliases.Left.Text
 	}
-	body, err := json.Marshal(map[string]any{"profile": o.pinnedProfile, "system": systemPrompt, "pair": aliases, "schema": findingSchema()})
-	if err != nil {
-		return Finding{}, errors.New("invalid NPU comparison request")
-	}
-	var response struct {
-		Profile string          `json:"profile"`
-		Device  string          `json:"device"`
-		Finding json.RawMessage `json:"finding"`
-	}
-	if err := o.request(ctx, "POST", "/compare", body, &response); err != nil {
-		return Finding{}, err
-	}
-	if err := o.verifyIdentity(response.Profile, response.Device); err != nil {
-		return Finding{}, err
-	}
-	finding, err := decodeFinding(string(response.Finding), aliases)
+	finding, err := generatePairFinding(ctx, func(prompt string) (Finding, error) {
+		return o.generateFinding(ctx, aliases, prompt)
+	})
 	if err != nil {
 		return Finding{}, err
 	}
@@ -158,6 +145,25 @@ func (o *OpenVINO) Compare(ctx context.Context, pair Pair) (Finding, error) {
 		return Finding{}, ctx.Err()
 	}
 	return finding, nil
+}
+
+func (o *OpenVINO) generateFinding(ctx context.Context, aliases Pair, prompt string) (Finding, error) {
+	body, err := json.Marshal(map[string]any{"profile": o.pinnedProfile, "system": prompt, "pair": aliases, "schema": findingSchema()})
+	if err != nil {
+		return Finding{}, errors.New("invalid NPU comparison request")
+	}
+	var response struct {
+		Profile string          `json:"profile"`
+		Device  string          `json:"device"`
+		Finding json.RawMessage `json:"finding"`
+	}
+	if err := o.request(ctx, "POST", "/compare", body, &response); err != nil {
+		return Finding{}, err
+	}
+	if err := o.verifyIdentity(response.Profile, response.Device); err != nil {
+		return Finding{}, err
+	}
+	return decodeFinding(string(response.Finding), aliases)
 }
 
 // npuFailure carries only a closed set of transport diagnostics. Raw runtime

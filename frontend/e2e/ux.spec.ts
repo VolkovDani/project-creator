@@ -5,6 +5,106 @@ test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status === 'passed') await expectLayout(page);
 });
 
+test('requirement editing opens a native dialog and Escape discards the draft', async ({
+  page,
+}) => {
+  await fixture(page, 21);
+  await page.goto('/projects/demo/requirements?listMode=pages&page=2');
+  const addDraft = page.getByLabel('Текст требования');
+  await addDraft.fill('Черновик добавления');
+  await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  const editor = dialog.getByLabel('Текст требования');
+  await editor.fill('Черновик');
+  const scrollBefore = await page.evaluate(() => window.scrollY);
+  await page.mouse.click(5, 5);
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(addDraft).toHaveValue('Черновик добавления');
+  await expect(page.getByRole('button', { name: 'Изменить', exact: true }).first()).toBeFocused();
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore);
+  await expect(
+    page.locator('#requirement-r20').getByText('Требование 20', { exact: true }).first(),
+  ).toBeVisible();
+});
+
+test('requirement edit conflict keeps the draft and saving closes the dialog', async ({ page }) => {
+  const api = await fixture(page, 3);
+  await page.goto('/projects/demo/requirements');
+  await page.getByLabel('Текст требования').fill('Черновик добавления');
+  await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  const editor = dialog.getByLabel('Текст требования');
+  await editor.fill('Новая редакция');
+  api.setText('Сохранённая другая редакция');
+  api.conflictNextEdit();
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(editor).toHaveValue('Новая редакция');
+  await dialog.getByRole('button', { name: 'Сохранить черновик поверх актуальной версии' }).click();
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(api.editWrites()).toEqual([{ id: 'r0', text: 'Новая редакция', version: 2 }]);
+  await expect(page.getByLabel('Текст требования')).toHaveValue('Черновик добавления');
+});
+
+test('a busy requirement dialog rejects Escape and keeps network errors visible', async ({
+  page,
+}) => {
+  const api = await fixture(page, 3);
+  const request = api.delayEditFailure();
+  await page.goto('/projects/demo/requirements');
+  await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Текст требования').fill('Busy edit');
+  const save = dialog.getByRole('button', { name: 'Сохранить', exact: true });
+  await save.click();
+  await request.started;
+  await expect(save).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  request.release();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(dialog).toBeVisible();
+});
+
+test('global back-to-top appears after scrolling and returns focus to the page heading', async ({
+  page,
+}) => {
+  await fixture(page, 21);
+  await page.goto('/projects/demo/requirements');
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await page.evaluate(() => {
+    document.body.style.minHeight = '2000px';
+    window.scrollTo(0, 900);
+  });
+  const button = page.getByRole('button', { name: 'Наверх', exact: true });
+  await expect(button).toBeVisible();
+  await button.click();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThan(10);
+  await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
+});
+
+test('global back-to-top works outside project pages with reduced motion and English labels', async ({
+  page,
+}) => {
+  await fixture(page, 1);
+  await page.goto('/projects/new');
+  await page.getByLabel('Язык').selectOption('en');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => {
+    document.body.style.minHeight = '2000px';
+    window.scrollTo(0, 700);
+  });
+  const button = page.getByRole('button', { name: 'Back to top', exact: true });
+  await expect(button).toBeVisible();
+  await button.click();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThan(10);
+  await expect(page.getByRole('heading', { name: 'Create project' })).toBeFocused();
+});
+
 const project = {
   id: 'demo',
   name: 'Стабильный проект',
@@ -36,6 +136,10 @@ async function fixture(
   const waiting = new Set<(body: string) => void>();
   let delay: Promise<void> | undefined;
   let failure = 0;
+  let nextEditConflict = false;
+  let editFailureStatus = 0;
+  let editGate: Promise<void> | undefined;
+  let editStarted: (() => void) | undefined;
   let indexFailure = 0;
   let connections = 0;
   let reads = 0;
@@ -51,6 +155,7 @@ async function fixture(
   };
   const connectionReads: Array<{ first: number; after: string | null }> = [];
   const indexReads: string[][] = [];
+  const editWrites: Array<{ id: string; text: string; version: number }> = [];
   let indexes = rows.map((r, i) => ({
     requirementId: r.id,
     version: 1,
@@ -66,12 +171,45 @@ async function fixture(
   await page.route('**/api/graphql', async (route) => {
     const { query, variables } = route.request().postDataJSON();
     let data: unknown;
+    if (query.includes('updateRequirement(') && editGate) {
+      editStarted?.();
+      await editGate;
+      editGate = undefined;
+    }
+    if (query.includes('updateRequirement(') && editFailureStatus) {
+      await route.fulfill({ status: editFailureStatus, json: { error: 'edit failure' } });
+      editFailureStatus = 0;
+      return;
+    }
     if (query.includes('requirementIndexProgress(')) {
       if (failure) {
         await route.fulfill({ status: failure, json: { error: 'fixture failure' } });
         return;
       }
       data = { requirementIndexProgress: progress };
+    } else if (query.includes('updateRequirement(')) {
+      const input = variables.input;
+      if (nextEditConflict) {
+        nextEditConflict = false;
+        data = {
+          updateRequirement: {
+            requirement: null,
+            fieldErrors: [
+              { path: ['text'], code: 'CONFLICT', messageKey: 'validation.conflict', params: [] },
+            ],
+          },
+        };
+      } else {
+        const index = rows.findIndex((row) => row.id === input.id);
+        editWrites.push({ id: input.id, text: input.text, version: input.version });
+        rows[index] = { ...rows[index], text: input.text, version: rows[index].version + 1 };
+        data = {
+          updateRequirement: {
+            requirement: { id: input.id, text: input.text, version: rows[index].version },
+            fieldErrors: [],
+          },
+        };
+      }
     } else if (query.includes('requirementSummariesByIds(')) {
       data = {
         requirementSummariesByIds: rows
@@ -170,6 +308,7 @@ async function fixture(
     reads: () => reads,
     connectionReads: () => connectionReads,
     indexReads: () => indexReads,
+    editWrites: () => editWrites,
     connections: () => connections,
     fail: (status: number) => {
       failure = status;
@@ -187,6 +326,18 @@ async function fixture(
     },
     setText: (text: string) => {
       rows[0] = { ...rows[0], text, version: rows[0].version + 1 };
+    },
+    conflictNextEdit: () => {
+      nextEditConflict = true;
+    },
+    delayEditFailure: () => {
+      let release!: () => void;
+      let started!: () => void;
+      editGate = new Promise<void>((resolve) => (release = resolve));
+      const sent = new Promise<void>((resolve) => (started = resolve));
+      editStarted = started;
+      editFailureStatus = 500;
+      return { started: sent, release };
     },
     setReady: () => {
       indexes = indexes.map((x) => ({ ...x, status: 'ready' }));
@@ -437,10 +588,14 @@ test('revoked access clears previously rendered data', async ({ page }) => {
   const api = await fixture(page);
   await page.goto('/projects/demo/requirements?listMode=pages&page=1');
   await expect(page.locator('#requirement-r0')).toBeVisible();
+  await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
+  await page.getByRole('dialog').getByLabel('Текст требования').fill('Закрытый черновик');
   api.fail(403);
   await api.event();
   await expect(page.locator('#requirement-r0')).toHaveCount(0);
   await expect(page.getByText('Требование 0', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByText('Закрытый черновик', { exact: true })).toHaveCount(0);
 });
 
 test('project pages share navigation, locale and browser history without overflow', async ({
@@ -770,7 +925,11 @@ for (const { width, zoom } of layoutCases) {
             exact: true,
           });
           await edit.click();
-          await expect(page.locator('textarea').first()).toHaveValue(`Требование 0${longText}`);
+          await expect(
+            page
+              .getByRole('dialog')
+              .getByLabel(locale === 'ru' ? 'Текст требования' : 'Requirement text'),
+          ).toHaveValue(`Требование 0${longText}`);
         }
         if (path === 'indexing') {
           await expect(page.locator('#indexing-r1')).toBeVisible();

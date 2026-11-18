@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: pgvector/pgvector:0.8.0-pg16
+    image: pgvector/pgvector:0.8.7-pg16
     environment:
       POSTGRES_USER: project_creator
       POSTGRES_DB: project_creator
@@ -88,7 +88,7 @@ services:
       start_period: 15s
     restart: unless-stopped
   model-info:
-    image: node:24.22.1-bookworm-slim
+    image: node:26.13.1-bookworm-slim
     profiles: [tools]
     depends_on:
       ollama:

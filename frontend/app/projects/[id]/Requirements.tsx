@@ -25,7 +25,10 @@ import { useRequirementsPage } from './useRequirementsPage';
 export default function Requirements({ projectId, locale }: { projectId: string; locale: Locale }) {
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState('');
+  const [editText, setEditText] = useState('');
   const [editing, setEditing] = useState<{ id: string; version: number } | null>(null);
+  const editTrigger = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [validation, setValidation] = useState<{
     key: string;
     params: Record<string, number>;
@@ -38,12 +41,20 @@ export default function Requirements({ projectId, locale }: { projectId: string;
   const clear = useCallback(() => {
     operation.current++;
     setText('');
+    setEditText('');
     setEditing(null);
     setValidation(null);
+    setFailure(false);
     setBusy(false);
     setSourceTarget(undefined);
     setSourceError(null);
   }, []);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (editing && dialog && !dialog.open) dialog.showModal();
+    if (!editing && dialog?.open) dialog.close();
+    if (!editing) editTrigger.current?.focus({ preventScroll: true });
+  }, [editing]);
   const location = useListMode();
   const { mode, setMode, setPage, replacePage } = location;
   const paged = useRequirementsPage(projectId, clear, {
@@ -132,7 +143,8 @@ export default function Requirements({ projectId, locale }: { projectId: string;
   const current = (epoch: number) => active.current && operation.current === epoch;
   async function save(event: React.FormEvent) {
     event.preventDefault();
-    const checked = validateRequirement(contract, text),
+    const submittedText = editing ? editText : text;
+    const checked = validateRequirement(contract, submittedText),
       first = checked.errors[0];
     setValidation(first ? { key: first.messageKey, params: first.params } : null);
     if (first) return;
@@ -162,8 +174,10 @@ export default function Requirements({ projectId, locale }: { projectId: string;
         return;
       }
       if (!result.requirement) throw Error('missing requirement');
-      setText('');
-      setEditing(null);
+      if (editing) {
+        setEditing(null);
+        setEditText('');
+      } else setText('');
       if (!editing && page !== 0) setPage(0);
       else await load();
     } catch {
@@ -200,7 +214,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
         <label>
           {t(locale, 'requirements.text')}
           <textarea
-            disabled={busy}
+            disabled={busy || !!editing}
             value={text}
             onChange={(event) => setText(event.target.value)}
             aria-invalid={!!validation}
@@ -212,39 +226,76 @@ export default function Requirements({ projectId, locale }: { projectId: string;
           </p>
         )}
         <button type="submit" disabled={busy}>
-          {t(locale, editing ? 'requirements.save' : 'requirements.add')}
+          {t(locale, 'requirements.add')}
         </button>
-        {editing &&
-          validation?.key === 'validation.conflict' &&
-          rows.find((row) => row.id === editing.id) && (
+      </form>
+      {editing && (
+        <dialog
+          ref={dialogRef}
+          aria-labelledby="requirement-edit-title"
+          onCancel={(event) => {
+            if (busy) event.preventDefault();
+            else {
+              setEditing(null);
+              setEditText('');
+              setValidation(null);
+            }
+          }}
+        >
+          <h3 id="requirement-edit-title">{t(locale, 'requirements.edit')}</h3>
+          <form onSubmit={save} noValidate>
+            <label>
+              {t(locale, 'requirements.text')}
+              <textarea
+                disabled={busy}
+                value={editText}
+                onChange={(event) => setEditText(event.target.value)}
+                aria-invalid={!!validation}
+              />
+            </label>
+            {validation && (
+              <p role="alert" className="error">
+                {t(locale, validation.key, validation.params)}
+              </p>
+            )}
+            {mutationFailure && (
+              <p role="alert" className="error">
+                {t(locale, 'requirements.error')}
+              </p>
+            )}
+            <button type="submit" disabled={busy}>
+              {t(locale, 'requirements.save')}
+            </button>
+            {validation?.key === 'validation.conflict' &&
+              rows.find((row) => row.id === editing.id) && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    const latestRow = rows.find((row) => row.id === editing.id);
+                    if (latestRow) {
+                      setEditing({ id: latestRow.id, version: latestRow.version });
+                      setValidation(null);
+                    }
+                  }}
+                >
+                  {t(locale, 'requirements.useLatest')}
+                </button>
+              )}
             <button
               type="button"
               disabled={busy}
               onClick={() => {
-                const latestRow = rows.find((row) => row.id === editing.id);
-                if (latestRow) {
-                  setEditing({ id: latestRow.id, version: latestRow.version });
-                  setValidation(null);
-                }
+                setEditing(null);
+                setEditText('');
+                setValidation(null);
               }}
             >
-              {t(locale, 'requirements.useLatest')}
+              {t(locale, 'requirements.cancel')}
             </button>
-          )}
-        {editing && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              setEditing(null);
-              setText('');
-              setValidation(null);
-            }}
-          >
-            {t(locale, 'requirements.cancel')}
-          </button>
-        )}
-      </form>
+          </form>
+        </dialog>
+      )}
       <ResourceState
         locale={locale}
         loading={loading}
@@ -299,10 +350,12 @@ export default function Requirements({ projectId, locale }: { projectId: string;
               <button
                 type="button"
                 disabled={busy || (mode === 'pages' && paged.requestedPage !== page)}
-                onClick={() => {
+                onClick={(event) => {
+                  editTrigger.current = event.currentTarget;
                   setEditing({ id: row.id, version: row.version });
-                  setText(row.text);
+                  setEditText(row.text);
                   setValidation(null);
+                  setFailure(false);
                 }}
               >
                 {t(locale, 'requirements.edit')}

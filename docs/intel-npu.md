@@ -251,9 +251,9 @@ curl --unix-socket "$PWD/.npu/run/runtime.sock" http://localhost/health
 
 ## 4. Подключение приложения
 
-Используйте прежние `.env`, имя Compose-проекта и volumes по корневому README.
+Используйте прежние `.env`, имя Compose-проекта и volumes по [руководству Compose](compose.ru.md).
 Embeddings BGE-M3 должны быть явно загружены и закреплены digest по инструкции
-первого запуска в README (CPU) либо Intel Arc. Для NPU-генерации скачивание
+[первого запуска](compose.ru.md#первый-запуск-и-загрузка-моделей) (CPU) либо Intel Arc. Для NPU-генерации скачивание
 Qwen через Ollama не требуется: используются экспортированные выше IR-веса.
 Для NPU не меняйте `PROJECT_CREATOR_GENERATOR_DIGEST`: это digest
 Ollama, он игнорируется выбранным NPU-адаптером.
@@ -497,4 +497,4 @@ socket удалён; веса и общий compiled cache сохранены.
 Локальные технические артефакты: `logs/npu/issue45-hardware-acceptance.json`,
 `logs/npu/issue45-cancel-then-generate.log`,
 `logs/npu/issue45-hardware-runtime.log` и журналы lifecycle. Логи исключены из Git
-и Docker build context. Воспроизводимая команда — в разделе замены анализа README.
+и Docker build context. Воспроизводимая команда — в [разделе замены анализа](requirement-analysis.ru.md#замена-параметров-выполняющегося-анализа).

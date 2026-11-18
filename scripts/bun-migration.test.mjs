@@ -24,7 +24,13 @@ test('Docker and GitHub workflows install from the frozen Bun lockfile', () => {
   assert.match(dockerfile, /bun install --frozen-lockfile/);
   assert.doesNotMatch(dockerfile, /npm ci/);
   assert.match(dockerfile, /bun run build/);
-  assert.match(dockerfile, /FROM node:24\.22\.1-bookworm-slim AS runtime/);
+  assert.match(dockerfile, /FROM node:26\.13\.1-bookworm-slim AS build/);
+  assert.match(dockerfile, /FROM node:26\.13\.1-bookworm-slim AS runtime/);
+  assert.match(read('compose.yml'), /image: node:26\.13\.1-bookworm-slim/);
+  assert.match(read('compose.smoke.yml'), /image: node:26\.13\.1-bookworm-slim/);
+  for (const workflow of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
+    assert.match(read(workflow), /node-version: '26\.13\.1'/);
+  }
   for (const workflow of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
     const content = read(workflow);
     assert.match(content, /oven-sh\/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2\.2\.0/);

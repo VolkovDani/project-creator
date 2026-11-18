@@ -1,7 +1,7 @@
 # Test-only deterministic local Ollama protocol server. Never use with real data.
 services:
   ollama:
-    image: node:24.22.1-bookworm-slim
+    image: node:26.13.1-bookworm-slim
     entrypoint: ["node", "/fixtures/ollama-fixture.mjs"]
     volumes:
       - ./scripts/ollama-fixture.mjs:/fixtures/ollama-fixture.mjs:ro

@@ -43,7 +43,7 @@ Suggested operational checks for reports include:
    smoke with a representative project and requirements. Include both a known
    collision and a compatible pair and inspect sources/provenance.
 3. Restart the Compose stack and confirm persisted data, model connectivity, and
-   analysis recovery. Exercise backup and restore using the README commands.
+   analysis recovery. Exercise backup and restore using the [backup and restore commands](compose.md#stop-update-and-back-up).
 4. Upgrade an existing installation from the previous supported revision after
    taking a backup; record migration output and verify existing project and
    requirement data remains readable.

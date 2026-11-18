@@ -192,8 +192,9 @@ test('saving a new source version refetches its summary without another SSE even
   await expect(card.getByText(suggestion, { exact: true })).toBeVisible();
   const before = api.summaryReads();
   await card.getByRole('button', { name: 'Изменить', exact: true }).click();
-  await page.getByLabel('Текст требования').fill('Обновлённая версия требования.');
-  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Текст требования').fill('Обновлённая версия требования.');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect.poll(api.summaryReads).toBeGreaterThan(before);
   await expect(card.getByText(`${suggestion} v4`, { exact: true })).toBeVisible();
   await expect(card.getByText('Обновлённая версия требования.', { exact: true })).toBeHidden();

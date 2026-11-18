@@ -63,7 +63,11 @@ globalThis.fetch = async (_url, options) => {
     requirements.push(requirement);
     data = {createRequirement: {requirement, fieldErrors: []}};
   } else if (query.includes('indexRequirement(')) {
-    data = {indexRequirement: {status: 'ready', version: 1, errorCode: ''}};
+    data = {indexRequirement: {requirementId: variables.requirement, status: mode === 'complete' ? 'running' : 'ready', version: 1, errorCode: ''}};
+  } else if (query.includes('requirementIndexByIds(')) {
+    assert.equal(variables.project, 'p');
+    assert.ok(requirements.some(row => row.id === variables.requirement));
+    data = {requirementIndexByIds: [{requirementId: variables.requirement, status: 'ready', version: 1, errorCode: ''}]};
   } else if (query.includes('projects(')) {
     data = {projects: []};
   } else throw new Error('Unexpected diagnostic operation: '+query);
@@ -77,7 +81,7 @@ function asyncSmoke(mode) {
     env: {...process.env, COMPOSE_PROJECT_NAME: 'project-creator-smoke', COMPOSE_FILE: 'compose.yml:compose.smoke.yml', SMOKE_TEST_MODE: mode}});
   assert.ifError(result.error);
   const counts = JSON.parse(result.stdout.match(/FIXTURE_COUNTS (\{[^\n]+\})/)[1]);
-  assert.equal(counts.starts, 1, 'Exactly one mutation may start an analysis');
+  assert.equal(counts.starts, 1, result.stderr);
   return {...result, counts};
 }
 test('container smoke waits for the same analysis to complete and validates its persisted snapshots', () => {

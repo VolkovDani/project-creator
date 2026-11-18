@@ -23,6 +23,7 @@
   "app.language": "Язык",
   "app.page": "Страница {page}",
   "app.validationUnknown": "Проверьте введённые данные",
+  "ui.backToTop": "Наверх",
   "requirements.title": "Бизнес-требования",
   "requirements.text": "Текст требования",
   "requirements.add": "Добавить требование",

@@ -28,6 +28,9 @@ func TestGeneratorProvenancePinsEffectiveRequest(t *testing.T) {
 		if generator.Profile() != hex.EncodeToString(sum[:]) {
 			t.Fatal("profile key does not hash saved provenance")
 		}
+		if profile["explanationAlphabet"] != "ru,en" || profile["alphabetRetries"] != float64(1) || profile["alphabetRetryInstruction"] != alphabetRetryInstruction {
+			t.Fatal("missing pair explanation alphabet or retry policy")
+		}
 		if profile["systemPrompt"] != systemPrompt {
 			t.Fatal("missing exact prompt")
 		}

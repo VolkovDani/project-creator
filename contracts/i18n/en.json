@@ -23,6 +23,7 @@
   "app.language": "Language",
   "app.page": "Page {page}",
   "app.validationUnknown": "Please check your input",
+  "ui.backToTop": "Back to top",
   "requirements.title": "Business requirements",
   "requirements.text": "Requirement text",
   "requirements.add": "Add requirement",

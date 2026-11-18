@@ -6,6 +6,8 @@
 
 ## Container smoke and CI
 
+When a worker already owns an indexing job, the smoke test polls the status of that requirement version for up to two minutes.
+
 The regular smoke test starts a temporary Compose project with a test Ollama stub.
 It checks building both images, migrations, and the complete HTTP path through
 Next.js: project → requirements → indexing → collision with source versions,
@@ -498,6 +500,12 @@ complete history of all revisions is not available yet, but the index and analys
 attempts preserve versions and snapshots of the sources used. Editing a requirement
 requires reindexing and makes previous analyses stale. These mechanisms are
 implemented and described in the [search and analysis guide](requirement-analysis.md).
+
+Editing opens a modal dialog; saving closes it, while Cancel and Escape discard
+the edit draft. Clicking the backdrop does not close the dialog, and an in-flight
+save cannot be dismissed. Adding a requirement keeps its own draft. A global
+Back to top button appears after scrolling more than 400 pixels and respects the
+operating system's reduced-motion setting.
 
 ## Keeping two open clients current (SSE, MVP 5)
 

@@ -248,6 +248,24 @@ schema; IDs/versions of the exact sources provided, allowed verdicts, and explan
 length are validated. This reduces incorrect responses but does not make LLM output
 fact.
 
+Both Ollama and OpenVINO ask for pair explanations in Russian. The server accepts
+Russian letters and ASCII Latin letters for technical terms, along with digits,
+whitespace, punctuation, and symbols such as emoji. The check applies to the
+entire explanation, including single-letter insertions and quotations. It places
+no alphabet restriction on the source requirements.
+
+If the explanation contains a disallowed character, the adapter makes one more
+generation attempt with a stricter language instruction and the original pair.
+The rejected response is omitted from the prompt. The retry uses the time left
+within the pair's 120-second limit and stops on cancellation. A second violation
+fails the pair and follows the existing manual retry flow. Other errors do not
+trigger an automatic retry. Rejected output is neither edited nor saved as a
+successful finding. This check enforces an alphabet and cannot determine the
+language or quality of the explanation.
+
+The language and retry rules are part of the generator profile. New runs do not
+reuse findings made with the previous profile, and saved history remains intact.
+
 Ordinary CI checks retrieval, workflows, access, and known collision/compatible
 requirements with deterministic providers. A real local generator check runs separately:
 

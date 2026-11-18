@@ -31,18 +31,23 @@ test('create a project and open it after reload', async ({ page }) => {
   const other = await page.context().newPage();
   await other.goto(page.url());
   await other.getByRole('button', { name: 'Изменить' }).click();
-  await other.getByLabel('Текст требования').fill('Мой черновик');
+  await other.getByRole('dialog').getByLabel('Текст требования').fill('Мой черновик');
   await page.getByRole('button', { name: 'Изменить' }).click();
-  await page.getByLabel('Текст требования').fill('Требование два');
-  await page.getByRole('button', { name: 'Сохранить' }).click();
+  await page.getByRole('dialog').getByLabel('Текст требования').fill('Требование два');
+  await page.getByRole('dialog').getByRole('button', { name: 'Сохранить' }).click();
   await expect(page.getByText('Версия 2')).toBeVisible();
-  await other.getByRole('button', { name: 'Сохранить' }).click();
+  await other.getByRole('dialog').getByRole('button', { name: 'Сохранить' }).click();
   await expect(
-    other.getByText('Требование изменилось или недоступно. Обновите данные.'),
+    other.getByRole('dialog').getByText('Требование изменилось или недоступно. Обновите данные.'),
   ).toBeVisible();
-  await expect(other.getByLabel('Текст требования')).toHaveValue('Мой черновик');
-  await other.getByRole('button', { name: 'Сохранить черновик поверх актуальной версии' }).click();
-  await other.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(other.getByRole('dialog').getByLabel('Текст требования')).toHaveValue(
+    'Мой черновик',
+  );
+  await other
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Сохранить черновик поверх актуальной версии' })
+    .click();
+  await other.getByRole('dialog').getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(other.getByText('Версия 3')).toBeVisible();
   await page.reload();
   await revealOriginal(page);
@@ -129,8 +134,8 @@ test('two tabs receive project and requirement invalidations without reload', as
     timeout: 15000,
   });
   await page.getByRole('button', { name: 'Изменить' }).click();
-  await page.getByLabel('Текст требования').fill('Changed in another tab');
-  await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await page.getByRole('dialog').getByLabel('Текст требования').fill('Changed in another tab');
+  await page.getByRole('dialog').getByRole('button', { name: 'Сохранить', exact: true }).click();
   await revealOriginal(watcher);
   await expect(watcher.getByText('Changed in another tab', { exact: true })).toBeVisible({
     timeout: 15000,

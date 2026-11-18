@@ -81,6 +81,8 @@ func TestSummaryOllamaInvalidOutputRetryAndLongPreview(t *testing.T) {
 		wantErr  error
 		calls    int
 	}{
+		{"source-language-corrected", []string{`{"summary":"Сохранить требование."}`, `{"summary":"Save the requirement."}`}, nil, 2},
+		{"source-language-exhausted", []string{`{"summary":"Сохранить требование."}`}, ErrInvalidSummary, 2},
 		{"long-valid", []string{`{"summary":"` + strings.Repeat("x", 351) + `"}`}, nil, 1},
 		{"foreign-letters-invalid", []string{`{"summary":"必须保存要求"}`}, ErrInvalidSummary, 2},
 		{"foreign-letters-corrected", []string{`{"summary":"必须保存要求"}`, `{"summary":"Save the requirement."}`}, nil, 2},
@@ -208,7 +210,7 @@ func TestSummaryOllamaRejectsEscapedInputBeforeRuntimeButAllowsLongText(t *testi
 			summaryTags(w, summaryDigest)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"done": true, "done_reason": "stop", "message": map[string]any{"role": "assistant", "content": `{"summary":"short"}`}})
+		json.NewEncoder(w).Encode(map[string]any{"done": true, "done_reason": "stop", "message": map[string]any{"role": "assistant", "content": `{"summary":"Кратко"}`}})
 	}))
 	defer server.Close()
 	g, err := NewSummaryOllama(server.URL, summaryModel, summaryDigest)
@@ -260,7 +262,7 @@ func TestSummaryOllamaPreservesLongPreviewWithoutRetry(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	got, e := g.Summarize(context.Background(), summarySource("Full original"))
+	got, e := g.Summarize(context.Background(), summarySource("Полный оригинал"))
 	if e != nil || got != want || calls != 1 {
 		t.Fatalf("long preview lost: bytes=%d calls=%d err=%v", len(got), calls, e)
 	}

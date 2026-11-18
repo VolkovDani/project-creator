@@ -1,6 +1,9 @@
 package analysis
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSummaryLanguagePolicy(t *testing.T) {
 	policy, err := NewSummaryLanguagePolicy("")
@@ -94,5 +97,24 @@ func TestSummarySourceIdentifierBoundaries(t *testing.T) {
 				t.Fatalf("ValidForSource = %v, want %v", got, tc.valid)
 			}
 		})
+	}
+}
+
+func TestSummarySourceAlphabetSelection(t *testing.T) {
+	for _, tc := range []struct{ config, source, want string }{
+		{"ru,en", "Только аудитор скачивает отчёт через API.", "ru"},
+		{"ru,en", "Only auditors may download the report.", "en"},
+		{"ru,en", "Аудитор проверяет отчёт. Only admins can export.", "en,ru"},
+		{"ru,en", "123", "en,ru"},
+		{"ru,en", "中国的规定", "en,ru"},
+		{"ru,en,fr", "Export the report.", "en,fr"},
+	} {
+		policy, err := NewSummaryLanguagePolicy(tc.config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(policy.forSource(tc.source).Codes(), ","); got != tc.want {
+			t.Errorf("%s / %q: got %s, want %s", tc.config, tc.source, got, tc.want)
+		}
 	}
 }

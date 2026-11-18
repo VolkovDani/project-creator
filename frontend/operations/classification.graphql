@@ -1,0 +1,16 @@
+fragment ClassificationFields on RequirementClassification {
+  requirementId textVersion revision status semanticType representationType
+  source rulesVersion model createdAt alternatives { semanticType representationType score }
+}
+query RequirementClassification($projectId: ID!, $requirementId: ID!) {
+  requirementClassification(projectId: $projectId, requirementId: $requirementId) { ...ClassificationFields }
+}
+query ClassificationHistory($projectId: ID!, $requirementId: ID!, $limit: Int!, $offset: Int!) {
+  requirementClassificationHistory(projectId: $projectId, requirementId: $requirementId, limit: $limit, offset: $offset) { ...ClassificationFields }
+}
+query ClassifiedRequirements($projectId: ID!, $semanticType: String, $representationType: String, $limit: Int!, $offset: Int!) {
+  classifiedRequirements(projectId: $projectId, semanticType: $semanticType, representationType: $representationType, limit: $limit, offset: $offset) { ...ClassificationFields }
+}
+mutation ConfirmClassification($input: ConfirmClassificationInput!) {
+  confirmRequirementClassification(input: $input) { classification { ...ClassificationFields } fieldErrors { path code messageKey params { key value } } }
+}

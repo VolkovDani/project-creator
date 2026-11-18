@@ -284,11 +284,11 @@ architecture or a commitment to implement all listed capabilities.
 
 | Tasks | Place in the plan |
 | --- | --- |
-| [#137 — dependencies and Node 26](https://github.com/VolkovDani/project-creator/issues/137) | Open: consolidate accumulated Dependabot updates and check runtime, CI, and type compatibility. The migration has not been done. |
-| [#99 — explanation character set](https://github.com/VolkovDani/project-creator/issues/99) | Checking allowed characters and one retry within the remaining time budget are agreed; implementation remains to be done. |
-| [#108 — summary language](https://github.com/VolkovDani/project-creator/issues/108) | Reproduce on the pinned profile, agree on language preservation or an explicit translation policy, then repeat the quality smoke without silently weakening the evaluator. |
+| [#137 — dependencies and Node 26](https://github.com/VolkovDani/project-creator/issues/137) | Node 26 migration completed in [PR #140](https://github.com/VolkovDani/project-creator/pull/140). The NPU export dependency update is tracked in #144. |
+| [#99 — explanation character set](https://github.com/VolkovDani/project-creator/issues/99) | Released in v0.1.1 via [PR #155](https://github.com/VolkovDani/project-creator/pull/155). Pair explanations get one correction attempt within the remaining time budget. |
+| [#108 — summary language](https://github.com/VolkovDani/project-creator/issues/108) | Preserve an allowed source language and retry once on violation. Verify on the pinned profile with the existing quality evaluator. |
 | [#105 — Untitled UI](https://github.com/VolkovDani/project-creator/issues/105) | Selected direction instead of MD2/MUI from #46. First resolve licensing, integration method, shared tokens, and a pilot of requirements/analysis screens. License purchase is not agreed; #46 remains open and serves as a source of requirements, not a parallel design system. |
-| #98 — Docker Hardened Images | Separate infrastructure task; coordinate with the runtime change in #137. |
+| #98 — Docker Hardened Images | Keep the Go and Node versions established by #137. Local and CI access to the DHI registry is required. |
 | #22 — Intel NPU | Additional hardware reports, embeddings, and CPU/GPU/NPU comparison; these do not block the already published prerelease. |
 | #40 — SSR | Based on measured need. |
 | #49–53 — typology and classification | After reviewing the data model and quality measurements; benchmark #50 must precede the decision on automatic classification. |
@@ -308,7 +308,7 @@ Before implementing the next stage, the following must be agreed:
 - Integration method and licensing for Untitled UI in #105, and the future status of the replaced #46.
 - Classification boundaries in #78 — only with separate authorization for that direction.
 
-Proposed near-term order: #137 → #99 → decision on #108 → #105 pilot →
+Proposed near-term order: #108 → #105 pilot →
 glossary #77. This is a recommendation for choosing the next work, not an
 approved schedule or authorization to start all tasks. For classification:
 agree on #49 → reference set and benchmark #50 → decide on #51–53. Measurements

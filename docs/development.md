@@ -460,8 +460,7 @@ without separate authentication and access control.
 
 After changing the GraphQL schema and operations, run:
 
-Codegen versions, the reason for the targeted `minimatch` override, and its removal
-process are described in the [codegen dependency assessment](codegen-dependencies.md).
+The generator reads the local SDL and `operations/*.graphql` with GraphQL Code Generator Core and the two pinned TypeScript plugins. CI validates the operations and compares the generated file with Git.
 
 ```bash
 cd frontend

@@ -51,9 +51,21 @@ for (const text of texts) {
   requirements.push(data.createRequirement.requirement);
 }
 for (const requirement of requirements) {
-  const data = await graphql('mutation($project:ID!,$requirement:ID!){indexRequirement(projectId:$project,requirementId:$requirement){status version errorCode}}', {project: project.id, requirement: requirement.id});
-  assert.equal(data.indexRequirement.status, 'ready', `Indexing failed: ${data.indexRequirement.errorCode}`);
-  assert.equal(data.indexRequirement.version, 1);
+  const data = await graphql('mutation($project:ID!,$requirement:ID!){indexRequirement(projectId:$project,requirementId:$requirement){requirementId status version errorCode}}', {project: project.id, requirement: requirement.id});
+  let index = data.indexRequirement;
+  const deadline = performance.now() + 120_000;
+  while (true) {
+    assert.equal(index?.requirementId, requirement.id, 'Index result belongs to a different requirement or is missing');
+    assert.equal(index.version, requirement.version, 'Requirement version changed while indexing');
+    if (index.status !== 'pending' && index.status !== 'running') break;
+    await delay(1000);
+    const remaining = Math.floor(deadline - performance.now());
+    assert.ok(remaining > 0, 'Indexing timed out for ' + requirement.id);
+    const states = await graphql('query($project:ID!,$requirement:ID!){requirementIndexByIds(projectId:$project,requirementIds:[$requirement]){requirementId status version errorCode}}',
+      {project: project.id, requirement: requirement.id}, remaining);
+    [index] = states.requirementIndexByIds;
+  }
+  assert.equal(index.status, 'ready', `Indexing failed: ${index.errorCode}`);
 }
 const analysisFields = 'id status outcome stale errorCode findings{leftId rightId leftVersion rightVersion verdict explanation} sources{id version text}';
 const known = new Map(requirements.map(requirement => [requirement.id, requirement]));

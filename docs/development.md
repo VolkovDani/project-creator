@@ -6,6 +6,8 @@
 
 ## Container smoke and CI
 
+When a worker already owns an indexing job, the smoke test polls the status of that requirement version for up to two minutes.
+
 The regular smoke test starts a temporary Compose project with a test Ollama stub.
 It checks building both images, migrations, and the complete HTTP path through
 Next.js: project → requirements → indexing → collision with source versions,

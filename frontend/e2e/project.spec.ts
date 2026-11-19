@@ -147,6 +147,9 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
   await page.getByRole('button', { name: 'Добавить требование' }).click();
   await page.getByRole('link', { name: 'Словарь проекта', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'Словарь проекта', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Новое понятие', exact: true }).click();
+  await expect(page.getByRole('dialog').getByLabel('Название понятия')).toHaveValue('');
+  await page.keyboard.press('Escape');
   await expect(page.getByLabel('Режим списка')).toHaveValue('infinite');
   await page.getByLabel('Режим списка').selectOption('pages');
   await expect(page.getByText('Страница 1', { exact: true })).toHaveCount(2);

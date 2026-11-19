@@ -14,6 +14,6 @@ Choose **View mentions** on a term to see current project requirements that
 match its name or variants using the same rules as source highlighting. Select
 a requirement to open its card. Each matching requirement appears once.
 
-Requirements, search, indexing and pair analysis offer a glossary dialog for
-manual entry or selected text. Source selections retain the displayed requirement
+Requirements, search, indexing and pair analysis open the glossary dialog from
+a text selection. Use **New concept** on the project glossary page for manual entry. Source selections retain the displayed requirement
 version. Selections from generated previews and explanations prefill only the name.

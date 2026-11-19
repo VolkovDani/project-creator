@@ -52,6 +52,20 @@ func TestGlossaryCRUDIsolationAndCandidates(t *testing.T) {
 	if got := query("token-a", `{glossaryTerms(projectId:"p",search:"гп",limit:10,offset:0){id}}`, "glossaryTerms").([]any); len(got) != 1 {
 		t.Fatal(got)
 	}
+	// Find a second requirement by variant alone, irrespective of saved provenance.
+	if _, err = s.db.Exec(`INSERT INTO requirements VALUES('s','a','p','ГП принимает отчёт',1,'now','now'),('x','a','p','АГП не совпадает',1,'now','now')`); err != nil {
+		t.Fatal(err)
+	}
+	mentions := fmt.Sprintf(`{glossaryMentions(projectId:"p",termId:%q,first:20){items{id text} pageInfo{hasNextPage}}}`, id)
+	for _, entry := range []struct {
+		token string
+		count int
+	}{{"token-a", 2}, {"token-b", 0}} {
+		page := query(entry.token, mentions, "glossaryMentions").(map[string]any)
+		if len(page["items"].([]any)) != entry.count || page["pageInfo"].(map[string]any)["hasNextPage"] != false {
+			t.Fatal(page)
+		}
+	}
 	for _, version := range []int{2, 1} {
 		v := query("token-a", fmt.Sprintf(`mutation {deleteGlossaryTerm(projectId:"p",id:%q,version:%d){deleted}}`, id, version), "deleteGlossaryTerm").(map[string]any)
 		if v["deleted"] != (version == 1) {

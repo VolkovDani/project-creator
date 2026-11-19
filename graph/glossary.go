@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/VolkovDani/project-creator/internal/glossary"
 	graphql "github.com/graph-gophers/graphql-go"
+	"slices"
 	"strings"
 )
 
@@ -264,6 +265,54 @@ func (r *Resolver) GlossaryCandidatesConnection(ctx context.Context, a GlossaryC
 			out.Items = append(out.Items, &GlossaryCandidate{Name: match.Name, Abbreviation: match.Abbreviation, SourceId: id, SourceVersion: version})
 			out.PageInfo.EndCursor = &cursor
 		}
+	}
+	return out, rows.Err()
+}
+
+func (r *Resolver) GlossaryMentions(ctx context.Context, a GlossaryMentionsArgs) (*GlossaryMentionPage, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
+	w, p, id := workspace(ctx), string(a.ProjectId), string(a.TermId)
+	scope := w + "\x00" + p + "\x00" + id
+	size, c, err := glossaryPageArgs("mentions", scope, a.First, a.After)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := r.DB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
+	if err != nil {
+		return nil, errors.New("glossary unavailable")
+	}
+	defer tx.Rollback()
+	terms, err := glossary.List(ctx, tx, w, p)
+	if err != nil {
+		return nil, errors.New("glossary unavailable")
+	}
+	out := &GlossaryMentionPage{PageInfo: &PageInfo{}}
+	if !slices.ContainsFunc(terms, func(term glossary.Term) bool { return term.ID == id }) {
+		return out, nil
+	}
+	matches := glossary.MentionsTerm(terms, id)
+	rows, err := tx.QueryContext(ctx, `SELECT id,project_id,text,version,created_at,updated_at FROM requirements WHERE workspace=$1 AND project_id=$2 AND id>$3 ORDER BY id`, w, p, c.ID)
+	if err != nil {
+		return nil, errors.New("glossary unavailable")
+	}
+	defer rows.Close()
+	for rows.Next() {
+		row := &Requirement{}
+		if err := rows.Scan(&row.ID, &row.ProjectId, &row.Text, &row.Version, &row.CreatedAt, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if !matches(row.Text) {
+			continue
+		}
+		if len(out.Items) == size {
+			out.PageInfo.HasNextPage = true
+			break
+		}
+		out.Items = append(out.Items, row)
+		cursor := encodeConnectionCursor("mentions", scope, id, string(row.ID))
+		out.PageInfo.EndCursor = &cursor
 	}
 	return out, rows.Err()
 }

@@ -10,6 +10,10 @@ In an original requirement, matching uses Unicode letters, combining marks, digi
 
 The local summary worker receives matching confirmed definitions with term IDs and revisions, bounded to approximately 3 KiB of JSON. Ambiguous names carry an ambiguity marker. Glossary changes invalidate affected current-version summaries and fence in-flight results. A configured worker regenerates them asynchronously. Cancellation stays effective. The canonical requirement, its version and the embedding index are preserved.
 
+Choose **View mentions** on a term to see current project requirements that
+match its name or variants using the same rules as source highlighting. Select
+a requirement to open its card. Each matching requirement appears once.
+
 Requirements, search, indexing and pair analysis offer a glossary dialog for
 manual entry or selected text. Source selections retain the displayed requirement
 version. Selections from generated previews and explanations prefill only the name.

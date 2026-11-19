@@ -1,12 +1,5 @@
 import { expect, test } from '@playwright/test';
 
-async function revealOriginal(page: import('@playwright/test').Page) {
-  const disclosure = page.getByText('Полный исходный текст требования', { exact: true }).last();
-  const details = disclosure.locator('xpath=..');
-  if (!(await details.evaluate((element) => (element as HTMLDetailsElement).open)))
-    await disclosure.click();
-}
-
 test('create a project and open it after reload', async ({ page }) => {
   const name = `Проект ${Date.now()}`;
   await page.goto('/projects/new');
@@ -23,10 +16,8 @@ test('create a project and open it after reload', async ({ page }) => {
   await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
   await page.getByLabel('Текст требования').fill('Требование один');
   await page.getByRole('button', { name: 'Добавить требование' }).click();
-  await revealOriginal(page);
   await expect(page.getByText('Требование один', { exact: true })).toBeVisible();
   await page.reload();
-  await revealOriginal(page);
   await expect(page.getByText('Требование один', { exact: true })).toBeVisible();
   const other = await page.context().newPage();
   await other.goto(page.url());
@@ -50,7 +41,6 @@ test('create a project and open it after reload', async ({ page }) => {
   await other.getByRole('dialog').getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(other.getByText('Версия 3')).toBeVisible();
   await page.reload();
-  await revealOriginal(page);
   await expect(page.getByText('Мой черновик', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Удалить' }).click();
   await expect(page.getByText('Требований пока нет')).toBeVisible();
@@ -129,14 +119,12 @@ test('two tabs receive project and requirement invalidations without reload', as
   await watcher.getByRole('link', { name: 'Требования', exact: true }).first().click();
   await page.getByLabel('Текст требования').fill('Live requirement');
   await page.getByRole('button', { name: 'Добавить требование' }).click();
-  await revealOriginal(watcher);
   await expect(watcher.getByText('Live requirement', { exact: true })).toBeVisible({
     timeout: 15000,
   });
   await page.getByRole('button', { name: 'Изменить' }).click();
   await page.getByRole('dialog').getByLabel('Текст требования').fill('Changed in another tab');
   await page.getByRole('dialog').getByRole('button', { name: 'Сохранить', exact: true }).click();
-  await revealOriginal(watcher);
   await expect(watcher.getByText('Changed in another tab', { exact: true })).toBeVisible({
     timeout: 15000,
   });
@@ -157,7 +145,6 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
     .getByLabel('Текст требования')
     .fill('Генеральный подрядчик (ГП), также Генподрядчик, проверяет документы.');
   await page.getByRole('button', { name: 'Добавить требование' }).click();
-  await revealOriginal(page);
   await page.getByRole('link', { name: 'Словарь проекта', exact: true }).first().click();
   await page.getByRole('button', { name: 'Генеральный подрядчик (ГП)', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -168,10 +155,9 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
     page.getByRole('button', { name: 'Генеральный подрядчик', exact: true }),
   ).toBeVisible();
   await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
-  await revealOriginal(page);
   await page.getByRole('button', { name: 'ГП', exact: true }).click();
   await expect(page.getByText('Исполнитель работ', { exact: true })).toBeVisible();
-  const original = page.locator('details[open] p.user-content').filter({ hasText: 'Генподрядчик' });
+  const original = page.locator('article.card p.user-content').filter({ hasText: 'Генподрядчик' });
   const before = await original.textContent();
   await original.evaluate((paragraph) => {
     const node = paragraph.lastChild;

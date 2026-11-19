@@ -123,9 +123,19 @@ export default function RequirementSummary({
     }
   }
   const hasText = versionMatches && summary?.status === 'ready' && !!summary.text;
+  const source = (
+    <GlossaryOriginal
+      collapsible={hasText}
+      projectId={projectId}
+      requirementId={requirementId}
+      version={requirementVersion}
+      original={original}
+      locale={locale}
+    />
+  );
   return (
-    <section aria-label={t(locale, 'summary.section')}>
-      <p className="muted">{t(locale, 'summary.suggestion')}</p>
+    <section aria-label={hasText ? t(locale, 'summary.section') : undefined}>
+      {hasText ? <p className="muted">{t(locale, 'summary.suggestion')}</p> : source}
       {hasText && displayedSummary?.text ? (
         <GlossaryText>{displayedSummary.text}</GlossaryText>
       ) : (
@@ -179,13 +189,8 @@ export default function RequirementSummary({
           {t(locale, 'summary.cancel')}
         </button>
       )}
-      <GlossaryOriginal
-        projectId={projectId}
-        requirementId={requirementId}
-        version={requirementVersion}
-        original={original}
-        locale={locale}
-      />
+
+      {hasText && source}
     </section>
   );
 }

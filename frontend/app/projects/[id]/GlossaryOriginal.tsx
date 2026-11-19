@@ -16,8 +16,12 @@ type Props = {
   original: string;
   locale: Locale;
 };
-export default function GlossaryOriginal(props: Props) {
+export default function GlossaryOriginal({
+  collapsible,
+  ...props
+}: Props & { collapsible: boolean }) {
   const [open, setOpen] = useState(false);
+  if (!collapsible) return <SourceText key={props.version} {...props} />;
   return (
     <details onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary>{t(props.locale, 'summary.original')}</summary>

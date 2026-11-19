@@ -487,6 +487,8 @@ covered by this exception. Source-less validation stays strict.
 The policy is recorded in the generation profile, so changed policy creates new
 summaries while previous profiles remain in history.
 
+Until a ready preview for the displayed version is available, its card shows the full original directly. When the preview arrives, expand the original to read it.
+
 With `PROJECT_CREATOR_SUMMARY_MODEL` and a full `PROJECT_CREATOR_SUMMARY_DIGEST`
 explicitly set, requirements automatically enter a local background queue after
 saving. `PROJECT_CREATOR_SUMMARY_URL` selects a separate Ollama runtime. CRUD and

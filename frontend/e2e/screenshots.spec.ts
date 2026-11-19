@@ -102,10 +102,6 @@ test('screenshots: desktop projects and requirements', async ({ page }, testInfo
   ]) {
     await page.getByLabel('Текст требования').fill(text);
     await page.getByRole('button', { name: 'Добавить требование' }).click();
-    const card = page
-      .locator('article.card')
-      .filter({ has: page.getByText(text, { exact: true }) });
-    await card.getByText('Полный исходный текст требования', { exact: true }).click();
     await expect(page.getByText(text, { exact: true })).toBeVisible();
   }
   const requirements = resolve(directory, 'project-requirements-desktop.png');

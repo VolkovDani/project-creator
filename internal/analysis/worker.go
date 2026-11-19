@@ -196,6 +196,14 @@ func (s *Service) process(lockConnection *sql.Conn, workspace string, r *Run) {
 			r.ReasonCode = reason
 			r.MissingRequirementIDs = missing
 		}
+		if code == "" {
+			if err = s.currentWith(finishCtx, tx, workspace, r); err != nil {
+				code = errorCode(err)
+			} else if s.classifier == nil && r.FailedPairs > 0 {
+				// Invalid output is the only pair failure the sequential queue runs past.
+				code = "INVALID_OUTPUT"
+			}
+		}
 		if code != "" {
 			if ctx.Err() != nil {
 				code = "INTERRUPTED"
@@ -204,36 +212,26 @@ func (s *Service) process(lockConnection *sql.Conn, workspace string, r *Run) {
 				return
 			}
 		} else {
-			if err = s.currentWith(finishCtx, tx, workspace, r); err != nil {
-				if interruptRun(finishCtx, tx, workspace, r, errorCode(err), true) != nil {
-					return
-				}
-			} else {
-				var collision, insufficient, completed, failed int
-				if tx.QueryRowContext(finishCtx, `SELECT count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='failed') FROM analysis_pairs WHERE run_id=$1`, r.ID).Scan(&collision, &insufficient, &completed, &failed) != nil {
-					return
-				}
-				r.Status = "completed"
-				if failed > 0 {
-					r.Status = "failed"
-					r.ErrorCode = "PAIR_FAILED"
-				}
-				r.Stage = "finished"
-				r.ActivePairID = ""
-				r.Outcome = "no_collisions_found"
-				if collision > 0 {
-					r.Outcome = "possible_collision"
-				} else if insufficient > 0 || completed == 0 {
-					r.Outcome = "insufficient"
-				}
-				if insufficient > 0 {
-					r.ReasonCode = "MODEL_INSUFFICIENT"
-				} else if completed == 0 && r.ReasonCode == "" {
-					r.ReasonCode = "NO_CANDIDATES"
-				}
-				if writeRun(finishCtx, tx, workspace, r, true) != nil {
-					return
-				}
+			r.Status = "completed"
+			if r.FailedPairs > 0 {
+				r.Status = "failed"
+				r.ErrorCode = "PAIR_FAILED"
+			}
+			r.Stage = "finished"
+			r.ActivePairID = ""
+			r.Outcome = "no_collisions_found"
+			if r.CollisionPairs > 0 {
+				r.Outcome = "possible_collision"
+			} else if r.InsufficientPairs > 0 || r.CompletedPairs == 0 {
+				r.Outcome = "insufficient"
+			}
+			if r.InsufficientPairs > 0 {
+				r.ReasonCode = "MODEL_INSUFFICIENT"
+			} else if r.CompletedPairs == 0 && r.ReasonCode == "" {
+				r.ReasonCode = "NO_CANDIDATES"
+			}
+			if writeRun(finishCtx, tx, workspace, r, true) != nil {
+				return
 			}
 		}
 		_ = tx.Commit()
@@ -297,11 +295,11 @@ func (s *Service) process(lockConnection *sql.Conn, workspace string, r *Run) {
 			finding, code = checkedCompare(pairCtx, s.generator, pair)
 			pairCancel()
 		}
-		if code != "" {
+		if code != "" && code != "INVALID_OUTPUT" {
 			finish(code)
 			return
 		}
-		if err = s.savePair(ctx, workspace, r, p, finding, origin); err != nil {
+		if err = s.savePair(ctx, workspace, r, p, finding, origin, code); err != nil {
 			finish(errorCode(err))
 			return
 		}
@@ -385,7 +383,7 @@ func (s *Service) nextPair(ctx context.Context, workspace string, r *Run) (*Pair
 	}
 	return p, nil
 }
-func (s *Service) savePair(ctx context.Context, workspace string, r *Run, p *PairResult, f Finding, origin string) error {
+func (s *Service) savePair(ctx context.Context, workspace string, r *Run, p *PairResult, f Finding, origin, code string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return errStorage
@@ -402,7 +400,14 @@ func (s *Service) savePair(ctx context.Context, workspace string, r *Run, p *Pai
 	if err = s.currentWith(ctx, tx, workspace, r); err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE analysis_pairs SET status='completed',verdict=$2,explanation=$3,result_origin=$4,checked_at=clock_timestamp(),error_code='' WHERE id=$1 AND run_id=$5 AND workspace=$6 AND project_id=$7 AND status='running'`, p.ID, f.Verdict, f.Explanation, origin, r.ID, workspace, r.ProjectID)
+	status := "completed"
+	if code != "" {
+		status = "failed"
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE analysis_pairs SET status=$2,verdict=$3,explanation=$4,
+		result_origin=$5,error_code=$6,checked_at=CASE WHEN $2='completed' THEN clock_timestamp() END
+		WHERE id=$1 AND run_id=$7 AND workspace=$8 AND project_id=$9 AND status='running'`,
+		p.ID, status, f.Verdict, f.Explanation, origin, code, r.ID, workspace, r.ProjectID)
 	if err != nil {
 		return errStorage
 	}

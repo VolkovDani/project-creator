@@ -120,7 +120,7 @@ func TestDuplicateComparisonRequestAndResult(t *testing.T) {
 	}
 }
 func TestComparisonRejectsUnsafeResults(t *testing.T) {
-	for _, scenario := range []string{"unknown-field", "foreign-id", "wrong-version", "bad-verdict", "empty-explanation", "long-explanation", "trailing-json", "malformed", "unfinished", "tools", "remote-model", "digest-change", "oversize", "redirect"} {
+	for _, scenario := range []string{"unknown-field", "foreign-id", "wrong-version", "bad-verdict", "empty-explanation", "long-explanation", "alphabet", "trailing-json", "malformed", "unfinished", "tools", "remote-model", "digest-change", "oversize", "redirect"} {
 		t.Run(scenario, func(t *testing.T) {
 			tags := 0
 			chatCalls := 0
@@ -145,6 +145,8 @@ func TestComparisonRejectsUnsafeResults(t *testing.T) {
 					content = strings.Replace(content, `"left"`, `"invented"`, 1)
 				case "wrong-version":
 					content = strings.Replace(content, `"leftVersion":2`, `"leftVersion":3`, 1)
+				case "alphabet":
+					content = strings.Replace(content, "В одном", "中文", 1)
 				case "bad-verdict":
 					content = strings.Replace(content, "collision", "certain", 1)
 				case "empty-explanation":
@@ -176,8 +178,16 @@ func TestComparisonRejectsUnsafeResults(t *testing.T) {
 			}))
 			defer server.Close()
 			p, _ := NewOllama(server.URL, "qwen2.5:7b", pinnedDigest)
-			if _, err := p.Compare(context.Background(), pairFixture()); err == nil {
-				t.Fatal("accepted invalid result")
+			wantCode := "INVALID_OUTPUT"
+			switch scenario {
+			case "remote-model", "digest-change", "oversize", "redirect":
+				wantCode = "GENERATION_FAILED"
+			}
+			if result, code := checkedCompare(context.Background(), p, pairFixture()); result != (Finding{}) || code != wantCode {
+				t.Fatalf("finding=%+v code=%q want=%q", result, code, wantCode)
+			}
+			if scenario == "alphabet" && chatCalls != 2 {
+				t.Fatalf("got %d chat calls, want exactly one corrective retry", chatCalls)
 			}
 			if scenario == "remote-model" && chatCalls != 0 {
 				t.Fatal("sent requirements to remote model")

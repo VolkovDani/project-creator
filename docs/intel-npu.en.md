@@ -187,7 +187,20 @@ This opt-in smoke requires the Go version in go.mod on the host. Also check the 
 
 Record for first and repeated startup: OS/kernel, driver/firmware versions, `pip freeze`, profile, `device_name`, `load_seconds`, total analysis time, prompt tokens, RAM/swap (for example `/usr/bin/time -v` and `free -h`). Confirm NPU execution with a successful request on a pipeline explicitly created with `NPU`, and available driver/monitoring tools—not just `accel0` or health. AUTO/HETERO/CPU/GPU fallback is forbidden in the runtime. Compare CPU/GPU on the same texts, noting different weights/quantization and context separately; identical Qwen names do not mean identical artifacts. Hardware acceptance #22 is not complete until these runs are done.
 
-Diagnostics that avoid exposing source data include `RUNTIME_VERSION_OR_IMPORT`, `NPU_DEVICE_UNAVAILABLE`, `NPU_COMPILE_OR_MODEL`, `PROMPT_LIMIT_OR_TEMPLATE`, `NPU_GENERATION`, `OUTPUT_LIMIT_OR_FINISH`, and `INVALID_JSON_OR_SOURCES` on stderr. At a limit, increase the explicit budget with a new profile or shorten the test data; truncation, JSON repair, and device switching are never automatic.
+Startup and request diagnostics on stderr include `RUNTIME_VERSION_OR_IMPORT`,
+`NPU_DEVICE_UNAVAILABLE`, `NPU_COMPILE_OR_MODEL`, `PROMPT_LIMIT_OR_TEMPLATE`,
+`NPU_GENERATION`, and `INVALID_JSON_OR_SOURCES`.
+
+If a pair returns `INVALID_OUTPUT`, check the latest rejection in
+`logs/npu/runtime.log`. `OUTPUT_TOKEN_LIMIT` means the generated sequence reached
+the profile's token budget. `OUTPUT_NON_STOP` means generation ended below that
+budget with a finish reason other than `STOP`. `OUTPUT_SHAPE` means OpenVINO
+returned an unexpected number of sequences or finish reasons. The record includes
+the prompt token count, output budget, sequence count and finish reason count.
+When available for a single sequence or reason, it also includes `generated_tokens`
+and `finish_reason`. Source text and generated explanations stay out of the log.
+For a confirmed token limit, use a new profile with a larger explicit budget or
+shorten the test data. Truncation, JSON repair, and device switching are never automatic.
 
 ### Results on 2026-10-29 before enabling JSON Schema
 

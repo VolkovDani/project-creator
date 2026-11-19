@@ -273,10 +273,13 @@ def worker(connection, model, manifest, cache):
             'MAX_PROMPT_LEN': manifest['max_prompt_tokens'],
             'MIN_RESPONSE_LEN': manifest['max_new_tokens'], 'CACHE_DIR': str(cache)})
         tokenizer = pipeline.get_tokenizer()
+        finish_names = {getattr(genai.GenerationFinishReason, name): name
+                        for name in ('NONE', 'STOP', 'LENGTH', 'TOOL_CALL')}
         connection.send({'ready': True, 'device_name': name,
                          'load_seconds': time.monotonic()-started})
         while True:
             request = connection.recv()
+            diagnostics = {}
             try:
                 stage = 'PROMPT_LIMIT_OR_TEMPLATE'
                 encoded, tokens = format_prompt(tokenizer, request, manifest['max_prompt_tokens'])
@@ -285,19 +288,28 @@ def worker(connection, model, manifest, cache):
                 structured = genai.StructuredOutputConfig(json_schema=json.dumps(request['schema']))
                 output = pipeline.generate(encoded, max_new_tokens=manifest['max_new_tokens'],
                                            do_sample=False, echo=False, structured_output_config=structured)
-                stage = 'OUTPUT_LIMIT_OR_FINISH'
-                if (len(output.tokens) != 1 or len(output.finish_reasons) != 1
-                        or output.finish_reasons[0] != genai.GenerationFinishReason.STOP
-                        or len(output.tokens[0]) >= manifest['max_new_tokens']):
-                    raise ValueError('incomplete generation')
+                stage = 'OUTPUT_SHAPE'
+                sequences, reasons = output.tokens, output.finish_reasons
+                diagnostics = {'prompt_tokens': tokens, 'max_new_tokens': manifest['max_new_tokens'],
+                               'sequence_count': len(sequences), 'finish_reason_count': len(reasons)}
+                if len(sequences) == 1:
+                    diagnostics['generated_tokens'] = len(sequences[0])
+                if len(reasons) == 1:
+                    diagnostics['finish_reason'] = finish_names.get(reasons[0], 'UNKNOWN')
+                if len(sequences) != 1 or len(reasons) != 1:
+                    raise OutputRejected('OUTPUT_SHAPE')
+                if len(sequences[0]) >= manifest['max_new_tokens']:
+                    raise OutputRejected('OUTPUT_TOKEN_LIMIT')
+                if reasons[0] != genai.GenerationFinishReason.STOP:
+                    raise OutputRejected('OUTPUT_NON_STOP')
                 stage = 'INVALID_JSON_OR_SOURCES'
-                finding = parse_finding(tokenizer.decode(output.tokens[0]), request['pair'])
+                finding = parse_finding(tokenizer.decode(sequences[0]), request['pair'])
                 connection.send({'finding': finding, 'prompt_tokens': tokens,
                                  'seconds': time.monotonic()-started})
             except Exception as error:
                 if isinstance(error, OutputRejected):
                     stage = error.code
-                print(json.dumps({'error': stage, 'device': 'NPU'}), file=sys.stderr, flush=True)
+                print(json.dumps({'error': stage, 'device': 'NPU', **diagnostics}), file=sys.stderr, flush=True)
                 connection.send({'error': stage})
     except BaseException:
         print(json.dumps({'error': stage, 'device': 'NPU'}), file=sys.stderr, flush=True)

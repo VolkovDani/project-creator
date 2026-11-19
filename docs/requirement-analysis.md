@@ -225,10 +225,12 @@ limit per batch and each comparison has a 120-second limit; there is no short
 overall cutoff for the whole analysis. Adapter responses are limited to 2 MiB.
 
 Pair results, overall progress, and invalidation are saved after successful commit.
-At the first model-call error, the batch stops: the current pair gets an error, all
-other unchecked pairs get `NOT_PROCESSED`, and completed results remain. The
-processed-pair counter includes completed comparisons and started comparisons that
-failed; `NOT_PROCESSED` is excluded. After model recovery, “Retry failed pairs”
+If the model returns an invalid comparison, the pair gets `INVALID_OUTPUT`
+and the worker continues with the next pair. The run shows a failure if any
+pair still needs a result. In the sequential queue without Laya, a timeout or
+unavailable model stops the run and marks the remaining pairs `NOT_PROCESSED`.
+The processed-pair counter includes successful and failed comparisons that
+actually started. “Retry failed pairs”
 retries only failed and unprocessed pairs from the latest current attempt, preserving
 its ID and completed results. Changed sources or generator/selection profiles
 require a new analysis attempt. There are no infinite automatic retries or cloud

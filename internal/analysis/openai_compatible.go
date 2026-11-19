@@ -111,11 +111,11 @@ func compatibleChat(ctx context.Context, client *oaicompat.Client, messages []ma
 		return "", err
 	}
 	if len(response.Choices) != 1 || response.Choices[0].FinishReason != "stop" {
-		return "", errors.New("incomplete chat completion")
+		return "", invalidModelOutput("incomplete chat completion")
 	}
 	message := response.Choices[0].Message
 	if message.Role != "assistant" || message.Content == nil || message.Refusal != nil || len(message.ToolCalls) > 0 || message.FunctionCall != nil {
-		return "", errors.New("unsupported chat completion message")
+		return "", invalidModelOutput("unsupported chat completion message")
 	}
 	return *message.Content, nil
 }

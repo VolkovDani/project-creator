@@ -1,0 +1,17 @@
+[
+ {"id":"s01","text":"Сократить среднее время ожидания заявки вдвое за квартал.","semantic":"business_requirement","representation":"statement"},
+ {"id":"s02","text":"Как диспетчер, я хочу видеть очередь, чтобы выбрать следующую заявку.","semantic":"stakeholder_requirement","representation":"user_story"},
+ {"id":"s03","text":"Сервис сохраняет выбранный интервал при переходе между экранами.","semantic":"functional_requirement","representation":"statement"},
+ {"id":"s04","text":"Дано 100 одновременных посетителей. Когда они открывают список, то 95% ответов приходят за секунду.","semantic":"non_functional_requirement","representation":"acceptance_criterion"},
+ {"id":"s05","text":"Перед первым запуском перенести открытые заявки из учебного реестра и сверить их количество.","semantic":"transition_requirement","representation":"statement"},
+ {"id":"s06","text":"Скидка доступна только участникам, оплатившим весь период.","semantic":"business_rule","representation":"statement"},
+ {"id":"s07","text":"Для хранения разрешена только выделенная локальная машина.","semantic":"constraint","representation":"statement"},
+ {"id":"s08","text":"Вчера состоялась встреча.","semantic":"other","representation":"statement"},
+ {"id":"s09","text":"Быстрее.","semantic":"unknown","representation":"unknown"},
+ {"id":"s10","text":"Участник открывает каталог, выбирает позицию и отправляет заказ. Если позиция недоступна, сервис возвращает его к выбору.","semantic":"functional_requirement","representation":"use_case"},
+ {"id":"s11","text":"После отключения сети оператор повторяет отправку. Сервис показывает сохранённый локально номер.","semantic":"functional_requirement","representation":"scenario"},
+ {"id":"s12","text":"? → ✓","semantic":"unknown","representation":"other"},
+ {"id":"s13","text":"Как оператор, я хочу, чтобы сервис сформировал файл с выбранными строками, чтобы передать его в архив.","semantic":"functional_requirement","representation":"user_story"},
+ {"id":"s14","text":"Снизить задержку и запретить перенос за пределы здания.","semantic":"unknown","representation":"statement"},
+ {"id":"s15","text":"Если во время приёмки из очереди удаляют последнюю заявку и затем снова открывают список, в нём должно появиться сообщение о пустой очереди. После повторного обновления страницы это сообщение сохраняется до регистрации следующей заявки. Для проверки берут очередь без параллельных отправителей и сравнивают показанное количество с числом сохранённых записей.","semantic":"functional_requirement","representation":"acceptance_criterion"}
+]

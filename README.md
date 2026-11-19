@@ -40,3 +40,5 @@ cd project-creator
 - [Поиск, индексация и анализ требований](docs/requirement-analysis.ru.md)
 - [Разработка, тесты и CI](docs/development.ru.md) · [Архитектура](ARCHITECTURE.md)
 - [Возможности и ограничения v0.1.0](docs/release-notes-v0.1.0.ru.md) · [Цели проекта](GOAL.md)
+
+[Смысловые типы, формы и история ручной классификации](docs/requirement-classification.ru.md).

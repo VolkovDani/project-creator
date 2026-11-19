@@ -298,9 +298,10 @@ architecture or a commitment to implement all listed capabilities.
 | [#78 — knowledge base](https://github.com/VolkovDani/project-creator/issues/78) | Post-release research direction, retaining current pair analysis as the baseline. BACKLOG: start only on a separate explicit direction from the owner. |
 | #39 — observability | BACKLOG: do not start or create a branch or PR without a separate explicit direction from the owner. |
 
+The API and UI use the agreed `classifying` state for active classification in #49 and #52.
+
 Before implementing the next stage, the following must be agreed:
 
-- A unified status contract for #49/#52 or explicit mapping of server statuses in the UI: #49 lists `queued/classifying/suggested`, while #52 lists `running`.
 - Model and automation choice for #51 based on #50; if quality is insufficient, consider manual classification and `needs_review`.
 - Availability of #53 explanations for manual classification and operation without Laya. Currently #53 describes a separate generative-LLM explanation on request after saving the Laya result, while #51 allows Laya to be unconfigured.
 - A shared relationship, provenance, and freshness model for #58/#78; this is an overlap of directions, not a proven contradiction in the current implementation. Automatic classification must not become an implicit condition for viewing already saved relationships. Matching types alone do not create a relationship.

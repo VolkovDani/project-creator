@@ -358,3 +358,7 @@ SSE и ресурсов зафиксированы в [ADR-008](docs/adr/008-lay
 как превью. 350 UTF-8 байт — допуск в Laya, а не лимит хранения. Происхождение,
 версии и очередь описаны в [ADR-009](docs/adr/009-requirement-summaries.md),
 изменение зависимости этапов — в [ADR-010](docs/adr/010-optional-laya.md).
+
+## Классификация требований
+
+Отдельный журнал решений хранит тип, форму, источник, версию текста и ревизию. GraphQL проверяет область доступа и возвращает актуальность вместе с решением. [Контракт и примеры](docs/requirement-classification.ru.md) · [English contract and examples](docs/requirement-classification.md).

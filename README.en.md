@@ -40,3 +40,5 @@ Start it again with `./project-creator up`.
 - [Requirement search, indexing, and analysis](docs/requirement-analysis.md)
 - [Development, tests, and CI](docs/development.md) · [Architecture (Russian)](ARCHITECTURE.md)
 - [Features and limitations in v0.1.0](docs/release-notes-v0.1.0.md) · [Project goals](GOAL.en.md)
+
+[Semantic types, representations and manual classification history](docs/requirement-classification.md).

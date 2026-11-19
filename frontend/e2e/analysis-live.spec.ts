@@ -154,19 +154,20 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
             {
               start: 6,
               end: 6 + word.length,
-              text: word,
-              terms: [
-                {
-                  id: word,
-                  name: word,
-                  definition: word + ' definition',
-                  context: '',
-                  variants: [],
-                },
-              ],
+              terms: [{ id: word }],
             },
           ],
         },
+      };
+    } else if (operation === 'GlossaryTermsByIds') {
+      data = {
+        glossaryTermsByIds: variables.ids.map((word: string) => ({
+          id: word,
+          name: word,
+          definition: `${word} definition`,
+          context: '',
+          variants: [],
+        })),
       };
     } else if (query.includes('analysisPair(')) {
       const pairResponse = structuredClone(pair);
@@ -281,7 +282,7 @@ test('group loads compact rows and only an opened pair fetches texts; reopen reu
   for (const word of ['left', 'right']) {
     const term = details.getByRole('button', { name: word, exact: true });
     await term.hover();
-    await expect(page.getByRole('tooltip')).toContainText(word + ' definition');
+    await expect(page.getByRole('tooltip')).toContainText(`${word} definition`);
     await page.keyboard.press('Escape');
   }
   await expect(details.locator('p.user-content').first()).toHaveText('Saved left source');

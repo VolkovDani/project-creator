@@ -79,6 +79,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
   const {
     summaries,
     failure: summaryFailure,
+    loading: summaryLoading,
     retryLoad: refreshSummaries,
   } = useRequirementSummaries(
     projectId,
@@ -344,6 +345,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
                 locale={locale}
                 summary={summaries.get(row.id)}
                 loadFailure={summaryFailure}
+                loading={summaryLoading}
                 refresh={refreshSummaries}
               />
               <p className="muted">{t(locale, 'requirements.version', { version: row.version })}</p>

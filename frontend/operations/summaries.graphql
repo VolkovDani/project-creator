@@ -5,7 +5,7 @@ query RequirementSummariesByIds($projectId: ID!, $requirementIds: [ID!]!) {
     version
     status
     text
-    glossaryMatches { start end text terms { ...GlossaryFields } }
+    glossaryMatches { start end terms { id } }
     profile
     provenance
     createdAt

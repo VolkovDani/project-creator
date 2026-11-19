@@ -7,18 +7,27 @@ import (
 	"unicode"
 )
 
+var asciiLetterRun = regexp.MustCompile(`[A-Za-z]+`)
+
 // Only constrain the corrective generation. Its result still passes all normal
 // checks, including whole identifiers, source numbers and configured-language prose.
 func (p SummaryLanguagePolicy) repairPattern(source string) string {
 	names, labels := p.sourceNames(source)
 	literals := map[string]bool{}
+	add := func(name string) {
+		for _, word := range asciiLetterRun.FindAllString(name, -1) {
+			if !p.Valid(word) {
+				literals[word] = true
+			}
+		}
+	}
 	for _, word := range summaryWord.FindAllString(source, -1) {
 		if names[strings.ToLower(word)] {
-			literals[word] = true
+			add(word)
 		}
 	}
 	for label := range labels {
-		literals[label] = true
+		add(label)
 	}
 	options := make([]string, 0, len(literals)+1)
 	for literal := range literals {
@@ -68,6 +77,12 @@ func (p SummaryLanguagePolicy) repairPattern(source string) string {
 		}
 	}
 	class.WriteString("-]")
-	options = append(options, class.String())
-	return "^(" + strings.Join(options, "|") + ")+$"
+	native := class.String()
+	if len(options) == 0 {
+		return "^" + native + "+$"
+	}
+	// Foreign letter runs and the native class are disjoint. A separator between
+	// runs gives overlapping names (A, AA) a single parse even in long answers.
+	word := "(" + strings.Join(options, "|") + ")"
+	return "^" + native + "*(" + word + native + "+)*" + word + "?$"
 }

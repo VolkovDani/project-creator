@@ -139,3 +139,18 @@ func TestLanguageRepairGrammarKeepsSourceIdentifiersAndRequiresSupportedSpelling
 		}
 	}
 }
+
+func TestLanguageRepairDoesNotConcatenateOverlappingNames(t *testing.T) {
+	p, _ := NewSummaryLanguagePolicy("ru")
+	re := regexp.MustCompile(p.repairPattern("Открыть A и AA при 12 единицах."))
+	if re.MatchString("Значение AAA") || !re.MatchString("Значения AA, A и 12.") {
+		t.Fatal("overlapping names must have a separator")
+	}
+}
+
+func TestLanguageRepairUsesOnlyOneClassForNativeNames(t *testing.T) {
+	p, _ := NewSummaryLanguagePolicy("en")
+	if strings.Contains(p.repairPattern("Enable SSO (Single Sign-On)."), "|") {
+		t.Fatal("English source names must not duplicate the native alphabet")
+	}
+}

@@ -22,6 +22,11 @@ func List(ctx context.Context, db Reader, w, p string) ([]Term, error) {
 	return readTerms(ctx, db, " ORDER BY name,id", w, p)
 }
 
+// TermsByIDs reads the requested terms in the workspace and project.
+func TermsByIDs(ctx context.Context, db Reader, workspace, projectID string, ids []string) ([]Term, error) {
+	return readTerms(ctx, db, " AND id = ANY($3::text[]) ORDER BY name,id", workspace, projectID, ids)
+}
+
 func TermPage(ctx context.Context, db Reader, w, p, search, name, id string, limit int) ([]Term, error) {
 	return readTerms(ctx, db, ` AND (name,id)>($3,$4) AND (strpos(lower(name),lower($5))>0 OR EXISTS (SELECT FROM jsonb_array_elements(variants) v WHERE strpos(lower(v->>'text'),lower($5))>0)) ORDER BY name,id LIMIT $6`, w, p, name, id, strings.TrimSpace(search), limit)
 }

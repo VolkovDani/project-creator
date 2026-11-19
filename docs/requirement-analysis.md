@@ -493,7 +493,7 @@ With `PROJECT_CREATOR_SUMMARY_MODEL` and a full `PROJECT_CREATOR_SUMMARY_DIGEST`
 explicitly set, requirements automatically enter a local background queue after
 saving. `PROJECT_CREATOR_SUMMARY_URL` selects a separate Ollama runtime. CRUD and
 search do not wait for generation; summaries are tied to the source version and
-profile. The soft generation target is 350 UTF-8 bytes. Longer valid previews
+profile. The generator removes repetition and preserves obligations and identifiers without a byte target. Longer valid previews
 remain available alongside the full original. Pair analysis compares full sources
 independently of summary availability or length. New runs use the direct generator
 profile for cache reuse. Previous Laya runs retain their stage details and model

@@ -146,6 +146,11 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
     .fill('Генеральный подрядчик (ГП), также Генподрядчик, проверяет документы.');
   await page.getByRole('button', { name: 'Добавить требование' }).click();
   await page.getByRole('link', { name: 'Словарь проекта', exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: 'Словарь проекта', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Режим списка')).toHaveValue('infinite');
+  await page.getByLabel('Режим списка').selectOption('pages');
+  await expect(page.getByText('Страница 1', { exact: true })).toHaveCount(2);
+  await page.getByLabel('Режим списка').selectOption('infinite');
   await page.getByRole('button', { name: 'Генеральный подрядчик (ГП)', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByLabel('Название понятия')).toHaveValue('Генеральный подрядчик');

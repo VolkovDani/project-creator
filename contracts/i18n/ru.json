@@ -272,6 +272,8 @@
   "glossary.noMentions": "В текущих требованиях упоминаний нет.",
   "glossary.new": "Новое понятие",
   "glossary.empty": "Подходящих понятий нет",
+  "glossary.openMention": "Открыть в тексте",
+  "glossary.mentionChanged": "Требование изменилось. Показана текущая версия, место упоминания могло измениться.",
   "glossary.candidates": "Неподтверждённые кандидаты",
   "glossary.noCandidates": "Предложенных сокращений нет",
   "glossary.ambiguous": "Уточните значение для просмотра",

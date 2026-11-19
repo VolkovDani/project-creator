@@ -13,7 +13,7 @@ export default function GlossaryMatch({
   error,
   reload,
 }: {
-  text: string;
+  text: React.ReactNode;
   terms: Term[];
   locale: Locale;
   loading: boolean;

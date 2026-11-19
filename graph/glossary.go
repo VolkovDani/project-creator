@@ -106,7 +106,12 @@ func (r *Resolver) RequirementGlossary(ctx context.Context, a RequirementGlossar
 	}
 	defer tx.Rollback()
 	var source string
-	e = tx.QueryRowContext(ctx, `SELECT text FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 AND version=$4`, w, p, a.RequirementId, a.Version).Scan(&source)
+	if a.AnalysisId == nil {
+		e = tx.QueryRowContext(ctx, `SELECT text FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 AND version=$4`, w, p, a.RequirementId, a.Version).Scan(&source)
+	} else {
+		e = tx.QueryRowContext(ctx, `SELECT s.source->>'text' FROM analysis_sources s JOIN analysis_runs r ON r.id=s.run_id
+WHERE r.workspace=$1 AND r.project_id=$2 AND r.id=$3 AND s.requirement_id=$4 AND (s.source->>'version')::int=$5`, w, p, *a.AnalysisId, a.RequirementId, a.Version).Scan(&source)
+	}
 	if e == sql.ErrNoRows {
 		return nil, nil
 	}

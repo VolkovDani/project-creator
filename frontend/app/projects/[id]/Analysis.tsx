@@ -44,6 +44,7 @@ import { ListModeSelect, LoadMore } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
 import { GlossaryText } from './GlossaryActions';
+import { SourceText } from './GlossaryOriginal';
 
 const outcomes: Record<string, string> = {
   possible_collision: 'analysis.outcome.collision',
@@ -96,20 +97,28 @@ function SavedSource({
   locale,
   onSource,
   projectId,
+  analysisId,
 }: {
   source: Source;
   locale: Locale;
   onSource?: SourceHandler;
   projectId: string;
+  analysisId: string;
 }) {
   return (
     <div className="analysis-source">
       <p className="muted">
         {source.id} · {t(locale, 'requirements.version', { version: source.version })}
       </p>
-      <GlossaryText sourceId={source.id} version={source.version}>
-        {source.text}
-      </GlossaryText>
+      <SourceText
+        key={JSON.stringify([analysisId, source.id, source.version])}
+        analysisId={analysisId}
+        projectId={projectId}
+        requirementId={source.id}
+        version={source.version}
+        original={source.text}
+        locale={locale}
+      />
       <a
         href={requirementURL(projectId, source.id)}
         onClick={
@@ -240,12 +249,14 @@ function PairSources({
       {pair && (
         <>
           <SavedSource
+            analysisId={runId}
             projectId={projectId}
             source={pair.left}
             locale={locale}
             onSource={onSource}
           />
           <SavedSource
+            analysisId={runId}
             projectId={projectId}
             source={pair.right}
             locale={locale}
@@ -1132,6 +1143,7 @@ export default function Analysis({
           {!candidatesKnown &&
             run.sources.map((source) => (
               <SavedSource
+                analysisId={run.id}
                 projectId={projectId}
                 key={`${source.id}:${source.version}`}
                 source={source}

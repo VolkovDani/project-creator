@@ -10,6 +10,7 @@ import GlossaryMatch from './GlossaryMatch';
 type Props = {
   projectId: string;
   requirementId: string;
+  analysisId?: string;
   version: number;
   original: string;
   locale: Locale;
@@ -27,18 +28,25 @@ export default function GlossaryOriginal({
     </details>
   );
 }
-function SourceText({ projectId, requirementId, version, original, locale }: Props) {
+export function SourceText({
+  projectId,
+  requirementId,
+  version,
+  original,
+  locale,
+  analysisId,
+}: Props) {
   const tag = `project:${projectId}:glossary`;
   const load = useCallback(
     async () =>
       (
         await query(
           RequirementGlossaryDocument,
-          { projectId, requirementId, version },
+          { projectId, requirementId, version, analysisId },
           { tags: [tag, `project:${projectId}:requirements`] },
         )
       ).requirementGlossary,
-    [projectId, requirementId, version, tag],
+    [projectId, requirementId, version, tag, analysisId],
   );
   const result = useResource(load, [tag, `project:${projectId}:requirements`]);
   const chars = Array.from(original),

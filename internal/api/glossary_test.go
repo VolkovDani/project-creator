@@ -183,3 +183,41 @@ func TestCandidateConnectionPaginatesMatchesInsideRequirement(t *testing.T) {
 		t.Fatal("foreign candidates exposed")
 	}
 }
+
+func TestGlossaryUsesScopedAnalysisSourceVersion(t *testing.T) {
+	generator := &cancelAPIGenerator{entered: make(chan struct{})}
+	s, err := NewWithProviders(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"}, nil, generator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	_, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now'); INSERT INTO requirements VALUES('r','a','p','First obligation',1,'now','now'),('s','a','p','Second obligation',1,'now','now')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	save := summaryRequest(t, s, "token-a", `mutation{saveGlossaryTerm(input:{projectId:"p",name:"First",definition:"Initial",context:"",variants:[]}){term{id}}}`)
+	if save["errors"] != nil {
+		t.Fatal(save)
+	}
+	run, err := s.analysis.Start(context.Background(), "a", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.db.Exec(`UPDATE requirements SET text='Changed',version=2 WHERE id='r'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := fmt.Sprintf(`{requirementGlossary(projectId:"p",analysisId:%q,requirementId:"r",version:1){matches{text start end}}}`, run.ID)
+	got := summaryRequest(t, s, "token-a", query)
+	if got["errors"] != nil {
+		t.Fatal(got)
+	}
+	matches := got["data"].(map[string]any)["requirementGlossary"].(map[string]any)["matches"].([]any)
+	if len(matches) != 1 || matches[0].(map[string]any)["text"] != "First" {
+		t.Fatal(got)
+	}
+	other := summaryRequest(t, s, "token-b", query)
+	if other["errors"] != nil || other["data"].(map[string]any)["requirementGlossary"] != nil {
+		t.Fatal(other)
+	}
+}

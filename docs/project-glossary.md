@@ -17,3 +17,5 @@ a requirement to open its card. Each matching requirement appears once.
 Requirements, search, indexing and pair analysis open the glossary dialog from
 a text selection. Use **New concept** on the project glossary page for manual entry. Source selections retain the displayed requirement
 version. Selections from generated previews and explanations prefill only the name.
+
+Inside an analysis pair, highlighted names and variants refer to the current project glossary. Matches use the original text and version saved with the run, even after a requirement is edited.

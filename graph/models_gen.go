@@ -175,6 +175,7 @@ type GlossaryTermsArgs struct {
 }
 type RequirementGlossaryArgs struct {
 	ProjectId     graphql.ID
+	AnalysisId    *graphql.ID
 	RequirementId graphql.ID
 	Version       int32
 }

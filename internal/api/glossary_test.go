@@ -137,3 +137,35 @@ func TestGlossarySummaryRevisionsSurviveProviderDisableAndReactivation(t *testin
 		t.Fatalf("stale glossary context after restart: %v", got)
 	}
 }
+
+func TestCandidateConnectionPaginatesMatchesInsideRequirement(t *testing.T) {
+	s, err := New(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	_, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now'); INSERT INTO requirements SELECT 'a'||n,'a','p','empty',1,'now','now' FROM generate_series(1,50)n; INSERT INTO requirements VALUES('z','a','p','Alpha Beta (AB). Central Depot (CD).',1,'now','now')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func(token, suffix string) map[string]any {
+		t.Helper()
+		out := summaryRequest(t, s, token, `{glossaryCandidatesConnection(projectId:"p",first:1`+suffix+`){items{name} pageInfo{hasNextPage endCursor}}}`)
+		if out["errors"] != nil {
+			t.Fatal(out)
+		}
+		return out["data"].(map[string]any)["glossaryCandidatesConnection"].(map[string]any)
+	}
+	page := read("token-a", "")
+	info := page["pageInfo"].(map[string]any)
+	if len(page["items"].([]any)) != 1 || info["hasNextPage"] != true {
+		t.Fatal(page)
+	}
+	next := read("token-a", fmt.Sprintf(",after:%q", info["endCursor"]))
+	if next["items"].([]any)[0].(map[string]any)["name"] != "Central Depot" || next["pageInfo"].(map[string]any)["hasNextPage"] != false {
+		t.Fatal(next)
+	}
+	if len(read("token-b", "")["items"].([]any)) != 0 {
+		t.Fatal("foreign candidates exposed")
+	}
+}

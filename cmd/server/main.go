@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"github.com/VolkovDani/project-creator/internal/api"
-	"github.com/VolkovDani/project-creator/internal/rag"
 	"log"
 	"net"
 	"net/http"
@@ -12,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/VolkovDani/project-creator/internal/api"
 )
 
 func main() {
@@ -38,30 +38,17 @@ func main() {
 	if strings.TrimSpace(token) != token {
 		log.Fatal("token must not contain edge whitespace")
 	}
-	var embedder rag.Embedder
-	model := os.Getenv("PROJECT_CREATOR_EMBEDDING_MODEL")
-	digest := os.Getenv("PROJECT_CREATOR_EMBEDDING_DIGEST")
-	if model != "" || digest != "" {
-		base := os.Getenv("PROJECT_CREATOR_EMBEDDING_URL")
-		if base == "" {
-			base = os.Getenv("PROJECT_CREATOR_OLLAMA_URL")
-		}
-		if base == "" {
-			base = "http://127.0.0.1:11434"
-		}
-		provider, err := rag.NewOllama(base, model, digest)
-		if err != nil {
-			log.Fatal("invalid local embedding configuration: ", err)
-		}
-		embedder = provider
+	embedder, err := configuredEmbedder(os.Getenv)
+	if err != nil {
+		log.Fatal("invalid embedding configuration: ", err)
 	}
 	generator, err := configuredGenerator(os.Getenv)
 	if err != nil {
-		log.Fatal("invalid local analysis configuration: ", err)
+		log.Fatal("invalid analysis configuration: ", err)
 	}
 	summarizer, err := configuredSummarizer(os.Getenv)
 	if err != nil {
-		log.Fatal("invalid local summary configuration: ", err)
+		log.Fatal("invalid summary configuration: ", err)
 	}
 	s, err := api.NewWithSummaryProviders(path, map[string]string{token: "default"}, embedder, generator, summarizer)
 	if err != nil {

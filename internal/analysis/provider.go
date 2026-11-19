@@ -1,4 +1,4 @@
-// Package analysis contains replaceable local comparison model adapters. Model
+// Package analysis contains replaceable comparison model adapters. Model
 // findings are suggestions tied to supplied versioned sources, never facts.
 package analysis
 
@@ -47,14 +47,16 @@ type Ollama struct {
 	client                                      *http.Client
 }
 
-// generationProvenance records the effective request contract, independently of
-// transport addresses. RuntimeProfile pins NPU weights, tokenizer, runtime and
-// generation settings through the immutable local manifest.
+// generationProvenance records the effective request contract. Compatible API
+// deployments use an endpoint and model identity in place of a weights digest.
+// RuntimeProfile pins NPU weights, tokenizer, runtime and generation settings
+// through the immutable local manifest.
 type generationProvenance struct {
 	Adapter                  string         `json:"adapter"`
 	Model                    string         `json:"model,omitempty"`
 	Digest                   string         `json:"digest,omitempty"`
 	RuntimeProfile           string         `json:"runtimeProfile,omitempty"`
+	EndpointModelIdentity    string         `json:"endpointModelIdentity,omitempty"`
 	ExplanationAlphabet      string         `json:"explanationAlphabet,omitempty"`
 	AlphabetRetries          int            `json:"alphabetRetries,omitempty"`
 	AlphabetRetryInstruction string         `json:"alphabetRetryInstruction,omitempty"`
@@ -220,9 +222,17 @@ func (o *Ollama) Compare(ctx context.Context, pair Pair) (Finding, error) {
 }
 
 func (o *Ollama) generateFinding(ctx context.Context, pair Pair, data []byte, prompt string) (Finding, error) {
-	body, err := json.Marshal(map[string]any{"model": o.model, "stream": false, "messages": []map[string]string{{"role": "system", "content": prompt}, {"role": "user", "content": string(data)}}, "format": findingSchema(), "options": ollamaParameters()})
+	content, err := o.chat(ctx, []map[string]string{{"role": "system", "content": prompt}, {"role": "user", "content": string(data)}}, findingSchema())
 	if err != nil {
-		return Finding{}, errors.New("invalid comparison request")
+		return Finding{}, err
+	}
+	return decodeFinding(content, pair)
+}
+
+func (o *Ollama) chat(ctx context.Context, messages []map[string]string, schema map[string]any) (string, error) {
+	body, err := json.Marshal(map[string]any{"model": o.model, "stream": false, "messages": messages, "format": schema, "options": ollamaParameters()})
+	if err != nil {
+		return "", errors.New("invalid local chat request")
 	}
 	var response struct {
 		Done       bool   `json:"done"`
@@ -234,12 +244,12 @@ func (o *Ollama) generateFinding(ctx context.Context, pair Pair, data []byte, pr
 		} `json:"message"`
 	}
 	if err = o.request(ctx, "POST", "/api/chat", body, &response); err != nil {
-		return Finding{}, err
+		return "", err
 	}
 	if !response.Done || response.DoneReason != "stop" || response.Message.Role != "assistant" || len(response.Message.ToolCalls) != 0 {
-		return Finding{}, errors.New("incomplete or unsupported comparison response")
+		return "", errors.New("incomplete or unsupported local chat response")
 	}
-	return decodeFinding(response.Message.Content, pair)
+	return response.Message.Content, nil
 }
 
 var errExplanationAlphabet = errors.New("comparison explanation contains unsupported characters")

@@ -4,7 +4,8 @@
 
 ## Local embeddings and requirement search
 
-RAG uses PostgreSQL + pgvector and local Ollama. Projects and requirements continue
+RAG stores vectors in PostgreSQL with pgvector. This section uses the local Ollama adapter. For remote indexing, search, comparisons and previews, see [OpenAI-compatible providers](setup-cli.en.md#remote-generation-and-embeddings).
+Projects and requirements continue
 to work when no provider is configured; an indexing attempt reports that the model
 is not configured. Data is not sent to an external API when the local runtime fails.
 

@@ -108,7 +108,7 @@ class FakeRunner:
         return ''
 
 
-class InstallTests(unittest.TestCase):
+class InstallerTestCase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -119,6 +119,8 @@ class InstallTests(unittest.TestCase):
         self.app = cli.Installer(self.root, runner=self.runner, output=io.StringIO())
         self.app.config.ensure('cpu')
 
+
+class InstallTests(InstallerTestCase):
     def test_compose_is_explicit_preserves_project_and_drops_inherited_override(self):
         with patch.dict(os.environ, {'COMPOSE_FILE': 'evil.yml', 'PROJECT_CREATOR_TOKEN': 'do-not-inherit'}):
             self.app.compose('version')
@@ -488,6 +490,132 @@ class LogTests(unittest.TestCase):
         self.assertEqual(environment['HF_HUB_DISABLE_IMPLICIT_TOKEN'],'1')
         self.assertEqual(environment['UV_CACHE_DIR'], str(self.app.npu/'uv-cache'))
         self.assertEqual(environment['UV_NO_PROGRESS'],'1')
+
+
+class RemoteInstallTests(InstallerTestCase):
+    def configure_remote(self, *roles):
+        for role in roles:
+            prefix = 'PROJECT_CREATOR_'+role
+            self.app.config.update_env({prefix+'_URL': 'http://inference.local/v1',
+                                        prefix+'_MODEL': role.lower()+'-model',
+                                        prefix+'_API_KEY': 'private-'+role})
+
+    @unittest.skipUnless(cli.shutil.which('docker'), 'Docker Compose is required')
+    def test_remote_compose_renders_only_app_services_and_scopes_credentials_to_backend(self):
+        self.configure_remote('GENERATOR', 'EMBEDDING')
+        self.app.config.update_env({'PROJECT_CREATOR_EMBEDDING_DIMENSIONS': '1024'})
+        repo = Path(cli.__file__).resolve().parents[2]
+        args = ['docker', 'compose', '--env-file', str(self.root/'.env'), '-f', str(repo/'compose.yml'),
+                '-f', str(repo/'compose.remote.yml'), 'config', '--format', 'json']
+        result = subprocess.run(args, capture_output=True, text=True, env=self.app.environment())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        services = json.loads(result.stdout)['services']
+        self.assertEqual(set(services), {'frontend', 'backend', 'postgres'})
+        settings = services['backend']['environment']
+        for role in ('GENERATOR', 'EMBEDDING'):
+            prefix = 'PROJECT_CREATOR_'+role
+            self.assertEqual(settings[prefix+'_RUNTIME'], 'openai-compatible')
+            self.assertEqual(settings[prefix+'_URL'], 'http://inference.local/v1')
+            self.assertEqual(settings[prefix+'_MODEL'], role.lower()+'-model')
+            self.assertEqual(settings[prefix+'_API_KEY'], 'private-'+role)
+            self.assertNotIn('private-', str(services['frontend']) + str(services['postgres']))
+        self.assertEqual(settings['PROJECT_CREATOR_EMBEDDING_DIMENSIONS'], '1024')
+        dependencies = services['backend']['depends_on']
+        self.assertTrue(dependencies['postgres']['required'])
+        self.assertFalse(dependencies['ollama']['required'])
+
+    def test_npu_with_remote_embeddings_retains_ollama_if_local_summaries_use_it(self):
+        self.app.config.ensure('npu', switch=True)
+        self.configure_remote('EMBEDDING')
+        self.app.config.update_env({'PROJECT_CREATOR_EMBEDDING_RUNTIME': 'openai-compatible'})
+        self.app.compose('config')
+        self.assertIn(str(self.root/'compose.remote.yml'), self.runner.calls[-1])
+        self.assertIn(str(self.root/'compose.npu.yml'), self.runner.calls[-1])
+        self.app.config.update_env({'PROJECT_CREATOR_SUMMARY_MODEL': 'local-summary', 'PROJECT_CREATOR_SUMMARY_DIGEST': 'a'*64})
+        self.app.compose('config')
+        self.assertNotIn(str(self.root/'compose.remote.yml'), self.runner.calls[-1])
+
+    def test_remote_overlay_requires_compose_with_optional_dependencies(self):
+        self.runner.responses = {'version --short': 'v2.20.1', 'docker info': '{"OSType":"linux"}'}
+        with self.assertRaisesRegex(cli.Failure, '2.20.2'):
+            self.app.prerequisites('remote')
+        self.runner.responses['version --short'] = '2.20.2'
+        self.app.prerequisites('remote')
+
+    def test_remote_setup_up_and_doctor_skip_local_model_tools_and_resources(self):
+        self.configure_remote('GENERATOR', 'EMBEDDING')
+        self.runner.responses = {'version --short': '2.30.1', 'docker info': '{"OSType":"linux"}'}
+        with patch.object(cli.Path, 'read_text', autospec=True, side_effect=Path.read_text) as read, \
+             patch.object(self.app, 'inspect_gpu', side_effect=AssertionError), \
+             patch.object(self.app, 'pin_model', side_effect=AssertionError), \
+             patch.object(self.app, 'ollama', side_effect=AssertionError), \
+             patch.object(self.app, 'verify') as verify, patch.object(self.app, 'check_ui'):
+            self.app.setup('remote', switch=True)
+            self.app.check_execution('GENERATOR')
+            self.app.up()
+            self.app.doctor()
+        verify.assert_called()
+        self.assertFalse(any(str(args[0]) == '/proc/meminfo' for args, _ in read.call_args_list))
+        for command in self.runner.calls:
+            if '-f' in command:
+                self.assertIn(str(self.root/'compose.remote.yml'), command)
+            self.assertFalse(any(arg in ('pull', 'model-info') for arg in command))
+        state = self.app.config.path.read_text()
+        self.assertNotIn('private-', state + self.app.output.getvalue() + str(self.runner.calls))
+
+    def test_mixed_installation_with_cached_local_role_uses_prepared_disk_minimum(self):
+        self.configure_remote('GENERATOR')
+        self.app.config.update_env({'PROJECT_CREATOR_GENERATOR_RUNTIME': 'openai-compatible',
+                                    'PROJECT_CREATOR_EMBEDDING_DIGEST': 'a'*64})
+        self.runner.responses = {'version --short': 'v2.20.0', 'docker info': '{"OSType":"linux"}'}
+        with patch.object(Path, 'read_text', return_value='MemTotal: 16777216 kB\nSwapTotal: 0 kB'), \
+             patch.object(cli.shutil, 'disk_usage', return_value=SimpleNamespace(free=8*1024**3)):
+            self.app.prerequisites('cpu')
+
+    def test_remote_up_clears_verified_state_when_provider_configuration_is_incomplete(self):
+        self.app.config.state.update(device='remote', verified=True)
+        self.app.config.save()
+        with self.assertRaisesRegex(cli.Failure, 'CONFIG_PROVIDER'):
+            self.app.up()
+        self.assertFalse(cli.Config(self.root).state['verified'])
+        self.assertFalse(self.runner.calls)
+
+    def test_remote_missing_role_config_fails_before_switch_without_echoing_values(self):
+        self.configure_remote('GENERATOR')
+        original = self.app.config.path.read_text()
+        with patch.object(self.app, 'prerequisites'), self.assertRaisesRegex(cli.Failure, 'EMBEDDING_URL') as error:
+            self.app.setup('remote', switch=True)
+        self.assertEqual(self.app.config.path.read_text(), original)
+        self.assertNotIn('private-', str(error.exception))
+        self.assertEqual(self.runner.calls, [])
+
+    def test_explicit_remote_role_on_cpu_only_prepares_other_role(self):
+        for role, local, model in [('GENERATOR', 'EMBEDDING', 'bge-m3:567m'), ('EMBEDDING', 'GENERATOR', 'qwen2.5:7b')]:
+            with self.subTest(role=role):
+                self.configure_remote(role)
+                self.app.config.update_env({'PROJECT_CREATOR_'+role+'_RUNTIME': 'openai-compatible'})
+                with patch.object(self.app, 'prerequisites', return_value=None), patch.object(self.app, 'up'), patch.object(self.app, 'pin_model') as pin:
+                    self.app.setup('cpu')
+                pin.assert_called_once_with(model, local)
+                self.app.config.update_env({'PROJECT_CREATOR_'+role+'_RUNTIME': '', 'PROJECT_CREATOR_'+role+'_MODEL': ''})
+
+    def test_remote_embedding_verification_queries_synthetic_project_on_reused_indexes(self):
+        self.configure_remote('EMBEDDING')
+        self.app.config.update_env({'PROJECT_CREATOR_EMBEDDING_RUNTIME': 'openai-compatible'})
+        self.app.config.state['fixtures'] = {'fixture': {'project': 'p1'}}
+        requirements = [dict(id='a', text='one', version=1), dict(id='b', text='two', version=1)]
+        def graphql(query, variables):
+            if 'requirements(' in query:
+                return {'requirements': requirements}
+            if 'indexRequirement' in query:
+                return {'indexRequirement': {'status': 'ready', 'version': 1}}
+            self.assertIn('searchRequirements', query)
+            self.assertEqual(variables['p'], 'p1')
+            self.assertIn(variables['text'], ['one', 'two'])
+            return {'searchRequirements': [{'requirementId': 'a', 'version': 1}]}
+        with patch.object(self.app, 'graphql', side_effect=graphql) as calls, patch.object(self.app, 'ollama', side_effect=AssertionError):
+            self.app.fixture('fixture', ['one', 'two'])
+        self.assertEqual(calls.call_count, 4)
 
 
 class VerifyTests(InstallTests):

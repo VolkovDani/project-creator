@@ -19,6 +19,7 @@ import (
 )
 
 const Dimensions = 1024
+const embeddingIndexFormat = "1024\nchunking-v1:1000:100"
 const maximumResponse = 8 * 1024 * 1024
 
 // Embedder is replaceable without coupling retrieval to a model runtime.
@@ -53,7 +54,7 @@ func NewOllama(baseURL, model, expectedDigest string) (*Ollama, error) {
 		return nil, errors.New("Ollama model and full SHA256 digest are required")
 	}
 	digest := strings.TrimPrefix(expectedDigest, "sha256:")
-	profileHash := sha256.Sum256([]byte(model + "\n" + digest + "\n1024\nchunking-v1:1000:100"))
+	profileHash := sha256.Sum256([]byte(model + "\n" + digest + "\n" + embeddingIndexFormat))
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	return &Ollama{baseURL: strings.TrimRight(baseURL, "/"), model: model, digest: digest, profile: hex.EncodeToString(profileHash[:]), client: &http.Client{Transport: transport, Timeout: 90 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirects disabled") }}}, nil
@@ -109,14 +110,22 @@ func (o *Ollama) verifyModel(ctx context.Context) error {
 	}
 	return errors.New("pinned embedding model is not installed locally")
 }
-func (o *Ollama) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+
+func validateEmbeddingInput(texts []string) error {
 	if len(texts) == 0 || len(texts) > 32 {
-		return nil, errors.New("embedding batch must contain 1 to 32 texts")
+		return errors.New("embedding batch must contain 1 to 32 texts")
 	}
 	for _, text := range texts {
 		if !utf8.ValidString(text) || strings.TrimSpace(text) == "" || utf8.RuneCountInString(text) > 10000 {
-			return nil, errors.New("invalid embedding input")
+			return errors.New("invalid embedding input")
 		}
+	}
+	return nil
+}
+
+func (o *Ollama) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	if err := validateEmbeddingInput(texts); err != nil {
+		return nil, err
 	}
 	if err := o.verifyModel(ctx); err != nil {
 		return nil, err
@@ -139,23 +148,31 @@ func (o *Ollama) Embed(ctx context.Context, texts []string) ([][]float32, error)
 		return nil, errors.New("embedding result count mismatch")
 	}
 	for _, vector := range response.Embeddings {
-		if len(vector) != Dimensions {
-			return nil, errors.New("embedding dimension mismatch")
-		}
-		var norm float64
-		for _, value := range vector {
-			v := float64(value)
-			if math.IsNaN(v) || math.IsInf(v, 0) {
-				return nil, errors.New("nonfinite embedding")
-			}
-			norm += v * v
-		}
-		if norm == 0 {
-			return nil, errors.New("zero embedding is not searchable")
+		if err := validateEmbeddingVector(vector); err != nil {
+			return nil, err
 		}
 	}
 	if err = o.verifyModel(ctx); err != nil {
 		return nil, err
 	}
 	return response.Embeddings, nil
+}
+
+func validateEmbeddingVector(vector []float32) error {
+	if len(vector) != Dimensions {
+		return errors.New("embedding dimension mismatch")
+	}
+	nonzero := false
+	for _, value := range vector {
+		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+			return errors.New("nonfinite embedding")
+		}
+		if value != 0 {
+			nonzero = true
+		}
+	}
+	if !nonzero {
+		return errors.New("zero embedding is not searchable")
+	}
+	return nil
 }

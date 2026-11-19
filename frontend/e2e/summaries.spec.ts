@@ -241,3 +241,16 @@ test('a ready summary shows the project definition inside its own text', async (
   await expect(page.getByRole('tooltip')).toContainText('Определение из словаря проекта');
   await expect(page.getByText(original, { exact: true })).toBeHidden();
 });
+
+test('selection in a requirement summary offers to link an existing term', async ({ page }) => {
+  await fixture(page);
+  await page.goto('/projects/summary-project/requirements');
+  await page.getByText(suggestion, { exact: true }).evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+  });
+  await page.getByRole('button', { name: 'Добавить выделение в словарь' }).click();
+  await expect(page.getByLabel('Найти существующее понятие для варианта')).toBeVisible();
+});

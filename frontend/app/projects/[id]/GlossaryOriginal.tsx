@@ -13,6 +13,7 @@ type Props = {
   analysisId?: string;
   version: number;
   original: string;
+  highlight?: { start: number; end: number };
   locale: Locale;
 };
 export default function GlossaryOriginal({
@@ -35,6 +36,7 @@ export function SourceText({
   original,
   locale,
   analysisId,
+  highlight,
 }: Props) {
   const tag = `project:${projectId}:glossary`;
   const load = useCallback(
@@ -51,7 +53,12 @@ export function SourceText({
   const result = useResource(load, [tag, `project:${projectId}:requirements`]);
   return (
     <GlossaryText className="user-content" sourceId={requirementId} version={version}>
-      <MatchedText text={original} matches={result.data?.matches ?? []} locale={locale} />
+      <MatchedText
+        highlight={highlight}
+        text={original}
+        matches={result.data?.matches ?? []}
+        locale={locale}
+      />
     </GlossaryText>
   );
 }
@@ -59,20 +66,42 @@ export function SourceText({
 export function MatchedText({
   text,
   matches,
+  highlight,
   locale,
 }: {
   text: string;
+  highlight?: Props['highlight'];
   matches: NonNullable<RequirementGlossaryQuery['requirementGlossary']>['matches'];
   locale: Locale;
 }) {
   const chars = Array.from(text),
     nodes: React.ReactNode[] = [];
+  function segment(start: number, end: number) {
+    const left = Math.max(start, highlight?.start ?? end);
+    const right = Math.min(end, highlight?.end ?? start);
+    if (left >= right || !highlight || highlight.end > chars.length)
+      return chars.slice(start, end).join('');
+    return (
+      <span key={start}>
+        {chars.slice(start, left).join('')}
+        <mark data-candidate="">{chars.slice(left, right).join('')}</mark>
+        {chars.slice(right, end).join('')}
+      </span>
+    );
+  }
   let pos = 0;
   for (const m of matches) {
-    nodes.push(chars.slice(pos, m.start).join(''));
-    nodes.push(<GlossaryMatch key={m.start} text={m.text} terms={m.terms} locale={locale} />);
+    nodes.push(segment(pos, m.start));
+    nodes.push(
+      <GlossaryMatch
+        key={m.start}
+        text={segment(m.start, m.end)}
+        terms={m.terms}
+        locale={locale}
+      />,
+    );
     pos = m.end;
   }
-  nodes.push(chars.slice(pos).join(''));
+  nodes.push(segment(pos, chars.length));
   return <>{nodes}</>;
 }

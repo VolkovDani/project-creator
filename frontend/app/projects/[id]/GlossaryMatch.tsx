@@ -10,7 +10,7 @@ export default function GlossaryMatch({
   terms,
   locale,
 }: {
-  text: string;
+  text: React.ReactNode;
   terms: Term[];
   locale: Locale;
 }) {

@@ -95,6 +95,19 @@ export default function Requirements({ projectId, locale }: { projectId: string;
   }, [infinite.loading, infinite.error, infinite.hasNextPage, infinite.loadMore]);
   const params = useSearchParams();
   const source = params.get('requirement');
+  const mentionVersion = Number(params.get('version'));
+  const start = Number(params.get('start'));
+  const end = Number(params.get('end'));
+  const mention =
+    params.has('start') &&
+    Number.isSafeInteger(mentionVersion) &&
+    mentionVersion > 0 &&
+    Number.isSafeInteger(start) &&
+    Number.isSafeInteger(end) &&
+    start >= 0 &&
+    end > start
+      ? { start, end }
+      : undefined;
   useEffect(() => {
     void projectId;
     active.current = true;
@@ -136,7 +149,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     const card = document.getElementById(`requirement-${sourceTarget}`);
     const group = card?.closest('details');
     if (group) group.open = true;
-    card?.scrollIntoView({ block: 'center' });
+    (card?.querySelector('mark[data-candidate]') ?? card)?.scrollIntoView({ block: 'center' });
     card?.focus({ preventScroll: true });
     setSourceTarget(undefined);
   }, [rows, loading, sourceTarget]);
@@ -336,10 +349,17 @@ export default function Requirements({ projectId, locale }: { projectId: string;
           onEndReached={mode === 'infinite' ? more : undefined}
           renderItem={(row) => (
             <article className="card" id={`requirement-${row.id}`} key={row.id} tabIndex={-1}>
+              {source === row.id && mention && mentionVersion !== row.version && (
+                <p role="status">{t(locale, 'glossary.mentionChanged')}</p>
+              )}
               <RequirementSummary
+                showOriginal={source === row.id && !!mention}
                 projectId={projectId}
                 requirementId={row.id}
                 requirementVersion={row.version}
+                highlight={
+                  source === row.id && mentionVersion === row.version ? mention : undefined
+                }
                 original={row.text}
                 locale={locale}
                 summary={summaries.get(row.id)}

@@ -141,7 +141,10 @@ func glossaryMatches(matches []glossary.Match) []*GlossaryMatch {
 
 func knownGlossaryCandidate(c glossary.Candidate, terms []glossary.Term) bool {
 	for _, t := range terms {
-		if strings.EqualFold(t.Name, c.Name) {
+		if c.Name == "" && strings.EqualFold(t.Name, c.Abbreviation) {
+			return true
+		}
+		if c.Name == "" || strings.EqualFold(t.Name, c.Name) {
 			for _, v := range t.Variants {
 				if strings.EqualFold(v.Text, c.Abbreviation) {
 					return true
@@ -152,11 +155,15 @@ func knownGlossaryCandidate(c glossary.Candidate, terms []glossary.Term) bool {
 	return false
 }
 
+func candidateResult(c glossary.Candidate, id graphql.ID, version int32) *GlossaryCandidate {
+	return &GlossaryCandidate{Name: c.Name, Abbreviation: c.Abbreviation, SourceId: id, SourceVersion: version, Before: c.Before, After: c.After, Start: int32(c.Start), End: int32(c.End)}
+}
+
 func unconfirmedCandidates(source string, id graphql.ID, version int32, terms []glossary.Term) []*GlossaryCandidate {
 	var result []*GlossaryCandidate
 	for _, c := range glossary.Candidates(source) {
 		if !knownGlossaryCandidate(c, terms) {
-			result = append(result, &GlossaryCandidate{SourceId: id, SourceVersion: version, Name: c.Name, Abbreviation: c.Abbreviation})
+			result = append(result, candidateResult(c, id, version))
 		}
 	}
 	return result
@@ -273,7 +280,7 @@ func (r *Resolver) GlossaryCandidatesConnection(ctx context.Context, a GlossaryC
 				return out, nil
 			}
 			cursor := encodeConnectionCursor("candidates", scope, position, string(id))
-			out.Items = append(out.Items, &GlossaryCandidate{Name: match.Name, Abbreviation: match.Abbreviation, SourceId: id, SourceVersion: version})
+			out.Items = append(out.Items, candidateResult(match, id, version))
 			out.PageInfo.EndCursor = &cursor
 		}
 	}

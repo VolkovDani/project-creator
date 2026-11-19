@@ -11,6 +11,13 @@ export function requirementAnchor(id: string) {
   return `#requirement-${encodeURIComponent(id)}`;
 }
 
-export function requirementURL(projectId: string, id: string) {
-  return `/projects/${encodeURIComponent(projectId)}/requirements?requirement=${encodeURIComponent(id)}${requirementAnchor(id)}`;
+export function requirementURL(
+  projectId: string,
+  id: string,
+  mention?: { sourceVersion: number; start: number; end: number },
+) {
+  const range = mention
+    ? `&version=${mention.sourceVersion}&start=${mention.start}&end=${mention.end}`
+    : '';
+  return `/projects/${encodeURIComponent(projectId)}/requirements?requirement=${encodeURIComponent(id)}${range}${requirementAnchor(id)}`;
 }

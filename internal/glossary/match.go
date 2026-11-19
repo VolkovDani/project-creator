@@ -24,7 +24,10 @@ type Match struct {
 	Text       string
 	Terms      []Term
 }
-type Candidate struct{ Name, Abbreviation string }
+type Candidate struct {
+	Name, Abbreviation, Before, After string
+	Start, End                        int // Unicode code point offsets in the source.
+}
 
 func word(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsMark(r) || unicode.IsNumber(r) || r == '_'
@@ -120,29 +123,55 @@ func (byFirst matcher) matches(text string) []Match {
 
 var expansion = regexp.MustCompile(`([\p{L}]+(?:[ \t]+[\p{L}]+){1,15})[ \t]*\(([\p{Lu}]{2,8})\)`)
 
-// Candidates only suggests expansions whose final words spell the abbreviation.
+var sourceWord = regexp.MustCompile(`[\p{L}\p{M}\p{N}_]+`)
+
+// Candidates prefers explicit expansions to standalone mentions in the same source.
 func Candidates(text string) []Candidate {
-	var out []Candidate
-	seen := map[Candidate]bool{}
-	for _, span := range expansion.FindAllStringSubmatch(text, -1) {
-		words := strings.Fields(span[1])
-		abbr := []rune(span[2])
-		if len(words) < len(abbr) {
+	names := map[int]string{}
+	expanded := map[string]bool{}
+	for _, span := range expansion.FindAllStringSubmatchIndex(text, -1) {
+		words := strings.Fields(text[span[2]:span[3]])
+		abbr := text[span[4]:span[5]]
+		length := utf8.RuneCountInString(abbr)
+		if len(words) < length {
 			continue
 		}
-		words = words[len(words)-len(abbr):]
+		words = words[len(words)-length:]
 		var initials strings.Builder
 		for _, w := range words {
 			r, _ := utf8.DecodeRuneInString(w)
 			initials.WriteRune(unicode.ToUpper(r))
 		}
-		candidate := Candidate{strings.Join(words, " "), span[2]}
-		if initials.String() == span[2] && !seen[candidate] {
-			out = append(out, candidate)
-			seen[candidate] = true
+		if initials.String() == abbr {
+			names[span[4]] = strings.Join(words, " ")
+			expanded[abbr] = true
 		}
 	}
-	return out
+	chars := []rune(text)
+	seen := map[[2]string]bool{}
+	var result []Candidate
+	bytePos, runePos := 0, 0
+	for _, span := range sourceWord.FindAllStringIndex(text, -1) {
+		token := text[span[0]:span[1]]
+		name := names[span[0]]
+		if name == "" && expanded[token] {
+			continue
+		}
+		length := utf8.RuneCountInString(token)
+		if length < 2 || length > 8 || strings.IndexFunc(token, func(r rune) bool { return !unicode.Is(unicode.Lu, r) }) >= 0 {
+			continue
+		}
+		key := [2]string{strings.ToLower(name), token}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		start := runePos + utf8.RuneCountInString(text[bytePos:span[0]])
+		end := start + length
+		bytePos, runePos = span[1], end
+		result = append(result, Candidate{Name: name, Abbreviation: token, Start: start, End: end, Before: string(chars[max(0, start-60):start]), After: string(chars[end:min(len(chars), end+60)])})
+	}
+	return result
 }
 
 type Hint struct {

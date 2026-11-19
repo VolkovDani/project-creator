@@ -14,6 +14,7 @@ type Props = {
   analysisId?: string;
   version: number;
   original: string;
+  highlight?: { start: number; end: number };
   locale: Locale;
 };
 export default function GlossaryOriginal({
@@ -36,6 +37,7 @@ export function SourceText({
   original,
   locale,
   analysisId,
+  highlight,
 }: Props) {
   const tag = `project:${projectId}:glossary`;
   const load = useCallback(
@@ -53,6 +55,7 @@ export function SourceText({
   return (
     <GlossaryText className="user-content" sourceId={requirementId} version={version}>
       <MatchedText
+        highlight={highlight}
         projectId={projectId}
         text={original}
         matches={result.data?.matches ?? []}
@@ -63,15 +66,39 @@ export function SourceText({
 }
 
 type MatchedTextProps = {
+  highlight?: Props['highlight'];
   projectId: string;
   text: string;
   matches: NonNullable<RequirementGlossaryQuery['requirementGlossary']>['matches'];
   locale: Locale;
 };
 
+function candidateSegment(
+  chars: string[],
+  start: number,
+  end: number,
+  highlight: Props['highlight'],
+) {
+  const left = Math.max(start, highlight?.start ?? end);
+  const right = Math.min(end, highlight?.end ?? start);
+  if (left >= right || !highlight || highlight.end > chars.length)
+    return chars.slice(start, end).join('');
+  return (
+    <span key={start}>
+      {chars.slice(start, left).join('')}
+      <mark data-candidate="">{chars.slice(left, right).join('')}</mark>
+      {chars.slice(right, end).join('')}
+    </span>
+  );
+}
+
 export function MatchedText(props: MatchedTextProps) {
   const ids = [...new Set(props.matches.flatMap((match) => match.terms.map((term) => term.id)))];
-  if (ids.length === 0) return props.text;
+  if (ids.length === 0) {
+    if (!props.highlight) return props.text;
+    const chars = Array.from(props.text);
+    return candidateSegment(chars, 0, chars.length, props.highlight);
+  }
   const idsKey = JSON.stringify(ids.sort());
   return (
     <HighlightedText key={JSON.stringify([props.projectId, idsKey])} {...props} idsKey={idsKey} />
@@ -84,6 +111,7 @@ function HighlightedText({
   matches,
   locale,
   idsKey,
+  highlight,
 }: MatchedTextProps & {
   idsKey: string;
 }) {
@@ -100,7 +128,7 @@ function HighlightedText({
   const nodes: React.ReactNode[] = [];
   let pos = 0;
   for (const match of matches) {
-    nodes.push(chars.slice(pos, match.start).join(''));
+    nodes.push(candidateSegment(chars, pos, match.start, highlight));
     const terms = match.terms.flatMap(({ id }) => {
       const term = details.get(id);
       return term ? [term] : [];
@@ -108,7 +136,7 @@ function HighlightedText({
     nodes.push(
       <GlossaryMatch
         key={match.start}
-        text={chars.slice(match.start, match.end).join('')}
+        text={candidateSegment(chars, match.start, match.end, highlight)}
         terms={terms}
         locale={locale}
         loading={loading}
@@ -118,6 +146,6 @@ function HighlightedText({
     );
     pos = match.end;
   }
-  nodes.push(chars.slice(pos).join(''));
+  nodes.push(candidateSegment(chars, pos, chars.length, highlight));
   return <>{nodes}</>;
 }

@@ -53,3 +53,10 @@ func TestGlossarySharedValidationFixtures(t *testing.T) {
 		}
 	}
 }
+
+func TestStandaloneAbbreviation(t *testing.T) {
+	got := Candidates("😀 ГП, ГП. ГП2 ГПшка xAPI _ТЗ АБВГДЕЖЗИ")
+	if len(got) != 1 || got[0].Name != "" || got[0].Abbreviation != "ГП" {
+		t.Fatal(got)
+	}
+}

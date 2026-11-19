@@ -25,6 +25,8 @@ cd project-creator
 Setup downloads the models, starts the application, and checks indexing and analysis
 with sample data. Open the URL it prints (by default [127.0.0.1:3000](http://127.0.0.1:3000)).
 
+Use **Dark theme** beside the language selector in the header to switch themes. The browser remembers your choice for future visits.
+
 ## Try a first comparison
 
 1. Create a project and add two requirements about the same rule. For example, “Keep log entries for 30 days” and “Delete log entries after 7 days.”

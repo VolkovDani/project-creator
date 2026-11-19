@@ -21,6 +21,7 @@
   "app.next": "Далее",
   "app.previous": "Назад",
   "app.language": "Язык",
+  "app.darkTheme": "Тёмная тема",
   "app.page": "Страница {page}",
   "app.validationUnknown": "Проверьте введённые данные",
   "ui.backToTop": "Наверх",

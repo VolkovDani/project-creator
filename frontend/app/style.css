@@ -1,7 +1,52 @@
 :root {
+  color-scheme: light;
+  --page: #f4f6fb;
+  --text: #182236;
+  --text-muted: #5d6b7d;
+  --surface: #fff;
+  --border: #dce3ee;
+  --control-border: #aab8cb;
+  --action: #2359aa;
+  --on-action: #fff;
+  --action-tint: #f3f7ff;
+  --nav-surface: #e7edf8;
+  --focus: #326bc4;
+  --danger: #ae2934;
+  --skeleton: #e8edf5;
+  --glossary-match: #f4ebff;
+  --backdrop: #18223680;
   font-family: system-ui, sans-serif;
-  color: #182236;
-  background: #f4f6fb;
+  color: var(--text);
+  background: var(--page);
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #1b1c1c;
+  --text: #edeeea;
+  --text-muted: #a3a5a1;
+  --surface: #222324;
+  --surface-subtle: #28292a;
+  --border: #333436;
+  --control-border: #747672;
+  --action: #efbd69;
+  --action-hover: #ffda96;
+  --on-action: #211b12;
+  --action-tint: #393127;
+  --nav-surface: #28292a;
+  --focus: #ffd68c;
+  --danger: #ffb4a2;
+  --danger-tint: #332825;
+  --skeleton: #37383b;
+  --glossary-match: #493b26;
+  --backdrop: #0009;
+}
+:root[data-theme="dark"] ::selection {
+  color: var(--on-action);
+  background: var(--action);
+}
+:root[data-theme="dark"] mark {
+  color: var(--on-action);
+  background: var(--action);
 }
 body {
   margin: 0;
@@ -24,12 +69,12 @@ h1 {
   font-size: 2rem;
 }
 a {
-  color: #2359aa;
+  color: var(--action);
 }
 section,
 .card {
-  background: white;
-  border: 1px solid #dce3ee;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;
   margin: 16px 0;
@@ -45,7 +90,9 @@ textarea {
   width: 100%;
   margin-top: 5px;
   padding: 10px;
-  border: 1px solid #aab8cb;
+  border: 1px solid var(--control-border);
+  color: var(--text);
+  background: var(--surface);
   border-radius: 6px;
   font: inherit;
 }
@@ -57,8 +104,8 @@ button {
   padding: 9px 14px;
   border: 0;
   border-radius: 6px;
-  background: #2359aa;
-  color: white;
+  background: var(--action);
+  color: var(--on-action);
   cursor: pointer;
   margin: 14px 8px 0 0;
 }
@@ -76,16 +123,17 @@ dialog {
   width: min(620px, calc(100% - 48px));
   max-height: calc(100% - 48px);
   overflow: auto;
-  border: 1px solid #aab8cb;
+  border: 1px solid var(--control-border);
   border-radius: 12px;
   padding: 20px;
   color: inherit;
+  background: var(--surface);
 }
 dialog::backdrop {
-  background: #18223680;
+  background: var(--backdrop);
 }
 .error {
-  color: #ae2934;
+  color: var(--danger);
 }
 .top {
   display: flex;
@@ -97,7 +145,7 @@ dialog::backdrop {
   margin: 0 4px 0 0;
 }
 .muted {
-  color: #5d6b7d;
+  color: var(--text-muted);
 }
 select {
   padding: 8px;
@@ -107,7 +155,7 @@ select {
 
 .analysis-group {
   margin: 16px 0;
-  border: 1px solid #dce3ee;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
 }
@@ -116,14 +164,14 @@ select {
   cursor: pointer;
 }
 .analysis-pair-current {
-  border: 2px solid #2359aa;
-  background: #f3f7ff;
+  border: 2px solid var(--action);
+  background: var(--action-tint);
 }
 .analysis-source {
   overflow-wrap: anywhere;
 }
 .analysis-source + .analysis-source {
-  border-top: 1px solid #dce3ee;
+  border-top: 1px solid var(--border);
   margin-top: 16px;
   padding-top: 8px;
 }
@@ -144,14 +192,43 @@ select {
   padding: 10px 14px;
   border-radius: 6px;
   text-decoration: none;
-  background: #e7edf8;
+  background: var(--nav-surface);
 }
 .project-nav a[aria-current="page"] {
-  background: #2359aa;
-  color: #fff;
+  background: var(--action);
+  color: var(--on-action);
 }
-.language {
+.interface-preferences {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.interface-preferences label,
+.interface-preferences button {
   margin: 0;
+}
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 8px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--control-border);
+}
+.theme-toggle::before {
+  content: "";
+  width: 1.75em;
+  height: 1em;
+  box-sizing: border-box;
+  border: 1px solid currentColor;
+  border-radius: 1em;
+  background: radial-gradient(circle at 0.5em center, currentColor 0.31em, transparent 0.35em);
+}
+.theme-toggle[aria-pressed="true"]::before {
+  color: var(--action);
+  background: radial-gradient(circle at calc(100% - 0.5em) center, currentColor 0.31em, transparent 0.35em);
 }
 .resource-status {
   min-height: 46px;
@@ -165,12 +242,12 @@ select {
 .skeleton {
   min-height: 220px;
   padding: 16px;
-  border: 1px solid #dce3ee;
+  border: 1px solid var(--border);
   border-radius: 8px;
 }
 .skeleton > div {
   height: 28px;
-  background: #e8edf5;
+  background: var(--skeleton);
   margin: 16px 0;
   border-radius: 6px;
 }
@@ -195,7 +272,7 @@ select {
 }
 .data-group {
   margin: 16px 0;
-  border: 1px solid #dce3ee;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
 }
@@ -228,11 +305,11 @@ select {
   white-space: pre-line;
 }
 .card:target {
-  outline: 3px solid #2359aa;
+  outline: 3px solid var(--action);
   scroll-margin-top: 20px;
 }
 :focus-visible {
-  outline: 3px solid #326bc4;
+  outline: 3px solid var(--focus);
   outline-offset: 3px;
 }
 @media (max-width: 600px) {
@@ -271,7 +348,7 @@ select {
   border-radius: 0;
   box-shadow: none;
   color: inherit;
-  background: #f4ebff;
+  background: var(--glossary-match);
   font: inherit;
   text-decoration: underline dotted;
   user-select: text;
@@ -287,9 +364,9 @@ select {
   overflow: auto;
   overflow-wrap: anywhere;
   padding: 10px 14px;
-  color: #182236;
-  background: white;
-  border: 1px solid #b8b2c8;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
   box-shadow: 0 4px 18px #18223626;
 }

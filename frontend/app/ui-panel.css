@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-.ui-panel {
+:root:not([data-theme="dark"]) .ui-panel {
   --text: #181d27;
   --text-muted: #535862;
   --surface: #fff;
@@ -35,6 +35,8 @@ SOFTWARE.
   --focus: #7f56d9;
   --danger: #b42318;
   --danger-tint: #fef3f2;
+}
+.ui-panel {
   --space-control: 0.625rem;
   --space-group: 1rem;
   --radius-control: 0.5rem;
@@ -101,11 +103,11 @@ SOFTWARE.
 .ui-panel :is(button[type="submit"], .primary-action) {
   background: var(--action);
   border-color: var(--action);
-  color: var(--surface);
+  color: var(--on-action);
 }
 .ui-panel :is(button[type="submit"], .primary-action):hover:enabled {
   background: var(--action-hover);
-  color: var(--surface);
+  color: var(--on-action);
 }
 .ui-panel :is(.destructive-action, .error, [role="alert"]) {
   color: var(--danger);

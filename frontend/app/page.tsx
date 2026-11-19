@@ -12,7 +12,7 @@ import { useInfinite } from '../lib/useInfinite';
 import { useListMode } from '../lib/useListMode';
 import { useResource } from '../lib/useResource';
 import { ListModeSelect, LoadMore } from './components/ListControls';
-import { Language, useLocale } from './components/LocaleProvider';
+import { InterfacePreferences, useLocale } from './components/LocaleProvider';
 import ResourceState from './components/ResourceState';
 import { VirtualList } from './components/VirtualList';
 export default function Home() {
@@ -21,7 +21,7 @@ export default function Home() {
     <main>
       <div className="top">
         <h1>{t(locale, 'app.title')}</h1>
-        <Language />
+        <InterfacePreferences />
       </div>
       <Link className="button-link" href="/projects/new">
         {t(locale, 'app.create')}

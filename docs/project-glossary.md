@@ -6,7 +6,7 @@ Open **Project glossary** to create, search, change or delete confirmed concepts
 
 The glossary scans groups of 20 requirements for a full name followed by its capital-letter abbreviation in parentheses. The final words must spell the initials in order. Select a candidate to review its text and explicitly save it. Use the page buttons below the candidates to review additional requirements. A suggestion alone never changes the dictionary.
 
-In an original requirement, matching uses Unicode letters, combining marks, digits and underscores as word characters and prefers the longest whole spelling. Select a highlighted spelling to see its definition. If several meanings match, select one to inspect. This choice affects the current view. Copying the original preserves its text.
+In an original requirement, matching uses Unicode letters, combining marks, digits and underscores as word characters and prefers the longest whole spelling. Hover over a highlighted spelling or focus it to see its definitions beside the text. Click or tap to pin the tooltip and access editing for a particular meaning. Press Escape to dismiss it. Copying the original preserves its text.
 
 The local summary worker receives matching confirmed definitions with term IDs and revisions, bounded to approximately 3 KiB of JSON. Ambiguous names carry an ambiguity marker. Glossary changes invalidate affected current-version summaries and fence in-flight results. A configured worker regenerates them asynchronously. Cancellation stays effective. The canonical requirement, its version and the embedding index are preserved.
 

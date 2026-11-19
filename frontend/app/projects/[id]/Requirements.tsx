@@ -20,6 +20,7 @@ import { ListModeSelect, LoadMore } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
 import RequirementSummary, { useRequirementSummaries } from './RequirementSummary';
+import RetryFailedSummaries from './RetryFailedSummaries';
 import { useRequirementsPage } from './useRequirementsPage';
 
 export default function Requirements({ projectId, locale }: { projectId: string; locale: Locale }) {
@@ -327,6 +328,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
           {t(locale, 'ui.sourceNotFound')}
         </p>
       )}
+      <RetryFailedSummaries projectId={projectId} locale={locale} />
       <ListModeSelect locale={locale} mode={mode} onChange={setMode} />
       <Group
         id={`${projectId}:requirements`}

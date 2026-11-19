@@ -8,12 +8,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/VolkovDani/project-creator/internal/glossary"
+	"math"
 	"sync"
 	"time"
 
 	"github.com/VolkovDani/project-creator/contracts"
 	"github.com/VolkovDani/project-creator/internal/analysis"
+	"github.com/VolkovDani/project-creator/internal/glossary"
 )
 
 type Generator interface {
@@ -171,6 +172,58 @@ func (s *Service) Retry(ctx context.Context, w, p, id string) (State, error) {
 }
 func (s *Service) Cancel(ctx context.Context, w, p, id string) (State, error) {
 	return s.change(ctx, w, p, id, true)
+}
+
+// Count and retry use the same eligibility rules, including the profile currently
+// active in storage when multiple service instances share a workspace.
+const currentFailedSummaryFilter = `
+	WHERE s.workspace=$1 AND s.project_id=$2 AND s.profile=$3 AND s.status='failed'
+	  AND EXISTS (SELECT 1 FROM requirements r WHERE r.workspace=s.workspace
+	      AND r.project_id=s.project_id AND r.id=s.requirement_id AND r.version=s.version)
+	  AND EXISTS (SELECT 1 FROM summary_profiles p WHERE p.workspace=s.workspace AND p.profile=s.profile)`
+
+func (s *Service) FailedCount(ctx context.Context, w, p string) (int32, error) {
+	if err := auth(ctx, s.db, w, p); err != nil {
+		return 0, err
+	}
+	if s.generator == nil {
+		return 0, nil
+	}
+	var count int32
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM requirement_summaries s`+currentFailedSummaryFilter, w, p, s.Profile()).Scan(&count)
+	return count, err
+}
+
+func (s *Service) RetryFailed(ctx context.Context, w, p string) (int32, error) {
+	if err := auth(ctx, s.db, w, p); err != nil {
+		return 0, err
+	}
+	if s.generator == nil {
+		return 0, ErrUnavailable
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if err := lock(ctx, tx); err != nil {
+		return 0, err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE requirement_summaries s SET status='queued',error_code='',attempt='',text=''`+currentFailedSummaryFilter, w, p, s.Profile())
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if count > math.MaxInt32 {
+		return 0, ErrUnavailable
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int32(count), nil
 }
 
 type job struct {

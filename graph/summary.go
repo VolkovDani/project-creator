@@ -3,8 +3,8 @@ package graph
 import (
 	"context"
 	"errors"
-	"github.com/VolkovDani/project-creator/internal/glossary"
 
+	"github.com/VolkovDani/project-creator/internal/glossary"
 	"github.com/VolkovDani/project-creator/internal/summary"
 	graphql "github.com/graph-gophers/graphql-go"
 )
@@ -55,6 +55,34 @@ func (r *Resolver) singleSummaryState(ctx context.Context, v summary.State) (*Re
 		return nil, err
 	}
 	return out[0], nil
+}
+
+func (r *Resolver) FailedRequirementSummaryCount(ctx context.Context, args FailedRequirementSummaryCountArgs) (int32, error) {
+	if err := consume(ctx); err != nil {
+		return 0, err
+	}
+	if r.Summaries == nil {
+		return 0, errors.New("summaries unavailable")
+	}
+	count, err := r.Summaries.FailedCount(ctx, workspace(ctx), string(args.ProjectId))
+	if err != nil {
+		return 0, errors.New("summaries unavailable")
+	}
+	return count, nil
+}
+
+func (r *Resolver) RetryFailedRequirementSummaries(ctx context.Context, args RetryFailedRequirementSummariesArgs) (int32, error) {
+	if err := consume(ctx); err != nil {
+		return 0, err
+	}
+	if r.Summaries == nil {
+		return 0, errors.New("summaries unavailable")
+	}
+	count, err := r.Summaries.RetryFailed(ctx, workspace(ctx), string(args.ProjectId))
+	if err != nil {
+		return 0, errors.New("summary retry unavailable")
+	}
+	return count, nil
 }
 
 func (r *Resolver) RetryRequirementSummary(ctx context.Context, args RetryRequirementSummaryArgs) (*RequirementSummary, error) {

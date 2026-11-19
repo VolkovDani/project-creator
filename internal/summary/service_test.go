@@ -349,7 +349,9 @@ func TestRestartRequiresRetryOnlyForInterruptedStage(t *testing.T) {
 	if v.ErrorCode != "INTERRUPTED" || g.calls.Load() != 0 {
 		t.Fatal("restart silently repeated inference")
 	}
-	s.Retry(context.Background(), "a", "p", "r")
+	if count, err := s.RetryFailed(context.Background(), "a", "p"); err != nil || count != 1 {
+		t.Fatalf("retry interrupted summary: count %d, err %v", count, err)
+	}
 	waitState(t, s, "a", "p", "r", "ready")
 	s.Close()
 	next := New(db, g)

@@ -17,6 +17,7 @@ async function fixture(
     failSummaryReads?: boolean;
     summaryVersion?: number;
     initialStatus?: string;
+    offscreenFailures?: number;
     errorCode?: string;
     longPreview?: boolean;
     highlight?: boolean;
@@ -28,6 +29,9 @@ async function fixture(
   let summaryVersion = options?.summaryVersion ?? sourceVersion;
   let failSummaryReads = options?.failSummaryReads ?? false;
   let retries = 0;
+  let bulkRetries = 0;
+  let offscreenFailures = options?.offscreenFailures ?? 0;
+  const failedCount = () => offscreenFailures + Number(status === 'failed');
   let cancellations = 0;
   let summaryReads = 0;
   const matchQueries: string[] = [];
@@ -107,6 +111,15 @@ async function fixture(
         return;
       }
       data = { glossaryTermsByIds: [term] };
+    } else if (query.includes('failedRequirementSummaryCount(')) {
+      expect(route.request().postDataJSON().variables).toEqual({ projectId: project.id });
+      data = { failedRequirementSummaryCount: failedCount() };
+    } else if (query.includes('retryFailedRequirementSummaries(')) {
+      expect(route.request().postDataJSON().variables).toEqual({ projectId: project.id });
+      bulkRetries++;
+      data = { retryFailedRequirementSummaries: failedCount() };
+      offscreenFailures = 0;
+      if (status === 'failed') status = 'queued';
     } else if (query.includes('retryRequirementSummary(')) {
       retries++;
       status = 'queued';
@@ -159,6 +172,7 @@ async function fixture(
     termReads: () => termReads,
     releaseTerms,
     retries: () => retries,
+    bulkRetries: () => bulkRetries,
     cancellations: () => cancellations,
     summaryReads: () => summaryReads,
     setStatus: (next: string) => {
@@ -202,6 +216,50 @@ test('failed summary generation can be retried and cancelled', async ({ page }) 
   await card.getByRole('button', { name: 'Отменить создание резюме', exact: true }).click();
   await expect.poll(api.cancellations).toBe(1);
   await expect(card.getByText('Создание резюме отменено.')).toBeVisible();
+});
+
+test('bulk retry includes offscreen failures and requires a click after invalidation', async ({
+  page,
+}) => {
+  const api = await fixture(page, { offscreenFailures: 1, errorCode: 'INTERRUPTED' });
+  const invalidation = Promise.withResolvers<void>();
+  await page.route('**/api/events', async (route) => {
+    await invalidation.promise;
+    const payload = { schemaVersion: 1, keys: [`project:${project.id}:summaries`] };
+    await route
+      .fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: `id: 1\nevent: cache.invalidate\ndata: ${JSON.stringify(payload)}\n\n`,
+      })
+      .catch(() => {});
+  });
+  await page.goto('/projects/summary-project/requirements');
+  const card = page.locator('#requirement-req-1');
+  await expect(card.getByText(suggestion, { exact: true })).toBeVisible();
+  const retry = (count: number) =>
+    page.getByRole('button', {
+      name: `Повторить создание всех резюме с ошибками (${count})`,
+      exact: true,
+    });
+  await expect(retry(1)).toBeVisible();
+  api.setStatus('failed');
+  invalidation.resolve();
+  await expect(retry(2)).toBeEnabled();
+  await expect(
+    card.getByRole('alert').filter({ hasText: 'Создание резюме было прервано.' }),
+  ).toBeVisible();
+  expect(api.bulkRetries()).toBe(0);
+  await retry(2).click();
+  await expect(
+    page
+      .getByRole('status')
+      .filter({ hasText: 'В очередь на повторное создание добавлено резюме: 2.' }),
+  ).toBeVisible();
+  await expect(card.getByText('Создание резюме в очереди.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Повторить создание всех резюме/ })).toHaveCount(0);
+  expect(api.bulkRetries()).toBe(1);
+  expect(api.retries()).toBe(0);
 });
 
 test('summary query failure preserves source access and offers refresh, not generation', async ({

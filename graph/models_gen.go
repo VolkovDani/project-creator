@@ -263,6 +263,9 @@ type ProjectsConnectionArgs struct {
 	First *int32
 	After *string
 }
+type SuggestGlossaryDefinitionArgs struct {
+	Input SuggestGlossaryDefinitionInput
+}
 type ConfirmRequirementClassificationArgs struct {
 	Input ConfirmClassificationInput
 }
@@ -493,6 +496,19 @@ type GlossaryVariant struct {
 type GlossaryVariantInput struct {
 	Text string
 	Kind string
+}
+type SuggestGlossaryDefinitionInput struct {
+	ProjectId     graphql.ID
+	SourceId      graphql.ID
+	SourceVersion int32
+	Start         int32
+	End           int32
+	Name          string
+}
+type GlossaryDefinitionSuggestion struct {
+	Definition  *string
+	Status      string
+	FieldErrors []*FieldError
 }
 type GlossaryInput struct {
 	ProjectId     graphql.ID

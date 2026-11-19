@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"github.com/VolkovDani/project-creator/internal/analysis"
+	"github.com/VolkovDani/project-creator/internal/glossary"
 	"github.com/VolkovDani/project-creator/internal/project"
 	"github.com/VolkovDani/project-creator/internal/rag"
 	"github.com/VolkovDani/project-creator/internal/summary"
@@ -35,10 +36,11 @@ func WithWorkspace(ctx context.Context, workspace string) context.Context {
 func workspace(ctx context.Context) string { v, _ := ctx.Value(workspaceKey{}).(string); return v }
 
 type Resolver struct {
-	Summaries *summary.Service
-	DB        *sql.DB
-	RAG       *rag.Service
-	Analysis  *analysis.Service
+	Definitions glossary.DefinitionGenerator
+	Summaries   *summary.Service
+	DB          *sql.DB
+	RAG         *rag.Service
+	Analysis    *analysis.Service
 }
 
 func (r *Resolver) CreateProject(ctx context.Context, args CreateProjectArgs) (*CreateProjectPayload, error) {

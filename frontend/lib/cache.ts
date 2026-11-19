@@ -9,6 +9,20 @@ export class TaggedCache {
   private serial = 0;
   private droppedThrough = 0;
   private seen = new Set<string>();
+  get generation() {
+    return this.epoch;
+  }
+  get revision() {
+    return this.serial;
+  }
+  invalidatedSince(revision: number, tags: string[]) {
+    return (
+      this.droppedThrough > revision ||
+      this.invalidations.some(
+        (item) => item.serial > revision && item.tags.some((tag) => tags.includes(tag)),
+      )
+    );
+  }
   subscribe(tags: string[], callback: (reset: boolean) => void) {
     const item = { tags, callback };
     this.listeners.add(item);
@@ -27,12 +41,7 @@ export class TaggedCache {
         const started = this.serial;
         const result = await load();
         if (epoch !== this.epoch) return result.data;
-        const stale =
-          this.droppedThrough > started ||
-          this.invalidations.some(
-            (item) => item.serial > started && item.tags.some((tag) => result.tags.includes(tag)),
-          );
-        if (stale) continue;
+        if (this.invalidatedSince(started, result.tags)) continue;
         this.entries.set(key, result);
         return result.data;
       }

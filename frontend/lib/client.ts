@@ -30,7 +30,7 @@ function fallbackTags(variables: unknown) {
 export async function query<T, V>(
   document: TypedDocumentNode<T, V>,
   variables: V,
-  options?: { tags?: string[]; version?: string; notify?: boolean },
+  options?: { tags?: string[]; version?: string; notify?: boolean; cache?: boolean },
 ): Promise<T> {
   const epoch = sessionEpoch;
   const source = print(document);
@@ -68,6 +68,11 @@ export async function query<T, V>(
     ensureSession(epoch);
     if (options?.notify === false) clientCache.evict(result.tags);
     else clientCache.invalidate(result.tags);
+    return result.data;
+  }
+  if (options?.cache === false) {
+    const result = await load();
+    ensureSession(epoch);
     return result.data;
   }
   const result = await clientCache.read(

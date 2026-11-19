@@ -5,6 +5,7 @@ import { type Locale, t } from '../../../lib/i18n';
 import { indexStatus, requirementURL } from '../../../lib/rag';
 import Group from '../../components/Group';
 import { VirtualList } from '../../components/VirtualList';
+import { GlossaryText } from './GlossaryActions';
 import { RequirementIndexAction } from './RagTools';
 
 const statuses = ['failed', 'running', 'pending', 'ready'] as const;
@@ -31,7 +32,9 @@ export default function IndexGroups({
     const grouped = rows.filter((row) => indexStatus(byId.get(row.id), row.version) === status);
     const renderItem = (row: RequirementsQuery['requirements'][number]) => (
       <article className="card" id={`indexing-${row.id}`} key={row.id}>
-        <p>{row.text}</p>
+        <GlossaryText sourceId={row.id} version={row.version}>
+          {row.text}
+        </GlossaryText>
         <p className="muted">{t(locale, 'requirements.version', { version: row.version })}</p>
         <Link href={requirementURL(projectId, row.id)}>{t(locale, 'rag.source')}</Link>
         <RequirementIndexAction

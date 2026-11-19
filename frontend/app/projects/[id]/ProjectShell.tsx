@@ -8,6 +8,7 @@ import { type Locale, t } from '../../../lib/i18n';
 import { useResource } from '../../../lib/useResource';
 import { Language, useLocale } from '../../components/LocaleProvider';
 import ResourceState from '../../components/ResourceState';
+import { GlossaryActions } from './GlossaryActions';
 
 type Project = NonNullable<ProjectDetailQuery['project']>;
 const Context = createContext<{ project: Project; locale: Locale } | null>(null);
@@ -73,7 +74,15 @@ function ProjectContent({ id, children }: { id: string; children: React.ReactNod
               );
             })}
           </nav>
-          <div key={id}>{children}</div>
+          {['requirements', 'indexing', 'analysis', 'search'].some(
+            (section) => pathname === base + '/' + section,
+          ) ? (
+            <GlossaryActions key={pathname} projectId={id} locale={locale}>
+              {children}
+            </GlossaryActions>
+          ) : (
+            children
+          )}
         </Context.Provider>
       ) : (
         !loading && !error && <p>{t(locale, 'app.notFound')}</p>

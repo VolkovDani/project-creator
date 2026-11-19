@@ -43,6 +43,7 @@ import Group from '../../components/Group';
 import { ListModeSelect, LoadMore } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
+import { GlossaryText } from './GlossaryActions';
 
 const outcomes: Record<string, string> = {
   possible_collision: 'analysis.outcome.collision',
@@ -106,7 +107,9 @@ function SavedSource({
       <p className="muted">
         {source.id} · {t(locale, 'requirements.version', { version: source.version })}
       </p>
-      <p>{source.text}</p>
+      <GlossaryText sourceId={source.id} version={source.version}>
+        {source.text}
+      </GlossaryText>
       <a
         href={requirementURL(projectId, source.id)}
         onClick={
@@ -511,11 +514,15 @@ function PairList({
             <h4>{t(locale, 'analysis.pair.position', { number: pair.position + 1 })}</h4>
             {pair.status === 'completed' && (
               <>
-                <p>
-                  {pair.isExactDuplicate
-                    ? t(locale, 'analysis.exactDuplicateExplanation')
-                    : pair.explanation || t(locale, 'analysis.pair.noExplanation')}
-                </p>
+                {pair.explanation && !pair.isExactDuplicate ? (
+                  <GlossaryText>{pair.explanation}</GlossaryText>
+                ) : (
+                  <p>
+                    {pair.isExactDuplicate
+                      ? t(locale, 'analysis.exactDuplicateExplanation')
+                      : t(locale, 'analysis.pair.noExplanation')}
+                  </p>
+                )}
                 {!pair.isExactDuplicate && (
                   <p className="muted">{t(locale, 'analysis.pair.modelSuggestion')}</p>
                 )}

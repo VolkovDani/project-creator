@@ -96,6 +96,8 @@ export default function RequirementSummary({
   requirementId,
   requirementVersion,
   original,
+  highlight,
+  showOriginal,
   locale,
   summary,
   loadFailure,
@@ -106,6 +108,8 @@ export default function RequirementSummary({
   requirementId: string;
   requirementVersion: number;
   original: string;
+  showOriginal?: boolean;
+  highlight?: { start: number; end: number };
   locale: Locale;
   summary?: Summary;
   loadFailure: boolean;
@@ -136,20 +140,22 @@ export default function RequirementSummary({
     }
   }
   const hasText = versionMatches && summary?.status === 'ready' && !!summary.text;
-  const source = loading ? (
-    <GlossaryText className="user-content" sourceId={requirementId} version={requirementVersion}>
-      {original}
-    </GlossaryText>
-  ) : (
-    <GlossaryOriginal
-      collapsible={hasText}
-      projectId={projectId}
-      requirementId={requirementId}
-      version={requirementVersion}
-      original={original}
-      locale={locale}
-    />
-  );
+  const source =
+    loading && !showOriginal ? (
+      <GlossaryText className="user-content" sourceId={requirementId} version={requirementVersion}>
+        {original}
+      </GlossaryText>
+    ) : (
+      <GlossaryOriginal
+        highlight={highlight}
+        collapsible={hasText && !showOriginal}
+        projectId={projectId}
+        requirementId={requirementId}
+        version={requirementVersion}
+        original={original}
+        locale={locale}
+      />
+    );
   return (
     <section aria-label={hasText ? t(locale, 'summary.section') : undefined}>
       {hasText ? <p className="muted">{t(locale, 'summary.suggestion')}</p> : source}

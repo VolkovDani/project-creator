@@ -148,7 +148,7 @@ export default function GlossaryEditor({
       >
         <fieldset disabled={busy}>
           <legend>{t(locale, 'glossary.editor')}</legend>
-          {draft.sourceId && !draft.term && (
+          {(draft.name || draft.variant) && !draft.term && (
             <>
               <label>
                 {t(locale, 'glossary.linkExisting')}

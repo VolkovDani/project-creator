@@ -280,6 +280,18 @@ caching does not avoid downloading layers and service images. Tool versions,
 limits, and validation of the effect are described in the
 [CI Docker cache guide](ci-docker-cache.md).
 
+When CI runs on a PR to `develop` confined to application sources, Go module files,
+test data, or the docs directory, it skips the optional Intel/AMD Vulkan image builds and their disk
+cleanup. It still validates every Compose profile, builds both application images,
+and runs the HTTP smoke and restart checks. A changed workflow, Vulkan Dockerfile, Compose file, runtime
+configuration, an unrecognized path, or an unavailable base commit triggers both
+Vulkan builds. Release PRs and runs on `main` also build both images.
+
+CI downloads the Chromium headless shell pinned by Playwright and takes a blank
+screenshot to check that it starts with the Ubuntu runner libraries. If that
+probe fails, Playwright installs the system dependencies before the UX, screenshot,
+and E2E suites run.
+
 The pair-analysis release scenario matrix, isolated acceptance results, and
 remaining limitations are documented in [report #85](pair-analysis-acceptance.md).
 

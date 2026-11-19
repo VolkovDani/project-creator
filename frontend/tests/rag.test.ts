@@ -23,3 +23,10 @@ test('queued and running indexing are distinct from ready and stale versions', (
   assert.equal(indexStatus({ version: 2, status: 'running' }, 2), 'running');
   assert.equal(indexStatus({ version: 1, status: 'running' }, 2), 'pending');
 });
+
+test('candidate links select a versioned code point range', () => {
+  assert.equal(
+    requirementURL('p', 'r', { sourceVersion: 2, start: 3, end: 5 }),
+    '/projects/p/requirements?requirement=r&version=2&start=3&end=5#requirement-r',
+  );
+});

@@ -302,3 +302,16 @@ test('a summary preloads its glossary details and the original reuses them', asy
     );
   }
 });
+
+test('selection in a requirement summary offers to link an existing term', async ({ page }) => {
+  await fixture(page);
+  await page.goto('/projects/summary-project/requirements');
+  await page.getByText(suggestion, { exact: true }).evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+  });
+  await page.getByRole('button', { name: 'Добавить выделение в словарь' }).click();
+  await expect(page.getByLabel('Найти существующее понятие для варианта')).toBeVisible();
+});

@@ -539,6 +539,10 @@ type GlossaryCandidate struct {
 	SourceVersion int32
 	Name          string
 	Abbreviation  string
+	Before        string
+	After         string
+	Start         int32
+	End           int32
 }
 type RequirementGlossary struct {
 	Version    int32

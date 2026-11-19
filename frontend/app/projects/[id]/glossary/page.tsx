@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useCallback, useState } from 'react';
 import { query } from '../../../../lib/client';
 import {
@@ -8,6 +9,7 @@ import {
   type GlossaryFieldsFragment as Term,
 } from '../../../../lib/generated';
 import { t } from '../../../../lib/i18n';
+import { requirementURL } from '../../../../lib/rag';
 import { useListMode } from '../../../../lib/useListMode';
 import { ListModeSelect } from '../../../components/ListControls';
 import GlossaryEditor, { type GlossaryDraft } from '../GlossaryEditor';
@@ -157,13 +159,19 @@ export default function GlossaryPage() {
         tags={[reqTag, tag]}
         empty={t(locale, 'glossary.noCandidates')}
         render={(c) => (
-          <button
-            key={JSON.stringify(c)}
-            type="button"
-            onClick={() => setDraft({ ...c, variant: c.abbreviation })}
-          >
-            {c.name} ({c.abbreviation})
-          </button>
+          <article className="card" key={c.id}>
+            <button type="button" onClick={() => setDraft({ ...c, variant: c.abbreviation })}>
+              {c.name ? `${c.name} (${c.abbreviation})` : c.abbreviation}
+            </button>
+            <p className="user-content">
+              {c.before}
+              <mark>{c.abbreviation}</mark>
+              {c.after}
+            </p>
+            <Link href={requirementURL(projectId, c.sourceId, c)}>
+              {t(locale, 'glossary.openMention')}
+            </Link>
+          </article>
         )}
       />
     </section>

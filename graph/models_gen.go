@@ -183,6 +183,9 @@ type RequirementGlossaryArgs struct {
 	RequirementId graphql.ID
 	Version       int32
 }
+type FailedRequirementSummaryCountArgs struct {
+	ProjectId graphql.ID
+}
 type RequirementSummariesByIdsArgs struct {
 	ProjectId      graphql.ID
 	RequirementIds []graphql.ID
@@ -276,6 +279,9 @@ type DeleteGlossaryTermArgs struct {
 	ProjectId graphql.ID
 	ID        graphql.ID
 	Version   int32
+}
+type RetryFailedRequirementSummariesArgs struct {
+	ProjectId graphql.ID
 }
 type RetryRequirementSummaryArgs struct {
 	ProjectId     graphql.ID

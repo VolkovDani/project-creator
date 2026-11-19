@@ -220,3 +220,115 @@ func TestGraphQLSummaryCancelRetryAndFullSourcePipeline(t *testing.T) {
 	}
 	waitAPISummary(t, s, "token-a", "p", "left", "ready")
 }
+
+func TestGraphQLRetryFailedRequirementSummaries(t *testing.T) {
+	g := &apiSummaryGenerator{text: func(analysis.Source) string { return "Derived" }}
+	s, err := NewWithSummaryProviders(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"}, nil, nil, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	// Keep every queue state stable while two clients submit the same retry.
+	s.summaries.Close()
+	_, err = s.db.Exec(`
+		INSERT INTO projects VALUES ('p','a','P','G','','now','now'), ('other','a','P','G','','now','now'), ('private','b','P','G','','now','now');
+		INSERT INTO requirements SELECT 'retry-' || i,'a','p','Source',2,'now','now' FROM generate_series(1,101) AS i;
+		INSERT INTO requirements SELECT state,'a','p','Source',1,'now','now'
+		  FROM unnest(ARRAY['ready','queued','running','cancelled','stale','missing']) AS state;
+		INSERT INTO requirements VALUES ('other-r','a','other','Source',1,'now','now'), ('private-r','b','private','Source',1,'now','now');
+		UPDATE requirement_summaries SET status='failed', error_code=CASE WHEN requirement_id='retry-1' THEN 'INTERRUPTED' ELSE 'GENERATION_FAILED' END,
+		  attempt='old-attempt',text='discard' WHERE requirement_id LIKE 'retry-%' OR project_id <> 'p';
+		UPDATE requirement_summaries SET status=requirement_id, text=CASE WHEN requirement_id='ready' THEN 'Derived' ELSE '' END
+		  WHERE requirement_id IN ('ready','queued','running','cancelled','stale');
+		DELETE FROM requirement_summaries WHERE requirement_id='missing';
+		INSERT INTO requirement_summaries(workspace,project_id,requirement_id,version,profile,provenance,status)
+		  VALUES ('a','p','retry-1',1,'api-summary-v1','historical','failed'), ('a','p','retry-1',2,'old-profile','historical','failed');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const count = `{amount:failedRequirementSummaryCount(projectId:"p")}`
+	const retry = `mutation{amount:retryFailedRequirementSummaries(projectId:"p")}`
+	amount := func(query string) int {
+		t.Helper()
+		out := summaryRequest(t, s, "token-a", query)
+		if out["errors"] != nil {
+			t.Fatalf("operation returned errors: %v", out)
+		}
+		return int(out["data"].(map[string]any)["amount"].(float64))
+	}
+	if got := amount(count); got != 101 {
+		t.Fatalf("project-wide failure count = %d, want 101", got)
+	}
+	for _, q := range []string{count, retry} {
+		if out := summaryRequest(t, s, "token-b", q); out["errors"] == nil {
+			t.Fatalf("foreign project access succeeded: %v", out)
+		}
+	}
+
+	var seq int64
+	if err := s.db.QueryRow(`SELECT MAX(seq) FROM cache_events`).Scan(&seq); err != nil {
+		t.Fatal(err)
+	}
+	responses := make(chan map[string]any, 1)
+	go func() {
+		defer close(responses)
+		responses <- summaryRequest(t, s, "token-a", retry)
+	}()
+	counts := make(map[float64]int)
+	for _, out := range []map[string]any{summaryRequest(t, s, "token-a", retry), <-responses} {
+		if out["errors"] != nil {
+			t.Fatal(out)
+		}
+		counts[out["data"].(map[string]any)["amount"].(float64)]++
+	}
+	if counts[0] != 1 || counts[101] != 1 || amount(count) != 0 {
+		t.Fatalf("concurrent retries: %v", counts)
+	}
+	for _, check := range []struct {
+		query string
+		want  int
+	}{
+		{`SELECT count(*) FROM requirement_summaries WHERE requirement_id LIKE 'retry-%' AND version=2 AND profile='api-summary-v1' AND status='queued' AND error_code='' AND attempt='' AND text=''`, 101},
+		{`SELECT count(*) FROM requirement_summaries WHERE (version=1 OR profile='old-profile') AND status='failed'`, 4},
+		{`SELECT count(*) FROM requirement_summaries WHERE requirement_id=status`, 5},
+		{`SELECT count(*) FROM requirement_summaries WHERE requirement_id='missing'`, 0},
+	} {
+		var got int
+		if err := s.db.QueryRow(check.query).Scan(&got); err != nil || got != check.want {
+			t.Errorf("%s: got %d, want %d, err %v", check.query, got, check.want, err)
+		}
+	}
+	var events int
+	if err := s.db.QueryRow(`SELECT count(*) FROM cache_events WHERE seq>$1 AND workspace='a' AND keys=ARRAY['project:p:summaries']`, seq).Scan(&events); err != nil || events == 0 {
+		t.Fatalf("committed project summary invalidation: events %d, err %v", events, err)
+	}
+
+	// A newer instance can change the active profile while this server is still reachable.
+	if _, err := s.db.Exec(`UPDATE summary_profiles SET profile='old-profile' WHERE workspace='a';
+		UPDATE requirement_summaries SET status='failed' WHERE requirement_id='retry-1' AND version=2`); err != nil {
+		t.Fatal(err)
+	}
+	if amount(count) != 0 || amount(retry) != 0 {
+		t.Fatal("superseded service profile can still count or retry summaries")
+	}
+}
+
+func TestGraphQLFailedSummariesWithoutGenerator(t *testing.T) {
+	s, err := New(testDatabase(t), map[string]string{"token-a": "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.db.Exec(`INSERT INTO projects VALUES ('p','a','P','G','','now','now')`); err != nil {
+		t.Fatal(err)
+	}
+	out := summaryRequest(t, s, "token-a", `{failedRequirementSummaryCount(projectId:"p")}`)
+	if out["errors"] != nil || out["data"].(map[string]any)["failedRequirementSummaryCount"] != float64(0) {
+		t.Fatalf("count without a generator: %v", out)
+	}
+	out = summaryRequest(t, s, "token-a", `mutation{retryFailedRequirementSummaries(projectId:"p")}`)
+	if out["errors"] == nil {
+		t.Fatalf("retry without a generator succeeded: %v", out)
+	}
+}

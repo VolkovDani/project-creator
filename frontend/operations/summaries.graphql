@@ -46,3 +46,11 @@ mutation CancelRequirementSummary($projectId: ID!, $requirementId: ID!) {
     layaEligible
   }
 }
+
+query FailedRequirementSummaryCount($projectId: ID!) {
+  failedRequirementSummaryCount(projectId: $projectId)
+}
+
+mutation RetryFailedRequirementSummaries($projectId: ID!) {
+  retryFailedRequirementSummaries(projectId: $projectId)
+}

@@ -484,6 +484,8 @@ After a language rejection the worker makes one fresh attempt using the original
 
 A failed preview shows the reason in the interface. `INVALID_FORMAT` identifies a malformed response, `INVALID_TEXT` an empty or unpublishable string, `INVALID_LANGUAGE` an alphabet mismatch, `MISSING_SOURCE_NUMBERS` an omitted numeric literal or numbered identifier, and `CORRECTION_TOO_LONG` a correction that exceeds the request budget. Historical `INVALID_OUTPUT` records remain retryable.
 
+If any summaries failed, the Requirements page shows **Retry all failed summaries** with a count for the whole project, including interrupted generations (`INTERRUPTED`). Click it to queue those summaries again for the current requirement versions and active profile. To retry just one summary, use the action on its requirement card.
+
 Until a ready preview for the displayed version is available, its card shows the full original directly. When the preview arrives, expand the original to read it.
 
 With `PROJECT_CREATOR_SUMMARY_MODEL` and a full `PROJECT_CREATOR_SUMMARY_DIGEST`

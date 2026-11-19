@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+
 	"github.com/VolkovDani/project-creator/internal/analysis"
 )
 
@@ -10,6 +11,8 @@ import (
 func configuredGenerator(getenv func(string) string) (analysis.Generator, error) {
 	runtime := getenv("PROJECT_CREATOR_GENERATOR_RUNTIME")
 	switch runtime {
+	case "openai-compatible":
+		return analysis.NewOpenAICompatible(getenv("PROJECT_CREATOR_GENERATOR_URL"), getenv("PROJECT_CREATOR_GENERATOR_MODEL"), getenv("PROJECT_CREATOR_GENERATOR_API_KEY"))
 	case "openvino-npu":
 		return analysis.NewOpenVINO(getenv("PROJECT_CREATOR_NPU_SOCKET"), getenv("PROJECT_CREATOR_NPU_PROFILE"))
 	case "", "ollama":
@@ -26,6 +29,6 @@ func configuredGenerator(getenv func(string) string) (analysis.Generator, error)
 		}
 		return analysis.NewOllama(base, model, digest)
 	default:
-		return nil, errors.New("unknown PROJECT_CREATOR_GENERATOR_RUNTIME; expected ollama or openvino-npu")
+		return nil, errors.New("unknown PROJECT_CREATOR_GENERATOR_RUNTIME; expected ollama, openvino-npu or openai-compatible")
 	}
 }

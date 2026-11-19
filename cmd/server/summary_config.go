@@ -6,6 +6,9 @@ import (
 )
 
 func configuredSummarizer(getenv func(string) string) (summary.Generator, error) {
+	if getenv("PROJECT_CREATOR_GENERATOR_RUNTIME") == "openai-compatible" {
+		return analysis.NewSummaryOpenAICompatible(getenv("PROJECT_CREATOR_GENERATOR_URL"), getenv("PROJECT_CREATOR_GENERATOR_MODEL"), getenv("PROJECT_CREATOR_GENERATOR_API_KEY"), getenv("PROJECT_CREATOR_SUMMARY_LANGUAGES"))
+	}
 	model, digest := getenv("PROJECT_CREATOR_SUMMARY_MODEL"), getenv("PROJECT_CREATOR_SUMMARY_DIGEST")
 	if model == "" && digest == "" {
 		return nil, nil

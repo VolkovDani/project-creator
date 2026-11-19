@@ -266,6 +266,10 @@ func checkedCompare(ctx context.Context, generator Generator, pair Pair) (Findin
 		return Finding{}, "TIMEOUT"
 	}
 	if err != nil {
+		var invalid invalidModelOutput
+		if errors.As(err, &invalid) {
+			return Finding{}, "INVALID_OUTPUT"
+		}
 		var failure npuFailure
 		if errors.As(err, &failure) && knownNPUFailure(string(failure)) {
 			return Finding{}, string(failure)

@@ -153,6 +153,47 @@ func TestPairFailureRetryKeepsCompletedPairsAndRequiresCurrentLatestSnapshot(t *
 	}
 }
 
+func TestInvalidPairOutputContinuesQueueAndRetriesOnlyRejectedPair(t *testing.T) {
+	db, retriever, _ := analysisDB(t)
+	ready(t, retriever)
+	addThird(t, db, retriever)
+	var calls atomic.Int32
+	retryPair := make(chan Pair, 1)
+	generator := generatorFunc(func(_ context.Context, p Pair) (Finding, error) {
+		switch calls.Add(1) {
+		case 2:
+			return Finding{}, npuFailure("INVALID_OUTPUT")
+		case 4:
+			retryPair <- p
+		}
+		return findingFor(p), nil
+	})
+	service := testService(t, db, retriever, generator, "embed-a")
+	ctx := context.Background()
+	run, err := service.startAndWait(t, ctx, "a", "p")
+	if err != nil || run.Status != "failed" || run.ErrorCode != "INVALID_OUTPUT" ||
+		run.CompletedPairs != 2 || run.FailedPairs != 1 || run.ProcessedPairs != 3 || len(run.Pairs) != 3 {
+		t.Fatalf("status=%s code=%s completed=%d failed=%d processed=%d err=%v",
+			run.Status, run.ErrorCode, run.CompletedPairs, run.FailedPairs, run.ProcessedPairs, err)
+	}
+	rejected := run.Pairs[1]
+	if run.Pairs[0].Status != "completed" || run.Pairs[2].Status != "completed" ||
+		rejected.Status != "failed" || rejected.ErrorCode != "INVALID_OUTPUT" || rejected.Verdict != "" || rejected.Explanation != "" {
+		t.Fatal(run.Pairs)
+	}
+	if _, err = service.Retry(ctx, "a", "p", run.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := waitForRun(t, service, "a", "p", run.ID)
+	if done.Status != "completed" || done.CompletedPairs != 3 || done.FailedPairs != 0 ||
+		calls.Load() != 4 {
+		t.Fatalf("retry status=%s completed=%d failed=%d calls=%d", done.Status, done.CompletedPairs, done.FailedPairs, calls.Load())
+	}
+	if retried := <-retryPair; retried.Left.ID != rejected.Left.ID || retried.Right.ID != rejected.Right.ID {
+		t.Fatalf("retried the wrong pair: %v", retried)
+	}
+}
+
 func TestRetryRejectsChangedSourcesAndProfiles(t *testing.T) {
 	for _, change := range []string{"sources", "generator"} {
 		t.Run(change, func(t *testing.T) {

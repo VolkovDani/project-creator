@@ -169,15 +169,15 @@ func TestOpenVINOAliasReferencesRoundTripAndRejectUnknownSources(t *testing.T) {
 							Verdict: "collision", Explanation: "В одном сценарии требуются взаимоисключающие способы оплаты."}
 						json.NewEncoder(w).Encode(map[string]any{"profile": pinnedDigest, "device": "NPU", "finding": finding})
 					})
-					finding, err := generator.Compare(context.Background(), input.pair)
+					finding, code := checkedCompare(context.Background(), generator, input.pair)
 					if !response.valid {
-						if err == nil {
-							t.Fatalf("accepted invalid model references: %+v", finding)
+						if finding != (Finding{}) || code != "INVALID_OUTPUT" {
+							t.Fatalf("invalid model references: finding=%+v code=%q", finding, code)
 						}
 						return
 					}
-					if err != nil || !validFinding(input.pair, finding) || finding.Verdict != "collision" {
-						t.Fatalf("references did not round trip: finding=%+v err=%v", finding, err)
+					if code != "" || !validFinding(input.pair, finding) || finding.Verdict != "collision" {
+						t.Fatalf("references did not round trip: finding=%+v code=%q", finding, code)
 					}
 				})
 			}

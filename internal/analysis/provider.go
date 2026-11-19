@@ -247,12 +247,18 @@ func (o *Ollama) chat(ctx context.Context, messages []map[string]string, schema 
 		return "", err
 	}
 	if !response.Done || response.DoneReason != "stop" || response.Message.Role != "assistant" || len(response.Message.ToolCalls) != 0 {
-		return "", errors.New("incomplete or unsupported local chat response")
+		return "", invalidModelOutput("incomplete or unsupported local chat response")
 	}
 	return response.Message.Content, nil
 }
 
-var errExplanationAlphabet = errors.New("comparison explanation contains unsupported characters")
+// invalidModelOutput identifies a rejected completion after the provider responded.
+type invalidModelOutput string
+
+func (e invalidModelOutput) Error() string { return string(e) }
+
+const errExplanationAlphabet invalidModelOutput = "comparison explanation contains unsupported characters"
+
 var pairLanguages = func() SummaryLanguagePolicy {
 	policy, err := NewSummaryLanguagePolicy(explanationAlphabet)
 	if err != nil {
@@ -277,19 +283,19 @@ func decodeFinding(content string, pair Pair) (Finding, error) {
 	decoder := json.NewDecoder(strings.NewReader(content))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&result); err != nil {
-		return Finding{}, errors.New("comparison output does not match schema")
+		return Finding{}, invalidModelOutput("comparison output does not match schema")
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
-		return Finding{}, errors.New("comparison output contains trailing data")
+		return Finding{}, invalidModelOutput("comparison output contains trailing data")
 	}
 	if result.LeftID != pair.Left.ID || result.RightID != pair.Right.ID || result.LeftVersion != pair.Left.Version || result.RightVersion != pair.Right.Version {
-		return Finding{}, errors.New("comparison output references unknown sources")
+		return Finding{}, invalidModelOutput("comparison output references unknown sources")
 	}
 	if result.Verdict != "collision" && result.Verdict != "insufficient" && result.Verdict != "compatible" && result.Verdict != "duplicate" {
-		return Finding{}, errors.New("comparison output has unknown verdict")
+		return Finding{}, invalidModelOutput("comparison output has unknown verdict")
 	}
 	if !utf8.ValidString(result.Explanation) || strings.TrimSpace(result.Explanation) == "" || utf8.RuneCountInString(result.Explanation) > 2000 {
-		return Finding{}, errors.New("comparison explanation is invalid")
+		return Finding{}, invalidModelOutput("comparison explanation is invalid")
 	}
 	if !pairLanguages.validAlphabet(result.Explanation) {
 		return Finding{}, errExplanationAlphabet

@@ -104,8 +104,8 @@ func TestOpenAICompatibleRejectsUnsupportedResponses(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := g.Compare(context.Background(), pairFixture()); err == nil || calls != 1 {
-				t.Fatalf("calls=%d err=%v", calls, err)
+			if result, code := checkedCompare(context.Background(), g, pairFixture()); result != (Finding{}) || code != "INVALID_OUTPUT" || calls != 1 {
+				t.Fatalf("finding=%+v calls=%d code=%q", result, calls, code)
 			}
 		})
 	}

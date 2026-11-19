@@ -331,24 +331,27 @@ class RuntimeLifecycleTests(unittest.TestCase):
 
 
 class WorkerTests(unittest.TestCase):
-    def run_worker(self, finish, *, schema_error=None, generation_error=None, text=None, requests=None):
+    def run_worker(self, finish, *, schema_error=None, generation_error=None, text=None,
+                   requests=None, output=None, stderr=None):
         encoded = SimpleNamespace(input_ids=SimpleNamespace(shape=(1, 10)))
         tokenizer = SimpleNamespace(
             apply_chat_template=mock.Mock(return_value='full formatted template'),
             encode=mock.Mock(return_value=encoded),
             decode=mock.Mock(return_value=json.dumps(finding()) if text is None else text))
-        output = SimpleNamespace(tokens=[[11, 12, 13]], finish_reasons=[finish])
+        if output is None:
+            output = SimpleNamespace(tokens=[[11, 12, 13]], finish_reasons=[finish])
         pipeline = SimpleNamespace(get_tokenizer=lambda: tokenizer,
                                    generate=mock.Mock(return_value=output, side_effect=generation_error))
         core = SimpleNamespace(available_devices=['CPU', 'NPU'], get_property=lambda *_: 'Intel NPU fixture')
         ov = SimpleNamespace(Core=lambda: core)
         genai = SimpleNamespace(LLMPipeline=mock.Mock(return_value=pipeline),
                                StructuredOutputConfig=mock.Mock(side_effect=schema_error),
-                               GenerationFinishReason=SimpleNamespace(STOP='stop'))
+                               GenerationFinishReason=SimpleNamespace(STOP='stop', LENGTH='length',
+                                                                      NONE='none', TOOL_CALL='tool_call'))
         connection = FakePipe([request()] if requests is None else requests)
         with mock.patch.dict('sys.modules', {'openvino': ov, 'openvino_genai': genai}), \
              mock.patch.object(npu.importlib.metadata, 'version', side_effect=lambda name: npu.VERSIONS[name]), \
-             mock.patch.dict(npu.os.environ), contextlib.redirect_stderr(io.StringIO()):
+             mock.patch.dict(npu.os.environ), contextlib.redirect_stderr(stderr or io.StringIO()):
             npu.worker(connection, Path('/fixture'), {'max_prompt_tokens': 2048, 'max_new_tokens': 512}, Path('/cache'))
         return connection, pipeline, tokenizer, encoded, genai
 
@@ -365,10 +368,36 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(connection.sent[1]['finding'], finding())
         self.assertTrue(connection.closed)
 
-    def test_worker_rejects_native_length_finish_even_if_decoded_json_is_valid(self):
-        connection, _, tokenizer, _, _ = self.run_worker('length')
-        self.assertEqual(connection.sent[1], {'error': 'OUTPUT_LIMIT_OR_FINISH'})
-        tokenizer.decode.assert_not_called()
+    def test_rejected_generation_logs_only_safe_counts_and_finish_reason(self):
+        cases = [
+            ([[11, 12, 13]], ['length'], 'OUTPUT_NON_STOP', 3, 'LENGTH'),
+            ([[11]], ['private model text'], 'OUTPUT_NON_STOP', 1, 'UNKNOWN'),
+            ([[11]*512], ['stop'], 'OUTPUT_TOKEN_LIMIT', 512, 'STOP'),
+            ([[11]*513], ['length'], 'OUTPUT_TOKEN_LIMIT', 513, 'LENGTH'),
+            ([], ['none'], 'OUTPUT_SHAPE', None, 'NONE'),
+            ([[11], [12]], ['stop', 'tool_call'], 'OUTPUT_SHAPE', None, None),
+            ([[11]], [], 'OUTPUT_SHAPE', 1, None),
+        ]
+        for tokens, reasons, stage, count, reason in cases:
+            with self.subTest(stage=stage, count=count, reason=reason):
+                stderr = io.StringIO()
+                output = SimpleNamespace(tokens=tokens, finish_reasons=reasons)
+                connection, pipeline, tokenizer, _, _ = self.run_worker(None, output=output, stderr=stderr)
+                self.assertEqual(connection.sent[1], {'error': stage})
+                pipeline.generate.assert_called_once()
+                tokenizer.decode.assert_not_called()
+                record = {'error': stage, 'device': 'NPU', 'prompt_tokens': 10, 'max_new_tokens': 512,
+                          'sequence_count': len(tokens), 'finish_reason_count': len(reasons)}
+                if count is not None:
+                    record['generated_tokens'] = count
+                if reason is not None:
+                    record['finish_reason'] = reason
+                self.assertEqual(json.loads(stderr.getvalue().splitlines()[0]), record)
+                runtime = runtime_fixture([connection.sent[1]])
+                with mock.patch.object(npu, 'inventory', return_value=runtime.snapshot), \
+                     mock.patch.object(npu, 'lifecycle_event'), self.assertRaises(npu.RuntimeFailure) as rejected:
+                    runtime.compare(request(), None)
+                self.assertEqual(rejected.exception.code, 'INVALID_OUTPUT')
 
     def test_worker_enforces_request_schema_in_native_generation(self):
         connection, pipeline, _, _, genai = self.run_worker('stop')
@@ -399,9 +428,14 @@ class WorkerTests(unittest.TestCase):
 
     def test_worker_still_rejects_duplicate_keys_without_repair_or_retry(self):
         duplicate = json.dumps(finding())[:-1]+',"explanation":"duplicate"}'
-        connection, pipeline, _, _, _ = self.run_worker('stop', text=duplicate)
+        stderr = io.StringIO()
+        connection, pipeline, _, _, _ = self.run_worker('stop', text=duplicate, stderr=stderr)
         self.assertEqual(connection.sent[1], {'error': 'OUTPUT_JSON'})
         pipeline.generate.assert_called_once()
+        self.assertEqual(json.loads(stderr.getvalue().splitlines()[0]),
+                         {'error': 'OUTPUT_JSON', 'device': 'NPU', 'prompt_tokens': 10,
+                          'max_new_tokens': 512, 'sequence_count': 1, 'finish_reason_count': 1,
+                          'generated_tokens': 3, 'finish_reason': 'STOP'})
 
 
 class HTTPTests(unittest.TestCase):

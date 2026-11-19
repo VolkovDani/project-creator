@@ -145,7 +145,7 @@ func TestInvalidSummaryFailsWithoutTruncation(t *testing.T) {
 		t.Fatal(e)
 	}
 	v := waitState(t, s, "a", "p", "r", "failed")
-	if v.Text != "" || v.ErrorCode != "INVALID_OUTPUT" {
+	if v.Text != "" || v.ErrorCode != "INVALID_TEXT" {
 		t.Fatalf("invalid accepted %+v", v)
 	}
 }
@@ -376,5 +376,20 @@ func TestTwoWorkersDoNotDuplicateSummaryInference(t *testing.T) {
 	waitState(t, first, "a", "p", "r", "ready")
 	if g.calls.Load() != 1 {
 		t.Fatal("duplicate summary model calls")
+	}
+}
+
+func TestSummaryValidationErrorCodes(t *testing.T) {
+	for err, want := range map[error]string{
+		analysis.ErrInvalidSummary:           "INVALID_OUTPUT",
+		analysis.ErrSummaryFormat:            "INVALID_FORMAT",
+		analysis.ErrSummaryText:              "INVALID_TEXT",
+		analysis.ErrSummaryLanguage:          "INVALID_LANGUAGE",
+		analysis.ErrSummaryNumbers:           "MISSING_SOURCE_NUMBERS",
+		analysis.ErrSummaryCorrectionTooLong: "CORRECTION_TOO_LONG",
+	} {
+		if got := summaryErrorCode(err); got != want {
+			t.Errorf("%v mapped to %s, want %s", err, got, want)
+		}
 	}
 }

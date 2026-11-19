@@ -17,6 +17,7 @@ async function fixture(
     failSummaryReads?: boolean;
     summaryVersion?: number;
     initialStatus?: string;
+    errorCode?: string;
     longPreview?: boolean;
     highlight?: boolean;
   },
@@ -63,7 +64,7 @@ async function fixture(
     profile: 'local-test-profile',
     provenance: 'local-test-generator',
     createdAt: '2026-11-06T12:00:00Z',
-    errorCode: '',
+    errorCode: status === 'failed' ? (options?.errorCode ?? '') : '',
   });
 
   await page.route('**/api/events', (route) =>
@@ -240,4 +241,11 @@ test('a ready summary shows the project definition inside its own text', async (
   await term.focus();
   await expect(page.getByRole('tooltip')).toContainText('Определение из словаря проекта');
   await expect(page.getByText(original, { exact: true })).toBeHidden();
+});
+
+test('a language rejection explains the failure and offers retry', async ({ page }) => {
+  await fixture(page, { initialStatus: 'failed', errorCode: 'INVALID_LANGUAGE' });
+  await page.goto('/projects/summary-project/requirements');
+  await expect(page.getByRole('alert').filter({ hasText: 'языку' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Повторить создание резюме' })).toBeVisible();
 });

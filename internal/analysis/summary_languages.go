@@ -124,6 +124,18 @@ func (p SummaryLanguagePolicy) validAlphabet(text string) bool {
 // source. Internal dots/dashes are part of a name; sentence punctuation is not.
 var summaryWord = regexp.MustCompile(`[\p{L}\p{N}_]+(?:[-.][\p{L}\p{N}_]+)*`)
 
+// Match the complete technical label so its individual foreign words cannot be
+// reused as prose. Only labels copied verbatim from the source are exempt.
+var summaryTechnicalLabel = regexp.MustCompile(`\b[A-Z][A-Z0-9]{1,11} \([A-Z][A-Za-z0-9-]*(?: [A-Z][A-Za-z0-9-]*){1,7}\)`)
+
+func sourceCodeName(source string, start, end int) bool {
+	before, after := source[:start], source[end:]
+	return strings.HasPrefix(after, "[") || strings.HasPrefix(after, "(") ||
+		strings.HasPrefix(after, "]") || strings.HasSuffix(before, "[") ||
+		strings.HasPrefix(strings.TrimLeft(after, " \t"), "=") ||
+		strings.HasSuffix(strings.TrimRight(before, " \t"), "=")
+}
+
 // forSource narrows the configured alphabets to those that can represent the
 // source prose, including isolated technical names. Overlapping alphabets may
 // yield several candidates. Mixed or unsupported prose keeps the configured set.
@@ -153,29 +165,56 @@ func (p SummaryLanguagePolicy) ValidForSource(text, source string) bool {
 	if !contracts.ValidSummary(text) || !contracts.ValidSummary(source) {
 		return false
 	}
+	identifiers, labels := p.sourceNames(source)
+	if len(labels) > 0 {
+		text = summaryTechnicalLabel.ReplaceAllStringFunc(text, func(label string) string {
+			if labels[label] {
+				return " "
+			}
+			return label
+		})
+	}
+	return p.validWithSourceNames(text, identifiers)
+}
+
+func (p SummaryLanguagePolicy) sourceNames(source string) (map[string]bool, map[string]bool) {
+	isolated := map[string]bool{}
 	identifiers := map[string]bool{}
-	foreignRun := 0
+	var run []string
+	hasNativeWord := false
+	finishRun := func() {
+		if len(run) == 1 && asciiSummaryName(run[0]) {
+			isolated[strings.ToLower(run[0])] = true
+		}
+		run = run[:0]
+	}
 	for _, span := range summaryWord.FindAllStringIndex(source, -1) {
 		token := source[span[0]:span[1]]
 		if !hasSummaryLetter(token) {
 			continue
 		}
 		if p.Valid(token) {
-			foreignRun = 0
-			continue
+			hasNativeWord = true
+			finishRun()
+		} else {
+			run = append(run, token)
+			if asciiSummaryName(token) && (strings.IndexFunc(token, unicode.IsDigit) >= 0 || sourceCodeName(source, span[0], span[1])) {
+				identifiers[strings.ToLower(token)] = true
+			}
 		}
-		// Two adjacent foreign words are not an isolated technical name, even
-		// with punctuation between them. Never whitelist a foreign prose run.
-		foreignRun++
-		if foreignRun > 1 || !asciiSummaryName(token) {
-			return false
+	}
+	finishRun()
+	if hasNativeWord {
+		for name := range isolated {
+			identifiers[name] = true
 		}
-		identifiers[strings.ToLower(token)] = true
 	}
-	if len(identifiers) == 0 {
-		return false
+	labels := map[string]bool{}
+	for _, label := range summaryTechnicalLabel.FindAllString(source, -1) {
+		labels[label] = true
+		identifiers[strings.ToLower(strings.Fields(label)[0])] = true
 	}
-	return p.validWithSourceNames(source, identifiers) && p.validWithSourceNames(text, identifiers)
+	return identifiers, labels
 }
 
 func (p SummaryLanguagePolicy) validWithSourceNames(text string, identifiers map[string]bool) bool {

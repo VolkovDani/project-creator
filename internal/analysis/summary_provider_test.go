@@ -3,6 +3,7 @@ package analysis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -79,13 +80,13 @@ func TestSummaryOllamaInvalidOutputRetryAndLongPreview(t *testing.T) {
 		calls    int
 	}{
 		{"source-language-corrected", []string{`{"summary":"Сохранить требование."}`, `{"summary":"Save the requirement."}`}, nil, 2},
-		{"source-language-exhausted", []string{`{"summary":"Сохранить требование."}`}, ErrInvalidSummary, 2},
+		{"source-language-exhausted", []string{`{"summary":"Сохранить требование."}`}, ErrSummaryLanguage, 2},
 		{"long-valid", []string{`{"summary":"` + strings.Repeat("x", 351) + `"}`}, nil, 1},
-		{"foreign-letters-invalid", []string{`{"summary":"必须保存要求"}`}, ErrInvalidSummary, 2},
+		{"foreign-letters-invalid", []string{`{"summary":"必须保存要求"}`}, ErrSummaryLanguage, 2},
 		{"foreign-letters-corrected", []string{`{"summary":"必须保存要求"}`, `{"summary":"Save the requirement."}`}, nil, 2},
-		{"empty-invalid", []string{`{"summary":""}`}, ErrInvalidSummary, 2},
-		{"retry-invalid", []string{`{"summary":"short","unsummarizable":"yes"}`, `{"summary":"short","extra":1}`}, ErrInvalidSummary, 2},
-		{"invalid-shape", []string{`{"summary":null}`}, ErrInvalidSummary, 2},
+		{"empty-invalid", []string{`{"summary":""}`}, ErrSummaryText, 2},
+		{"retry-invalid", []string{`{"summary":"short","unsummarizable":"yes"}`, `{"summary":"short","extra":1}`}, ErrSummaryFormat, 2},
+		{"invalid-shape", []string{`{"summary":null}`}, ErrSummaryFormat, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
@@ -120,12 +121,16 @@ func TestSummaryOllamaInvalidOutputRetryAndLongPreview(t *testing.T) {
 			}
 			if tc.calls == 2 {
 				messages := secondRequest["messages"].([]any)
-				if len(messages) != 4 || strings.Contains(messages[3].(map[string]any)["content"].(string), "350") {
+				if strings.Contains(tc.name, "language") || strings.Contains(tc.name, "foreign-letters") {
+					if len(messages) != 2 || strings.Contains(messages[1].(map[string]any)["content"].(string), "req-1") || !strings.Contains(messages[0].(map[string]any)["content"].(string), "Describe source code") {
+						t.Fatal("language correction must restart from the original source")
+					}
+				} else if len(messages) != 4 || strings.Contains(messages[3].(map[string]any)["content"].(string), "350") {
 					t.Fatal("unexpected corrective prompt", messages)
 				}
 			}
 			if tc.wantErr != nil {
-				if err != tc.wantErr {
+				if !errors.Is(err, tc.wantErr) {
 					t.Fatalf("err=%v want=%v", err, tc.wantErr)
 				}
 			} else if err != nil || (tc.name == "long-valid" && got != strings.Repeat("x", 351)) {
@@ -152,7 +157,7 @@ func TestSummaryOllamaDoesNotRetryWhenCorrectionExceedsContextBudget(t *testing.
 		t.Fatal(err)
 	}
 	_, err = g.Summarize(context.Background(), summarySource("A requirement longer than 350 bytes."))
-	if err != ErrInvalidSummary || calls != 1 {
+	if err != ErrSummaryCorrectionTooLong || calls != 1 {
 		t.Fatalf("err=%v inference calls=%d", err, calls)
 	}
 }
@@ -234,7 +239,7 @@ func TestSummarySchemaAllowsFaithfulLongPreviewWithoutRefusalFlag(t *testing.T) 
 	if got, e := decodeSummary(`{"summary":"A faithful preview"}`); e != nil || got != "A faithful preview" {
 		t.Fatalf("preview=%q err=%v", got, e)
 	}
-	if _, e := decodeSummary(`{"summary":"x","unsummarizable":false}`); e != ErrInvalidSummary {
+	if _, e := decodeSummary(`{"summary":"x","unsummarizable":false}`); !errors.Is(e, ErrInvalidSummary) {
 		t.Fatal("obsolete response flag was accepted")
 	}
 }
@@ -285,6 +290,25 @@ func TestSummaryRetriesWhenNumbersOrIdentifiersAreOmitted(t *testing.T) {
 	got, e := g.Summarize(context.Background(), summarySource("Retain REQ-0042 for 90 days."))
 	if e != nil || calls != 2 || got != "Retain REQ-0042 for 90 days." {
 		t.Fatalf("source facts lost: text=%q calls=%d err=%v", got, calls, e)
+	}
+}
+
+func TestSummaryOllamaReportsMissingNumberAfterCorrection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/tags" {
+			summaryTags(w, summaryDigest)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"done": true, "done_reason": "stop", "message": map[string]string{"role": "assistant", "content": `{"summary":"Retain the report."}`}})
+	}))
+	defer server.Close()
+	g, err := NewSummaryOllama(server.URL, summaryModel, summaryDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = g.Summarize(context.Background(), summarySource("Retain the report for 90 days."))
+	if !errors.Is(err, ErrSummaryNumbers) || !errors.Is(err, ErrInvalidSummary) {
+		t.Fatalf("unexpected rejection: %v", err)
 	}
 }
 
@@ -339,11 +363,10 @@ func TestSummaryOllamaPreservesSourceTechnicalIdentifiersOnly(t *testing.T) {
 			wantCalls: 2,
 		},
 		{
-			name:      "do not whitelist names from a source foreign prose run",
+			name:      "keep isolated names outside a source foreign prose run",
 			source:    "Описание: export all records, сохранить Excel.",
 			output:    "Нужно сохранить Excel.",
-			wantErr:   true,
-			wantCalls: 2,
+			wantCalls: 1,
 		},
 		{
 			name:      "preserve source PascalCase technical names without a catalog",
@@ -424,7 +447,7 @@ func TestSummaryOllamaRejectsNULEvenWithSourceTechnicalNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = g.Summarize(context.Background(), summarySource("Требование: сохранить Excel."))
-	if err != ErrInvalidSummary || calls != 2 {
+	if err != ErrSummaryText || calls != 2 {
 		t.Fatalf("err=%v calls=%d", err, calls)
 	}
 }

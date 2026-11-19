@@ -452,10 +452,19 @@ test('infinite page retry keeps the already rendered rows', async ({ page }) => 
   await api.fail(503);
   await page.getByRole('button', { name: 'Загрузить ещё', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Повторить', exact: true })).toBeVisible();
-  await expect(page.locator('#requirement-r39')).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.locator('#requirement-r0')).toBeVisible();
   api.fail(0);
   await page.getByRole('button', { name: 'Повторить', exact: true }).click();
-  await expect.poll(() => api.connectionReads().length).toBeGreaterThanOrEqual(3);
+  await expect
+    .poll(() =>
+      api
+        .connectionReads()
+        .map((read) => read.after)
+        .slice(0, 3),
+    )
+    .toEqual([null, 'cursor-40', 'cursor-40']);
+  await expect(page.getByRole('button', { name: 'Повторить', exact: true })).toHaveCount(0);
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(page.locator('#requirement-r0')).toBeVisible();
 });

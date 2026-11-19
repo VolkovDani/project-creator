@@ -128,6 +128,7 @@ async function fixture(
   sourceSuffix = '',
   projectValue = project,
   summaryText?: string,
+  maxBatchSize = Number.POSITIVE_INFINITY,
 ) {
   const rows = Array.from({ length: count }, (_, i) => ({
     ...requirement(i),
@@ -135,6 +136,7 @@ async function fixture(
   }));
   const waiting = new Set<(body: string) => void>();
   let delay: Promise<void> | undefined;
+  let delayAfterFirst = false;
   let failure = 0;
   let nextEditConflict = false;
   let editFailureStatus = 0;
@@ -234,8 +236,9 @@ async function fixture(
         await route.fulfill({ status: failure, json: { error: 'fixture failure' } });
         return;
       }
+      if (delay && delayAfterFirst && variables.after) await delay;
       const start = Number(variables.after ? String(variables.after).replace('cursor-', '') : 0);
-      const batch = rows.slice(start, start + Number(variables.first));
+      const batch = rows.slice(start, start + Math.min(Number(variables.first), maxBatchSize));
       data = {
         requirementsConnection: {
           edges: batch.map((node, index) => ({ cursor: `cursor-${start + index + 1}`, node })),
@@ -248,7 +251,7 @@ async function fixture(
       };
     } else if (query.includes('requirements(')) {
       reads++;
-      if (delay) await delay;
+      if (delay && !delayAfterFirst) await delay;
       if (failure) {
         await route.fulfill({ status: failure, json: { error: 'fixture failure' } });
         return;
@@ -316,7 +319,8 @@ async function fixture(
     failIndex: (status: number) => {
       indexFailure = status;
     },
-    delay: () => {
+    delay: (afterFirst = false) => {
+      delayAfterFirst = afterFirst;
       let release!: () => void;
       delay = new Promise<void>((resolve) => (release = resolve));
       return () => {
@@ -401,20 +405,24 @@ test('infinite requirements append on scroll and stop at the terminal page', asy
 test('dynamic requirement cards keep the load button outside their content', async ({ page }) => {
   const api = await fixture(
     page,
-    200,
+    8,
     '\nДлинное условие с пояснениями и ограничениями.'.repeat(20),
+    project,
+    undefined,
+    4,
   );
+  // Hold continuation responses before navigation can trigger prefetch.
+  const release = api.delay(true);
   await page.goto('/projects/demo/requirements');
-  const last = page.locator('#requirement-r39');
+  await expect(page.locator('#requirement-r0')).toBeVisible();
+  const last = page.locator('#requirement-r3');
   const more = page.getByRole('button', { name: 'Загрузить ещё', exact: true });
-  await more.scrollIntoViewIfNeeded();
+  await expect(more).toBeAttached();
   await last.getByText('Полный исходный текст требования', { exact: true }).click();
   await expect
     .poll(async () => {
       return page.evaluate(() => {
-        const button = [...document.querySelectorAll('button')].find(
-          (el) => el.textContent === 'Загрузить ещё',
-        );
+        const button = document.querySelector('details.data-group > button');
         if (!button) return false;
         const top = button.getBoundingClientRect().top;
         return [...document.querySelectorAll('[data-virtual-id] section')].every(
@@ -423,9 +431,13 @@ test('dynamic requirement cards keep the load button outside their content', asy
       });
     })
     .toBe(true);
-  const before = api.connectionReads().length;
-  await more.click();
-  await expect.poll(() => api.connectionReads().length).toBeGreaterThan(before);
+  release();
+  await expect
+    .poll(async () => {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      return api.connectionReads().length;
+    })
+    .toBe(2);
 });
 
 test('infinite page retry keeps the already rendered rows', async ({ page }) => {
@@ -662,8 +674,12 @@ test('indexing appends on scroll with matching statuses and stops at the end', a
   expect(api.indexReads()[0]).toHaveLength(40);
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await expect.poll(() => api.indexReads().length).toBeGreaterThan(1);
-  await page.getByRole('button', { name: 'Загрузить ещё', exact: true }).click();
-  await expect.poll(() => api.indexReads().length).toBe(3);
+  await expect
+    .poll(async () => {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      return api.indexReads().length;
+    })
+    .toBe(3);
   await expect(page.getByRole('button', { name: 'Загрузить ещё', exact: true })).toHaveCount(0);
   await page.evaluate(() => window.scrollTo(0, 0));
   const failed = page.getByRole('group', { name: 'ошибка', exact: true });
@@ -949,5 +965,32 @@ for (const { width, zoom } of layoutCases) {
         await expectLayout(page);
       }
     }
+  });
+}
+
+for (const route of ['requirements', 'analysis']) {
+  test(`pilot actions on ${route} show hover and keyboard focus`, async ({ page }, testInfo) => {
+    const renderingErrors: string[] = [];
+    page.on('pageerror', (error) => renderingErrors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error' && /hydrat/i.test(message.text())) {
+        renderingErrors.push(message.text());
+      }
+    });
+    await fixture(page, 3);
+    await page.goto(`/projects/demo/${route}?listMode=pages`);
+    const section = page.locator('main section[aria-labelledby]').last();
+    const button = section.locator('button:enabled').first();
+    await expect(button).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`${route}.png`) });
+    const rest = await button.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await button.hover();
+    await expect(button).not.toHaveCSS('background-color', rest);
+    await button.focus();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(button).toBeFocused();
+    await expect(button).toHaveCSS('outline-style', 'solid');
+    expect(renderingErrors).toEqual([]);
   });
 }

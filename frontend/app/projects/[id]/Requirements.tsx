@@ -208,7 +208,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     }
   }
   return (
-    <section aria-labelledby="requirements-heading">
+    <section className="ui-panel" aria-labelledby="requirements-heading">
       <h2 id="requirements-heading">{t(locale, 'requirements.title')}</h2>
       <form onSubmit={save} noValidate>
         <label>
@@ -363,6 +363,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
               <button
                 type="button"
                 disabled={busy || (mode === 'pages' && paged.requestedPage !== page)}
+                className="destructive-action"
                 onClick={() => void remove(row.id, row.version)}
               >
                 {t(locale, 'requirements.delete')}

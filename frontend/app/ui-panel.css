@@ -1,0 +1,149 @@
+/*! Adapted brand palette and shadow from Untitled UI React.
+MIT License
+
+Copyright (c) 2025 Untitled UI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+.ui-panel {
+  --text: #181d27;
+  --text-muted: #535862;
+  --surface: #fff;
+  --surface-subtle: #fafafa;
+  --border: #d5d7da;
+  --control-border: #717680;
+  --action: #6941c6;
+  --action-hover: #53389e;
+  --action-tint: #f9f5ff;
+  --focus: #7f56d9;
+  --danger: #b42318;
+  --danger-tint: #fef3f2;
+  --space-control: 0.625rem;
+  --space-group: 1rem;
+  --radius-control: 0.5rem;
+  --radius-panel: 0.75rem;
+  --text-control: 0.9375rem;
+  --shadow: 0 1px 2px rgb(0 0 0 / 5%);
+  color: var(--text);
+  background: var(--surface);
+  border-color: var(--border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow);
+  line-height: 1.5;
+}
+.ui-panel h2 {
+  margin-top: 0;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+}
+.ui-panel .muted,
+.ui-panel .resource-status {
+  color: var(--text-muted);
+}
+.ui-panel :is(.card, dialog, .data-group, .analysis-group, .skeleton, fieldset) {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+.ui-panel .card,
+.ui-panel dialog {
+  box-shadow: var(--shadow);
+}
+.ui-panel .analysis-pair-current {
+  border: 2px solid var(--action);
+  background: var(--action-tint);
+}
+.ui-panel :is(input:not([type="radio"]), select, textarea, button) {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-height: 2.5rem;
+  padding: var(--space-control);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-size: var(--text-control);
+  color: var(--text);
+  background: var(--surface);
+}
+.ui-panel input[type="radio"] {
+  width: auto;
+  margin-inline: 0 var(--space-control);
+  accent-color: var(--action);
+}
+.ui-panel button {
+  font-weight: 600;
+  padding-inline: var(--space-group);
+  box-shadow: var(--shadow);
+}
+.ui-panel button:hover:enabled,
+.ui-panel summary:hover {
+  background: var(--action-tint);
+  color: var(--action-hover);
+}
+.ui-panel :is(button[type="submit"], .primary-action) {
+  background: var(--action);
+  border-color: var(--action);
+  color: var(--surface);
+}
+.ui-panel :is(button[type="submit"], .primary-action):hover:enabled {
+  background: var(--action-hover);
+  color: var(--surface);
+}
+.ui-panel :is(.destructive-action, .error, [role="alert"]) {
+  color: var(--danger);
+}
+.ui-panel .destructive-action:hover:enabled,
+.ui-panel [role="alert"] {
+  color: var(--danger);
+  background: var(--danger-tint);
+}
+.ui-panel [aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.ui-panel :is(button, input, select, textarea):disabled {
+  cursor: not-allowed;
+  background: var(--surface-subtle);
+  border-color: var(--border);
+  color: var(--text-muted);
+  opacity: 1;
+}
+.ui-panel :focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.ui-panel summary {
+  cursor: pointer;
+  border-radius: var(--radius-control);
+}
+.ui-panel details[open] > summary {
+  color: var(--action-hover);
+}
+.ui-panel [role="status"],
+.ui-panel [role="alert"] {
+  padding: 0.25rem var(--space-control);
+  border-inline-start: 3px solid currentColor;
+}
+.ui-panel .skeleton > div {
+  background: var(--border);
+}
+.ui-panel textarea {
+  min-height: 5.625rem;
+}

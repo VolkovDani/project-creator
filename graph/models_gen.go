@@ -116,6 +116,35 @@ type ClassificationPayload struct {
 	Classification *RequirementClassification
 	FieldErrors    []*FieldError
 }
+type GlossaryTermsPage struct {
+	Items    []*GlossaryTerm
+	PageInfo *PageInfo
+}
+type GlossaryMatchesPage struct {
+	Items    []*GlossaryCandidate
+	PageInfo *PageInfo
+}
+type GlossaryMentionPage struct {
+	Items    []*Requirement
+	PageInfo *PageInfo
+}
+type GlossaryMentionsArgs struct {
+	ProjectId graphql.ID
+	TermId    graphql.ID
+	First     *int32
+	After     *string
+}
+type GlossaryTermsConnectionArgs struct {
+	ProjectId graphql.ID
+	Search    string
+	First     *int32
+	After     *string
+}
+type GlossaryCandidatesConnectionArgs struct {
+	ProjectId graphql.ID
+	First     *int32
+	After     *string
+}
 type RequirementClassificationArgs struct {
 	ProjectId     graphql.ID
 	RequirementId graphql.ID

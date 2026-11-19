@@ -36,6 +36,21 @@ func Matches(text string, terms []Term) []Match {
 	return compile(terms).matches(text)
 }
 
+// MentionsTerm uses the same longest-match and ambiguity rules as source highlighting.
+func MentionsTerm(terms []Term, id string) func(string) bool {
+	matcher := compile(terms)
+	return func(text string) bool {
+		for _, m := range matcher.matches(text) {
+			for _, t := range m.Terms {
+				if t.ID == id {
+					return true
+				}
+			}
+		}
+		return false
+	}
+}
+
 type spelling struct {
 	runes []rune
 	terms []Term

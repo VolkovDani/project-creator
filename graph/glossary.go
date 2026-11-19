@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"github.com/VolkovDani/project-creator/internal/glossary"
 	graphql "github.com/graph-gophers/graphql-go"
+	"slices"
 	"strings"
 )
 
@@ -126,21 +128,23 @@ func (r *Resolver) RequirementGlossary(ctx context.Context, a RequirementGlossar
 	out.Candidates = unconfirmedCandidates(source, a.RequirementId, a.Version, terms)
 	return out, nil
 }
-func unconfirmedCandidates(source string, id graphql.ID, version int32, terms []glossary.Term) []*GlossaryCandidate {
-	var result []*GlossaryCandidate
-	for _, c := range glossary.Candidates(source) {
-		known := false
-		for _, t := range terms {
-			if strings.EqualFold(t.Name, c.Name) {
-				for _, v := range t.Variants {
-					if strings.EqualFold(v.Text, c.Abbreviation) {
-						known = true
-						break
-					}
+func knownGlossaryCandidate(c glossary.Candidate, terms []glossary.Term) bool {
+	for _, t := range terms {
+		if strings.EqualFold(t.Name, c.Name) {
+			for _, v := range t.Variants {
+				if strings.EqualFold(v.Text, c.Abbreviation) {
+					return true
 				}
 			}
 		}
-		if !known {
+	}
+	return false
+}
+
+func unconfirmedCandidates(source string, id graphql.ID, version int32, terms []glossary.Term) []*GlossaryCandidate {
+	var result []*GlossaryCandidate
+	for _, c := range glossary.Candidates(source) {
+		if !knownGlossaryCandidate(c, terms) {
 			result = append(result, &GlossaryCandidate{SourceId: id, SourceVersion: version, Name: c.Name, Abbreviation: c.Abbreviation})
 		}
 	}
@@ -177,6 +181,138 @@ func (r *Resolver) GlossaryCandidates(ctx context.Context, a GlossaryCandidatesA
 			return nil, e
 		}
 		out.Items = append(out.Items, unconfirmedCandidates(text, id, version, terms)...)
+	}
+	return out, rows.Err()
+}
+
+func glossaryPageArgs(kind, scope string, first *int32, after *string) (int, connectionCursor, error) {
+	size, err := connectionSize(first)
+	var cursor connectionCursor
+	if err == nil && after != nil {
+		cursor, err = decodeConnectionCursor(*after, kind, scope)
+	}
+	return size, cursor, err
+}
+
+func (r *Resolver) GlossaryTermsConnection(ctx context.Context, a GlossaryTermsConnectionArgs) (*GlossaryTermsPage, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
+	w, p := workspace(ctx), string(a.ProjectId)
+	scope := w + "\x00" + p + "\x00" + a.Search
+	size, c, err := glossaryPageArgs("terms", scope, a.First, a.After)
+	if err != nil {
+		return nil, err
+	}
+	terms, err := glossary.TermPage(ctx, r.DB, w, p, a.Search, c.Key, c.ID, size+1)
+	if err != nil {
+		return nil, errors.New("glossary unavailable")
+	}
+	out := &GlossaryTermsPage{PageInfo: &PageInfo{HasNextPage: len(terms) > size}}
+	for _, term := range terms[:min(len(terms), size)] {
+		cursor := encodeConnectionCursor("terms", scope, term.Name, term.ID)
+		out.Items = append(out.Items, glossaryTerm(term))
+		out.PageInfo.EndCursor = &cursor
+	}
+	return out, nil
+}
+
+func (r *Resolver) GlossaryCandidatesConnection(ctx context.Context, a GlossaryCandidatesConnectionArgs) (*GlossaryMatchesPage, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
+	w, p := workspace(ctx), string(a.ProjectId)
+	scope := w + "\x00" + p
+	size, c, err := glossaryPageArgs("candidates", scope, a.First, a.After)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := r.DB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
+	if err != nil {
+		return nil, errors.New("glossary unavailable")
+	}
+	defer tx.Rollback()
+	terms, err := glossary.List(ctx, tx, w, p)
+	if err != nil {
+		return nil, errors.New("glossary unavailable")
+	}
+	out := &GlossaryMatchesPage{PageInfo: &PageInfo{}}
+	// Stream scoped source rows; retain only the requested candidates and one lookahead.
+	rows, err := tx.QueryContext(ctx, `SELECT id,version,text FROM requirements WHERE workspace=$1 AND project_id=$2 AND id >= $3 ORDER BY id`, w, p, c.ID)
+	if err != nil {
+		return nil, errors.New("glossary unavailable")
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id graphql.ID
+		var version int32
+		var text string
+		if err := rows.Scan(&id, &version, &text); err != nil {
+			return nil, err
+		}
+		// Use the position in the unfiltered extraction so confirming an earlier match
+		// does not change the cursor for subsequent matches in this source.
+		for index, match := range glossary.Candidates(text) {
+			position := fmt.Sprintf("%010d", index)
+			if string(id) == c.ID && position <= c.Key || knownGlossaryCandidate(match, terms) {
+				continue
+			}
+			if len(out.Items) == size {
+				out.PageInfo.HasNextPage = true
+				return out, nil
+			}
+			cursor := encodeConnectionCursor("candidates", scope, position, string(id))
+			out.Items = append(out.Items, &GlossaryCandidate{Name: match.Name, Abbreviation: match.Abbreviation, SourceId: id, SourceVersion: version})
+			out.PageInfo.EndCursor = &cursor
+		}
+	}
+	return out, rows.Err()
+}
+
+func (r *Resolver) GlossaryMentions(ctx context.Context, a GlossaryMentionsArgs) (*GlossaryMentionPage, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
+	w, p, id := workspace(ctx), string(a.ProjectId), string(a.TermId)
+	scope := w + "\x00" + p + "\x00" + id
+	size, c, err := glossaryPageArgs("mentions", scope, a.First, a.After)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := r.DB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
+	if err != nil {
+		return nil, errors.New("glossary unavailable")
+	}
+	defer tx.Rollback()
+	terms, err := glossary.List(ctx, tx, w, p)
+	if err != nil {
+		return nil, errors.New("glossary unavailable")
+	}
+	out := &GlossaryMentionPage{PageInfo: &PageInfo{}}
+	if !slices.ContainsFunc(terms, func(term glossary.Term) bool { return term.ID == id }) {
+		return out, nil
+	}
+	matches := glossary.MentionsTerm(terms, id)
+	rows, err := tx.QueryContext(ctx, `SELECT id,project_id,text,version,created_at,updated_at FROM requirements WHERE workspace=$1 AND project_id=$2 AND id>$3 ORDER BY id`, w, p, c.ID)
+	if err != nil {
+		return nil, errors.New("glossary unavailable")
+	}
+	defer rows.Close()
+	for rows.Next() {
+		row := &Requirement{}
+		if err := rows.Scan(&row.ID, &row.ProjectId, &row.Text, &row.Version, &row.CreatedAt, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if !matches(row.Text) {
+			continue
+		}
+		if len(out.Items) == size {
+			out.PageInfo.HasNextPage = true
+			break
+		}
+		out.Items = append(out.Items, row)
+		cursor := encodeConnectionCursor("mentions", scope, id, string(row.ID))
+		out.PageInfo.EndCursor = &cursor
 	}
 	return out, rows.Err()
 }

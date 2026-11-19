@@ -52,6 +52,20 @@ func TestGlossaryCRUDIsolationAndCandidates(t *testing.T) {
 	if got := query("token-a", `{glossaryTerms(projectId:"p",search:"гп",limit:10,offset:0){id}}`, "glossaryTerms").([]any); len(got) != 1 {
 		t.Fatal(got)
 	}
+	// Find a second requirement by variant alone, irrespective of saved provenance.
+	if _, err = s.db.Exec(`INSERT INTO requirements VALUES('s','a','p','ГП принимает отчёт',1,'now','now'),('x','a','p','АГП не совпадает',1,'now','now')`); err != nil {
+		t.Fatal(err)
+	}
+	mentions := fmt.Sprintf(`{glossaryMentions(projectId:"p",termId:%q,first:20){items{id text} pageInfo{hasNextPage}}}`, id)
+	for _, entry := range []struct {
+		token string
+		count int
+	}{{"token-a", 2}, {"token-b", 0}} {
+		page := query(entry.token, mentions, "glossaryMentions").(map[string]any)
+		if len(page["items"].([]any)) != entry.count || page["pageInfo"].(map[string]any)["hasNextPage"] != false {
+			t.Fatal(page)
+		}
+	}
 	for _, version := range []int{2, 1} {
 		v := query("token-a", fmt.Sprintf(`mutation {deleteGlossaryTerm(projectId:"p",id:%q,version:%d){deleted}}`, id, version), "deleteGlossaryTerm").(map[string]any)
 		if v["deleted"] != (version == 1) {
@@ -135,5 +149,37 @@ func TestGlossarySummaryRevisionsSurviveProviderDisableAndReactivation(t *testin
 	got = waitAPISummary(t, s, "token-a", "p", "r", "ready")
 	if got["text"] != "Обычный результат" {
 		t.Fatalf("stale glossary context after restart: %v", got)
+	}
+}
+
+func TestCandidateConnectionPaginatesMatchesInsideRequirement(t *testing.T) {
+	s, err := New(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	_, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now'); INSERT INTO requirements SELECT 'a'||n,'a','p','empty',1,'now','now' FROM generate_series(1,50)n; INSERT INTO requirements VALUES('z','a','p','Alpha Beta (AB). Central Depot (CD).',1,'now','now')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func(token, suffix string) map[string]any {
+		t.Helper()
+		out := summaryRequest(t, s, token, `{glossaryCandidatesConnection(projectId:"p",first:1`+suffix+`){items{name} pageInfo{hasNextPage endCursor}}}`)
+		if out["errors"] != nil {
+			t.Fatal(out)
+		}
+		return out["data"].(map[string]any)["glossaryCandidatesConnection"].(map[string]any)
+	}
+	page := read("token-a", "")
+	info := page["pageInfo"].(map[string]any)
+	if len(page["items"].([]any)) != 1 || info["hasNextPage"] != true {
+		t.Fatal(page)
+	}
+	next := read("token-a", fmt.Sprintf(",after:%q", info["endCursor"]))
+	if next["items"].([]any)[0].(map[string]any)["name"] != "Central Depot" || next["pageInfo"].(map[string]any)["hasNextPage"] != false {
+		t.Fatal(next)
+	}
+	if len(read("token-b", "")["items"].([]any)) != 0 {
+		t.Fatal("foreign candidates exposed")
 	}
 }

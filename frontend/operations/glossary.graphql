@@ -18,3 +18,12 @@ mutation SaveTerm($input: GlossaryInput!) {
 mutation DeleteTerm($projectId: ID!, $id: ID!, $version: Int!) {
   deleteGlossaryTerm(projectId: $projectId, id: $id, version: $version) { deleted }
 }
+query GlossaryTermPages($projectId: ID!, $search: String!, $after: String) {
+ glossaryTermsConnection(projectId:$projectId,search:$search,after:$after,first:20){items{...GlossaryFields} pageInfo{endCursor hasNextPage}}
+}
+query GlossaryCandidatePages($projectId: ID!, $after: String) {
+ glossaryCandidatesConnection(projectId:$projectId,after:$after,first:20){items{name abbreviation sourceId sourceVersion} pageInfo{endCursor hasNextPage}}
+}
+query GlossaryMentions($projectId: ID!, $termId: ID!, $after: String) {
+ glossaryMentions(projectId:$projectId,termId:$termId,first:20,after:$after){items{id text version} pageInfo{endCursor hasNextPage}}
+}

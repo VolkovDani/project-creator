@@ -3,7 +3,7 @@ import { clientCache } from './client.ts';
 export type Connection<T extends { id: string }> = {
   edges: Array<{ cursor: string; node: T }>;
   pageInfo: { endCursor?: string | null; hasNextPage: boolean };
-  totalCount: number;
+  totalCount?: number;
 };
 export type InfiniteSnapshot<T> = {
   rows: T[];

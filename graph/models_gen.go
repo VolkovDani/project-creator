@@ -469,17 +469,18 @@ type ProjectAnalysisSummary struct {
 	Stale                 bool
 }
 type RequirementSummary struct {
-	ByteLength    int32
-	LayaEligible  bool
-	RequirementId graphql.ID
-	ProjectId     graphql.ID
-	Version       int32
-	Status        string
-	Text          string
-	Profile       string
-	Provenance    string
-	CreatedAt     string
-	ErrorCode     string
+	GlossaryMatches []*GlossaryMatch
+	ByteLength      int32
+	LayaEligible    bool
+	RequirementId   graphql.ID
+	ProjectId       graphql.ID
+	Version         int32
+	Status          string
+	Text            string
+	Profile         string
+	Provenance      string
+	CreatedAt       string
+	ErrorCode       string
 }
 type GlossaryVariant struct {
 	Text string

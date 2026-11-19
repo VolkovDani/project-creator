@@ -18,6 +18,7 @@ async function fixture(
     summaryVersion?: number;
     initialStatus?: string;
     longPreview?: boolean;
+    highlight?: boolean;
   },
 ) {
   let status = options?.initialStatus ?? 'ready';
@@ -40,6 +41,23 @@ async function fixture(
     version: summaryVersion,
     status,
     text: summaryText(),
+    glossaryMatches: options?.highlight
+      ? [
+          {
+            start: 8,
+            end: 19,
+            text: 'предложение',
+            terms: [
+              {
+                id: 'term',
+                name: 'Предложение',
+                definition: 'Определение из словаря проекта',
+                context: '',
+              },
+            ],
+          },
+        ]
+      : [],
     byteLength: new TextEncoder().encode(summaryText()).length,
     layaEligible: new TextEncoder().encode(summaryText()).length <= 350,
     profile: 'local-test-profile',
@@ -211,4 +229,15 @@ test('a ready preview over the Laya limit remains visible without an eligibility
   await expect(card.getByText('я'.repeat(176), { exact: true })).toBeVisible();
   await expect(card.getByText(/Предпросмотр занимает 352 байт UTF-8/)).toHaveCount(0);
   await expect(card.getByText(original, { exact: true })).toBeHidden();
+});
+
+test('a ready summary shows the project definition inside its own text', async ({ page }) => {
+  await fixture(page, { highlight: true });
+  await page.goto('/projects/summary-project/requirements');
+  const term = page
+    .locator('#requirement-req-1')
+    .getByRole('button', { name: 'предложение', exact: true });
+  await term.focus();
+  await expect(page.getByRole('tooltip')).toContainText('Определение из словаря проекта');
+  await expect(page.getByText(original, { exact: true })).toBeHidden();
 });

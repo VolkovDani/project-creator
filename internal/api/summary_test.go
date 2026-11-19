@@ -114,9 +114,28 @@ func TestGraphQLSummaryCRUDBatchAuthorizationAndCommittedInvalidation(t *testing
 	if first["version"] != float64(1) || first["text"] != "derived:"+id1 || first["provenance"] == "" || second["text"] != "derived:"+id2 {
 		t.Fatalf("summary states: %v / %v", first, second)
 	}
-	batch := summaryRequest(t, s, "token-a", fmt.Sprintf(`{requirementSummariesByIds(projectId:%q,requirementIds:[%q,%q]){requirementId status}}`, project, id1, id2))
+	saved := summaryRequest(t, s, "token-a", fmt.Sprintf(`mutation{saveGlossaryTerm(input:{projectId:%q,name:"derived",definition:"A preview",context:"",variants:[]}){term{id} fieldErrors{code}}}`, project))
+	if saved["errors"] != nil {
+		t.Fatal(saved)
+	}
+	batch := summaryRequest(t, s, "token-a", fmt.Sprintf(`{requirementSummariesByIds(projectId:%q,requirementIds:[%q,%q]){requirementId status glossaryMatches {start end text terms {definition}}}}`, project, id1, id2))
 	if batch["errors"] != nil || len(batch["data"].(map[string]any)["requirementSummariesByIds"].([]any)) != 2 {
 		t.Fatalf("batch response: %v", batch)
+	}
+	for _, row := range batch["data"].(map[string]any)["requirementSummariesByIds"].([]any) {
+		matches := row.(map[string]any)["glossaryMatches"].([]any)
+		if len(matches) != 1 {
+			t.Fatalf("summary matches: %v", matches)
+		}
+		m := matches[0].(map[string]any)
+		if m["start"] != float64(0) || m["end"] != float64(7) || m["text"] != "derived" || m["terms"].([]any)[0].(map[string]any)["definition"] != "A preview" {
+			t.Fatal(m)
+		}
+	}
+	retryReady := summaryRequest(t, s, "token-a", fmt.Sprintf(`mutation{retryRequirementSummary(projectId:%q,requirementId:%q){status glossaryMatches{text}}}`, project, id1))
+	ready := retryReady["data"].(map[string]any)["retryRequirementSummary"].(map[string]any)
+	if ready["status"] != "ready" || len(ready["glossaryMatches"].([]any)) != 1 {
+		t.Fatalf("ready mutation: %v", ready)
 	}
 	if foreign := summaryRequest(t, s, "token-b", fmt.Sprintf(`{requirementSummariesByIds(projectId:%q,requirementIds:[%q]){text}}`, project, id1)); foreign["errors"] == nil {
 		t.Fatalf("foreign summary read succeeded: %v", foreign)

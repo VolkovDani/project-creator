@@ -19,3 +19,5 @@ a text selection. Use **New concept** on the project glossary page for manual en
 version. Selections from generated previews and explanations prefill only the name.
 
 Inside an analysis pair, highlighted names and variants refer to the current project glossary. Matches use the original text and version saved with the run, even after a requirement is edited.
+
+Ready previews highlight matches in the summary text using the current project glossary. Highlighting works with previously saved previews and requires no generation.

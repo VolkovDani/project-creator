@@ -58,6 +58,9 @@ type spelling struct {
 
 type matcher map[rune][]*spelling
 
+// MatchText prepares the glossary once when matching a batch of previews.
+func MatchText(terms []Term) func(string) []Match { return compile(terms).matches }
+
 func compile(terms []Term) matcher {
 	byFirst := matcher{}
 	names := map[string]*spelling{}

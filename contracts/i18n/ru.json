@@ -263,7 +263,7 @@
   "glossary.new": "Новое понятие",
   "glossary.empty": "Подходящих понятий нет",
   "glossary.candidates": "Неподтверждённые кандидаты",
-  "glossary.noCandidates": "В этой группе требований кандидатов нет",
+  "glossary.noCandidates": "Предложенных сокращений нет",
   "glossary.ambiguous": "Уточните значение для просмотра",
   "glossary.choose": "Выберите понятие",
   "glossary.addSelection": "Добавить выделение в словарь",

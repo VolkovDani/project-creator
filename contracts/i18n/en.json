@@ -263,7 +263,7 @@
   "glossary.new": "New concept",
   "glossary.empty": "No matching terms",
   "glossary.candidates": "Unconfirmed candidates",
-  "glossary.noCandidates": "No candidates in this group of requirements",
+  "glossary.noCandidates": "No suggested abbreviations",
   "glossary.ambiguous": "Choose the meaning for this view",
   "glossary.choose": "Select a concept",
   "glossary.addSelection": "Add selection to glossary",

@@ -96,7 +96,10 @@ jobs:
         working-directory: frontend
       - run: bun run typecheck && bun run build
         working-directory: frontend
-      - run: bunx playwright install --with-deps --only-shell chromium
+      - name: Prepare Chromium headless shell
+        run: |
+          bunx playwright install --only-shell chromium
+          bunx playwright screenshot --browser chromium about:blank "$RUNNER_TEMP/chromium-probe.png" || bunx playwright install-deps chromium
         timeout-minutes: 10
         working-directory: frontend
       - name: Deterministic desktop and narrow UX regressions
@@ -128,6 +131,20 @@ jobs:
       DOCKER_BUILD_RECORD_UPLOAD: 'false'
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Decide whether to build optional Vulkan images
+        id: vulkan
+        if: github.event_name == 'pull_request' && github.base_ref == 'develop'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Compare the tested merge tree to its base. Unknown paths or a missing base keep full verification.
+          if git diff --quiet --no-renames "$PR_BASE_SHA" HEAD -- . \
+              ':(exclude)cmd' ':(exclude)contracts' ':(exclude)docs' ':(exclude)frontend' \
+              ':(exclude)graph' ':(exclude)internal' ':(exclude)testdata' ':(exclude)go.mod' ':(exclude)go.sum'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: '26.13.1'
@@ -141,6 +158,7 @@ jobs:
           GGML_VK_VISIBLE_DEVICES=0 docker compose --env-file "$COMPOSE_ENV_FILE" -f compose.yml -f compose.amd-vulkan.yml config --quiet
           node --test scripts/intel-compose.check.mjs scripts/npu-compose.check.mjs scripts/gpu-compose.check.mjs
       - name: Free space for large Docker layers
+        if: steps.vulkan.outputs.skip != 'true'
         # This job uses an ephemeral GitHub-hosted runner, never a developer host.
         run: |
           df -h /
@@ -152,6 +170,7 @@ jobs:
           version: v0.38.2
           driver-opts: image=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
       - name: Build Intel Vulkan runtime (no GPU required)
+        if: steps.vulkan.outputs.skip != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -163,13 +182,16 @@ jobs:
           cache-from: type=gha,version=2,scope=ci-intel-v1
           cache-to: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'type=gha,version=2,scope=ci-intel-v1,mode=max,ignore-error=true,timeout=60s' || '' }}
       - name: Verify Intel Vulkan runtime
+        if: steps.vulkan.outputs.skip != 'true'
         run: docker run --rm --entrypoint sh project-creator-ollama-intel:0.40.16 -c 'test -s /etc/project-creator-intel-vulkan.json && cat /etc/project-creator-intel-vulkan.json && ollama --version'
       - name: Release verified Intel image and builder data
+        if: steps.vulkan.outputs.skip != 'true'
         # The Intel image is already verified and its cache export has finished.
         run: |
           docker image rm project-creator-ollama-intel:0.40.16
           docker buildx prune --all --force
       - name: Build and verify AMD RADV Vulkan runtime (no GPU required)
+        if: steps.vulkan.outputs.skip != 'true'
         # Keep the three existing remote caches; release this image before the app builds.
         run: |
           docker buildx build --load -f Dockerfile.ollama-amd-vulkan -t project-creator-ollama-amd-vulkan:0.40.16 .

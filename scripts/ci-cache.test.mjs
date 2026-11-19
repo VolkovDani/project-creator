@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { matchesGlob } from 'node:path';
+import { dirname, join, matchesGlob } from 'node:path';
 import test from 'node:test';
 
 const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
@@ -60,7 +61,7 @@ test('cache hits still run smoke verification and disposable-stack cleanup', () 
   assert.match(containers, /name: Remove disposable containers and data\n        if: always\(\)/);
   assert.match(containers, /down --volumes --remove-orphans/);
   assert.match(containers, /docker run --rm --entrypoint sh project-creator-ollama-intel:0\.40\.16/);
-  for (const step of builds) assert.doesNotMatch(step, /\n        if:/);
+  for (const step of builds.filter((step) => !step.includes('Dockerfile.ollama-intel'))) assert.doesNotMatch(step, /\n        if:/);
 });
 
 test('large Intel layers have disk budget and are released before application builds', () => {
@@ -99,7 +100,9 @@ test('only main writes large Docker caches and build-record artifacts are disabl
 test('browser setup uses supported LTS and downloads only the needed headless shell', () => {
   const checks = workflow.split('\n  checks:\n')[1].split('\n  containers:\n')[0];
   assert.match(checks, /runs-on: ubuntu-24\.04\n/);
-  assert.match(checks, /playwright install --with-deps --only-shell chromium/);
+  assert.match(checks, /bunx playwright install --only-shell chromium/);
+  assert.match(checks, /bunx playwright screenshot --browser chromium about:blank .* \|\| bunx playwright install-deps chromium/);
+  assert.doesNotMatch(checks, /install --with-deps/);
   assert.doesNotMatch(checks, /mcr\.microsoft\.com\/playwright/);
 });
 
@@ -143,4 +146,56 @@ test('both CI triggers skip docs but run for requirements updates and mixed chan
     assert.equal(workflowRuns(['backend/requirements-dev.txt']), true, `${event} nested requirements run CI`);
     assert.equal(workflowRuns(['README.md', 'backend/main.go']), true, `${event} mixed changes run CI`);
   }
+});
+
+test('ordinary application PRs can skip only the optional Vulkan builds and their disk work', (t) => {
+  const select = steps.find((step) => step.includes('id: vulkan'));
+  assert.ok(select, 'Missing Vulkan build decision');
+  assert.match(select, /if: github.event_name == 'pull_request' && github.base_ref == 'develop'/);
+  assert.match(select, /PR_BASE_SHA: \$\{\{ github.event.pull_request.base.sha \}\}/);
+  assert.match(steps.find((step) => step.includes('uses: actions/checkout')), /fetch-depth: 2/);
+  const guarded = steps.filter((step) => step.includes("if: steps.vulkan.outputs.skip != 'true'"));
+  assert.deepEqual(guarded.map((step) => step.match(/- name: (.*)/)[1]), [
+    'Free space for large Docker layers',
+    'Build Intel Vulkan runtime (no GPU required)',
+    'Verify Intel Vulkan runtime',
+    'Release verified Intel image and builder data',
+    'Build and verify AMD RADV Vulkan runtime (no GPU required)',
+  ]);
+
+  const script = select.split('run: |\n')[1];
+  const cwd = mkdtempSync(join(tmpdir(), 'pc-ci-vulkan-'));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const git = (...args) => {
+    const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git('init', '--quiet');
+  const commit = () => git('-c', 'user.name=CI', '-c', 'user.email=ci@example.invalid', 'commit', '--allow-empty', '-qm', 'fixture');
+  commit();
+  const base = git('rev-parse', 'HEAD');
+  const output = join(cwd, 'output');
+  const skips = (sha) => {
+    writeFileSync(output, '');
+    const result = spawnSync('bash', ['-e', '-c', script], {
+      cwd, encoding: 'utf8', env: { ...process.env, PR_BASE_SHA: sha, GITHUB_OUTPUT: output },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return readFileSync(output, 'utf8').includes('skip=true');
+  };
+  for (const [file, expectedSkip] of [
+    ['frontend/page.tsx', true],
+    ['Dockerfile.ollama-intel', false],
+    ['compose.amd-vulkan.yml', false],
+    ['unknown-input', false],
+  ]) {
+    git('reset', '--hard', base);
+    mkdirSync(dirname(join(cwd, file)), { recursive: true });
+    writeFileSync(join(cwd, file), 'changed');
+    git('add', file);
+    commit();
+    assert.equal(skips(base), expectedSkip, file);
+  }
+  assert.equal(skips('missing-base'), false);
 });

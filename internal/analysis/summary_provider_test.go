@@ -55,12 +55,9 @@ func TestSummaryOllamaValidatesAndPreservesProvenance(t *testing.T) {
 		t.Fatalf("request=%#v", request)
 	}
 	messages := request["messages"].([]any)
-	if !strings.Contains(messages[0].(map[string]any)["content"].(string), fmt.Sprintf("%d UTF-8 bytes", contracts.SummaryMaxBytes())) {
-		t.Fatal("prompt omits numeric summary byte budget")
-	}
 	prompt := messages[0].(map[string]any)["content"].(string)
-	if !strings.Contains(prompt, "Remove repeated wording") || !strings.Contains(prompt, "soft target") || !strings.Contains(prompt, "longer faithful preview") {
-		t.Fatalf("prompt omits concise byte-aware strategy: %s", prompt)
+	if strings.Contains(g.Provenance(), "350") || strings.Contains(strings.ToLower(g.Provenance()), "laya") || !strings.Contains(prompt, "Remove repeated wording") {
+		t.Fatal("preview must preserve concision without a pair-classifier target")
 	}
 	if !strings.Contains(prompt, "Preserve exclusivity words such as only and только") || !strings.Contains(prompt, "Preserve negative obligations as explicit negative verbs") || !strings.Contains(prompt, "topic fragment") {
 		t.Fatalf("prompt omits exclusivity/negation safeguards: %s", prompt)
@@ -123,11 +120,8 @@ func TestSummaryOllamaInvalidOutputRetryAndLongPreview(t *testing.T) {
 			}
 			if tc.calls == 2 {
 				messages := secondRequest["messages"].([]any)
-				if len(messages) != 4 || !strings.Contains(messages[3].(map[string]any)["content"].(string), fmt.Sprintf("%d UTF-8 bytes", contracts.SummaryMaxBytes())) {
-					t.Fatalf("retry lacks bounded corrective feedback: %#v", secondRequest)
-				}
-				if tc.name == "retry-overlong" && !strings.Contains(messages[3].(map[string]any)["content"].(string), "351 UTF-8 bytes") {
-					t.Fatalf("feedback omits actual summary byte length: %#v", messages[3])
+				if len(messages) != 4 || strings.Contains(messages[3].(map[string]any)["content"].(string), "350") {
+					t.Fatal("unexpected corrective prompt", messages)
 				}
 			}
 			if tc.wantErr != nil {

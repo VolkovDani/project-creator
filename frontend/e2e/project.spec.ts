@@ -165,6 +165,7 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
   await expect(page.getByText('Страница 1', { exact: true })).toHaveCount(2);
   await page.getByLabel('Режим списка').selectOption('infinite');
   await page.getByRole('button', { name: 'Генеральный подрядчик (ГП)', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByLabel('Название понятия')).toHaveValue('Генеральный подрядчик');
   await page.getByLabel('Определение', { exact: true }).fill('Исполнитель работ');
   await page.getByRole('button', { name: 'Подтвердить и сохранить' }).click();

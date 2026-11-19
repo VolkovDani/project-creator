@@ -21,6 +21,8 @@ type OpenVINO struct {
 	client                             *http.Client
 }
 
+const npuAlphabetRetryInstruction = "Explain the decisive point in one short Russian sentence. Paraphrase without quoting either source. Use only Russian letters and ASCII Latin letters for technical terms."
+
 var npuProfilePattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func NewOpenVINO(socket, profile string) (*OpenVINO, error) {
@@ -30,7 +32,7 @@ func NewOpenVINO(socket, profile string) (*OpenVINO, error) {
 	transport := &http.Transport{Proxy: nil, MaxConnsPerHost: 1, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}
-	provenance, key := encodePairProvenance(generationProvenance{Adapter: "openvino-npu-unix-v1", RuntimeProfile: profile, SystemPrompt: systemPrompt, ResponseSchema: findingSchema(), Normalization: "source-aliases-v2:text-order"})
+	provenance, key := encodePairProvenance(generationProvenance{Adapter: "openvino-npu-unix-v1", RuntimeProfile: profile, SystemPrompt: systemPrompt, ResponseSchema: findingSchema(), Normalization: "source-aliases-v2:text-order"}, npuAlphabetRetryInstruction)
 	return &OpenVINO{pinnedProfile: profile, profile: key, provenance: provenance, client: &http.Client{Transport: transport, Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirects disabled") }}}, nil
 }
 
@@ -127,7 +129,7 @@ func (o *OpenVINO) Compare(ctx context.Context, pair Pair) (Finding, error) {
 	if aliases.Right.Text < aliases.Left.Text {
 		aliases.Left.Text, aliases.Right.Text = aliases.Right.Text, aliases.Left.Text
 	}
-	finding, err := generatePairFinding(ctx, func(prompt string) (Finding, error) {
+	finding, err := generatePairFinding(ctx, npuAlphabetRetryInstruction, func(prompt string) (Finding, error) {
 		return o.generateFinding(ctx, aliases, prompt)
 	})
 	if err != nil {

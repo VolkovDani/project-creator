@@ -259,6 +259,9 @@ no alphabet restriction on the source requirements.
 
 If the explanation contains a disallowed character, the adapter makes one more
 generation attempt with a stricter language instruction and the original pair.
+On OpenVINO NPU, this instruction asks for one short Russian sentence explaining
+the decisive point in the comparison without quoting either source. The retry
+uses the same output limit and validation as the first attempt.
 The rejected response is omitted from the prompt. The retry uses the time left
 within the pair's 120-second limit and stops on cancellation. A second violation
 fails the pair and follows the existing manual retry flow. Other errors do not
@@ -266,8 +269,10 @@ trigger an automatic retry. Rejected output is neither edited nor saved as a
 successful finding. This check enforces an alphabet and cannot determine the
 language or quality of the explanation.
 
-The language and retry rules are part of the generator profile. New runs do not
-reuse findings made with the previous profile, and saved history remains intact.
+The language and retry rules are part of the generator profile. After updating
+OpenVINO NPU to the concise retry instruction, start a new analysis. Cached model
+findings from the previous NPU profile are ineligible for reuse. Earlier runs
+remain available in history. This update changes only the OpenVINO NPU profile.
 
 Ordinary CI checks retrieval, workflows, access, and known collision/compatible
 requirements with deterministic providers. A real local generator check runs separately:

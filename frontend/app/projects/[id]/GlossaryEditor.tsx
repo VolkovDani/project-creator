@@ -8,11 +8,13 @@ import {
   type GlossaryFieldsFragment as Term,
 } from '../../../lib/generated';
 import { validateGlossary } from '../../../lib/glossaryValidation';
-import { type Locale, t } from '../../../lib/i18n';
+import { fieldErrorMessage, type Locale, t } from '../../../lib/i18n';
 import { useResource } from '../../../lib/useResource';
+import CandidateDefinition, { type Candidate } from './CandidateDefinition';
 export type GlossaryDraft = {
   name: string;
   variant?: string;
+  candidate?: Candidate;
   sourceId?: string;
   sourceVersion?: number;
   term?: Term;
@@ -119,8 +121,12 @@ export default function GlossaryEditor({
                   definition,
                   context,
                   variants: variants.map(({ kind, text }) => ({ kind, text })),
-                  sourceId: draft.sourceId || term?.sourceId || null,
-                  sourceVersion: draft.sourceVersion || term?.sourceVersion || null,
+                  sourceId: draft.candidate?.sourceId || draft.sourceId || term?.sourceId || null,
+                  sourceVersion:
+                    draft.candidate?.sourceVersion ||
+                    draft.sourceVersion ||
+                    term?.sourceVersion ||
+                    null,
                 },
               },
               { tags: [tag] },
@@ -130,15 +136,7 @@ export default function GlossaryEditor({
               onClose();
               return;
             }
-            setErrors(
-              payload.fieldErrors.map((err) =>
-                t(
-                  locale,
-                  err.messageKey,
-                  Object.fromEntries(err.params.map((p) => [p.key, p.value])),
-                ),
-              ),
-            );
+            setErrors(payload.fieldErrors.map((error) => fieldErrorMessage(locale, error)));
           } catch {
             setErrors([t(locale, 'app.submitError')]);
           } finally {
@@ -148,6 +146,13 @@ export default function GlossaryEditor({
       >
         <fieldset disabled={busy}>
           <legend>{t(locale, 'glossary.editor')}</legend>
+          {draft.candidate && (
+            <blockquote className="user-content">
+              {draft.candidate.before}
+              <mark>{draft.candidate.abbreviation}</mark>
+              {draft.candidate.after}
+            </blockquote>
+          )}
           {(draft.name || draft.variant) && !draft.term && (
             <>
               <label>
@@ -170,6 +175,16 @@ export default function GlossaryEditor({
             {t(locale, 'glossary.definition')}
             <textarea value={definition} onChange={(e) => setDefinition(e.target.value)} />
           </label>
+          {draft.candidate && (
+            <CandidateDefinition
+              key={JSON.stringify([term?.id, name])}
+              projectId={projectId}
+              candidate={draft.candidate}
+              name={name}
+              locale={locale}
+              onApply={setDefinition}
+            />
+          )}
           <label>
             {t(locale, 'glossary.context')}
             <textarea value={context} onChange={(e) => setContext(e.target.value)} />

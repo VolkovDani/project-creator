@@ -12,6 +12,13 @@ export function t(
   return template.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? ''));
 }
 
+export function fieldErrorMessage(
+  locale: Locale,
+  error: { messageKey: string; params: { key: string; value: number }[] },
+) {
+  return t(locale, error.messageKey, Object.fromEntries(error.params.map((p) => [p.key, p.value])));
+}
+
 export function summaryErrorMessage(locale: Locale, code: string) {
   const key = `summary.error.${code}`;
   return Object.hasOwn(dictionaries[locale], key)

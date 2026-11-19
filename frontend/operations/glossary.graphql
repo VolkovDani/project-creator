@@ -30,3 +30,8 @@ query GlossaryCandidatePages($projectId: ID!, $after: String) {
 query GlossaryMentions($projectId: ID!, $termId: ID!, $after: String) {
  glossaryMentions(projectId:$projectId,termId:$termId,first:20,after:$after){items{id text version} pageInfo{endCursor hasNextPage}}
 }
+mutation SuggestGlossaryDefinition($input: SuggestGlossaryDefinitionInput!) {
+  suggestGlossaryDefinition(input: $input) {
+    definition status fieldErrors { path code messageKey params { key value } }
+  }
+}

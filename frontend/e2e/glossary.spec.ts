@@ -5,6 +5,8 @@ const candidate = {
   name: '',
   before: '😀 Запросить ',
   after: ' для подписания документа.',
+  beforeTruncated: false,
+  afterTruncated: false,
   sourceId: 'r1',
   sourceVersion: 3,
   start: 12,
@@ -12,7 +14,7 @@ const candidate = {
 };
 const proposed = 'Подпись для подтверждения документа.';
 
-async function openCandidate(page: Page, results = ['suggested']) {
+async function visitGlossary(page: Page, results: string[], candidates = [candidate]) {
   const requests: unknown[] = [];
   const saves: unknown[] = [];
   const pageInfo = { hasNextPage: false, endCursor: null };
@@ -31,7 +33,7 @@ async function openCandidate(page: Page, results = ['suggested']) {
         data = { glossaryTermsConnection: { items: [], pageInfo } };
         break;
       case 'GlossaryCandidatePages':
-        data = { glossaryCandidatesConnection: { items: [candidate], pageInfo } };
+        data = { glossaryCandidatesConnection: { items: candidates, pageInfo } };
         break;
       case 'SuggestGlossaryDefinition': {
         const status = results[requests.length];
@@ -63,13 +65,16 @@ async function openCandidate(page: Page, results = ['suggested']) {
     await route.fulfill({ json: { data } });
   });
   await page.goto('/projects/demo/glossary');
+  return { requests, saves, release: () => release?.() };
+}
+
+async function openCandidate(page: Page, results = ['suggested']) {
+  const operations = await visitGlossary(page, results);
   await page.getByRole('button', { name: /ЭЦП/ }).click();
   const dialog = page.getByRole('dialog');
   return {
     dialog,
-    requests,
-    saves,
-    release: () => release?.(),
+    ...operations,
     generate: dialog.getByRole('button', { name: 'Сгенерировать определение' }),
     apply: dialog.getByRole('button', { name: 'Применить' }),
     definition: dialog.getByRole('textbox', { name: 'Определение', exact: true }),
@@ -146,3 +151,68 @@ test('changing the concept name ignores a late suggestion and failed generation 
   }
   expect(saves).toEqual([]);
 });
+
+for (const theme of ['light', 'dark']) {
+  test(`wrapped candidate excerpts fade only where the source continues in the ${theme} theme`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 360, height: 800 });
+    const before = `${'𐐨'.repeat(59)} `;
+    const after = ` ${'я'.repeat(59)}`;
+    const candidates = [
+      [false, false],
+      [true, false],
+      [false, true],
+      [true, true],
+    ].map(([beforeTruncated, afterTruncated], i) => {
+      const start = beforeTruncated ? 61 : 60;
+      return {
+        ...candidate,
+        sourceId: `r${i}`,
+        before,
+        after,
+        start,
+        end: start + 3,
+        beforeTruncated,
+        afterTruncated,
+      };
+    });
+    await visitGlossary(page, [], candidates);
+    if (theme === 'dark') await page.getByRole('button', { name: 'Тёмная тема' }).click();
+    await expect(page.locator('html')).toHaveCSS('color-scheme', theme);
+    for (const c of candidates) {
+      const card = page
+        .getByRole('article')
+        .filter({ has: page.locator(`a[href*="requirement=${c.sourceId}"]`) });
+      const excerpt = card.locator('p');
+      await expect(excerpt).toHaveText(c.before + c.abbreviation + c.after);
+      const mark = excerpt.locator('mark');
+      await expect(mark).toHaveText(c.abbreviation);
+      const beforeSpan = excerpt.locator('span').first();
+      const afterSpan = excerpt.locator('span').last();
+      for (const [side, clipped, gradient] of [
+        [beforeSpan, c.beforeTruncated, /linear-gradient\((?:to right|90deg),/],
+        [afterSpan, c.afterTruncated, /linear-gradient\((?:to left|270deg|-90deg),/],
+      ] as const) {
+        await expect(side).toHaveCSS('mask-image', clipped ? gradient : 'none');
+        await expect(side).toHaveCSS('box-decoration-break', 'slice');
+        expect(await side.evaluate((el) => el.getClientRects().length)).toBeGreaterThan(1);
+      }
+      await expect(mark).toHaveCSS('mask-image', 'none');
+      const link = card.getByRole('link', { name: 'Открыть в тексте' });
+      await link.focus();
+      await expect(link).toBeFocused();
+      await expect(link).toHaveAttribute(
+        'href',
+        `/projects/demo/requirements?requirement=${c.sourceId}&version=3&start=${c.start}&end=${c.end}#requirement-${c.sourceId}`,
+      );
+      expect(
+        await excerpt.evaluate((el) => {
+          const selection = window.getSelection();
+          selection?.selectAllChildren(el);
+          return selection?.toString();
+        }),
+      ).toBe(c.before + c.abbreviation + c.after);
+    }
+  });
+}

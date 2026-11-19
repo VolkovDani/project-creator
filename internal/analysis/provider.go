@@ -91,10 +91,10 @@ func GeneratorProvenance(generator Generator) string {
 const explanationAlphabet = "ru,en"
 const alphabetRetryInstruction = "Regenerate the explanation in Russian. Use only Russian letters and ASCII Latin letters for English terms. Paraphrase quotations that contain other letters."
 
-func encodePairProvenance(p generationProvenance) (string, string) {
+func encodePairProvenance(p generationProvenance, retryInstruction string) (string, string) {
 	p.ExplanationAlphabet = explanationAlphabet
 	p.AlphabetRetries = 1
-	p.AlphabetRetryInstruction = alphabetRetryInstruction
+	p.AlphabetRetryInstruction = retryInstruction
 	return encodeGenerationProvenance(p)
 }
 
@@ -133,7 +133,7 @@ func NewOllama(baseURL, model, digest string) (*Ollama, error) {
 		return nil, errors.New("analysis model and full SHA256 digest are required")
 	}
 	digest = strings.TrimPrefix(digest, "sha256:")
-	provenance, profile := encodePairProvenance(generationProvenance{Adapter: "ollama-chat-v1", Model: model, Digest: digest, SystemPrompt: systemPrompt, ResponseSchema: findingSchema(), Parameters: ollamaParameters()})
+	provenance, profile := encodePairProvenance(generationProvenance{Adapter: "ollama-chat-v1", Model: model, Digest: digest, SystemPrompt: systemPrompt, ResponseSchema: findingSchema(), Parameters: ollamaParameters()}, alphabetRetryInstruction)
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	return &Ollama{baseURL: strings.TrimRight(baseURL, "/"), model: model, digest: digest, profile: profile, provenance: provenance, client: &http.Client{Transport: transport, Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirects disabled") }}}, nil
@@ -209,7 +209,7 @@ func (o *Ollama) Compare(ctx context.Context, pair Pair) (Finding, error) {
 	if err != nil {
 		return result, errors.New("invalid comparison input")
 	}
-	result, err = generatePairFinding(ctx, func(prompt string) (Finding, error) {
+	result, err = generatePairFinding(ctx, alphabetRetryInstruction, func(prompt string) (Finding, error) {
 		return o.generateFinding(ctx, pair, data, prompt)
 	})
 	if err != nil {
@@ -267,7 +267,7 @@ var pairLanguages = func() SummaryLanguagePolicy {
 	return policy
 }()
 
-func generatePairFinding(ctx context.Context, generate func(string) (Finding, error)) (Finding, error) {
+func generatePairFinding(ctx context.Context, retryInstruction string, generate func(string) (Finding, error)) (Finding, error) {
 	result, err := generate(systemPrompt)
 	if !errors.Is(err, errExplanationAlphabet) {
 		return result, err
@@ -275,7 +275,7 @@ func generatePairFinding(ctx context.Context, generate func(string) (Finding, er
 	if err := ctx.Err(); err != nil {
 		return Finding{}, err
 	}
-	return generate(systemPrompt + "\n" + alphabetRetryInstruction)
+	return generate(systemPrompt + "\n" + retryInstruction)
 }
 
 func decodeFinding(content string, pair Pair) (Finding, error) {

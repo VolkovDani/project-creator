@@ -134,6 +134,9 @@ func TestPairAdaptersAlphabetRetry(t *testing.T) {
 							if prompt == firstPrompt || !strings.Contains(prompt, firstPrompt) {
 								t.Error("retry did not strengthen the original instructions")
 							}
+							if adapter == "OpenVINO" && !strings.Contains(prompt, "one short Russian sentence") {
+								t.Error("NPU retry did not ask for a concise Russian explanation")
+							}
 							if strings.Contains(raw, "漢字") || strings.Contains(raw, "Запрещённая вставка") {
 								t.Error("retry shared rejected content")
 							}

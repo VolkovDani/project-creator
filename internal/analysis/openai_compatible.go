@@ -46,7 +46,7 @@ func NewOpenAICompatible(baseURL, model, key string) (*OpenAICompatible, error) 
 	spec := compatibleProvenance(client, "openai-compatible-pair-v1")
 	spec.ResponseSchema = compatibleSchema(findingSchema())
 	spec.SystemPrompt = systemPrompt
-	provenance, profile := encodePairProvenance(spec)
+	provenance, profile := encodePairProvenance(spec, alphabetRetryInstruction)
 	return &OpenAICompatible{client: client, schema: spec.ResponseSchema, profile: profile, provenance: provenance}, nil
 }
 
@@ -61,7 +61,7 @@ func (g *OpenAICompatible) Compare(ctx context.Context, pair Pair) (Finding, err
 	if err != nil {
 		return Finding{}, errors.New("invalid comparison input")
 	}
-	return generatePairFinding(ctx, func(prompt string) (Finding, error) {
+	return generatePairFinding(ctx, alphabetRetryInstruction, func(prompt string) (Finding, error) {
 		messages := []map[string]string{{"role": "system", "content": prompt}, {"role": "user", "content": string(data)}}
 		content, err := compatibleChat(ctx, g.client, messages, "requirement_finding", g.schema)
 		if err != nil {

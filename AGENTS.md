@@ -257,6 +257,8 @@
 - Before starting code work, create a task (GitHub Issue) or select a suitable
   existing one, and create a separate working branch for it. Documentation-only
   changes do not require an Issue.
+- When you start work on a GitHub Issue, set its status in GitHub Projects to
+  `In Progress`.
 - Create containers and other temporary resources only when necessary; track
   which resources you created for the task.
 - After completing the task successfully and closing its PR, clean up after

@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
-import { createContext, useCallback, useContext, useState } from 'react';
+import { createContext, useCallback, useContext } from 'react';
 import { query } from '../../../lib/client';
 import { ProjectDetailDocument, type ProjectDetailQuery } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
@@ -35,7 +35,6 @@ export default function ProjectShell({ children }: { children: React.ReactNode }
 }
 function ProjectContent({ id, children }: { id: string; children: React.ReactNode }) {
   const { locale } = useLocale();
-  const [actionHost, setActionHost] = useState<HTMLSpanElement | null>(null);
   const pathname = usePathname();
   const loader = useCallback(
     async () => (await query(ProjectDetailDocument, { id })).project,
@@ -51,7 +50,6 @@ function ProjectContent({ id, children }: { id: string; children: React.ReactNod
       </div>
       <header className="project-header">
         <h1 tabIndex={-1}>{project?.name || t(locale, 'ui.project')}</h1>
-        <span ref={setActionHost} />
       </header>
       <ResourceState
         locale={locale}
@@ -79,7 +77,7 @@ function ProjectContent({ id, children }: { id: string; children: React.ReactNod
           {['requirements', 'indexing', 'analysis', 'search'].some(
             (section) => pathname === base + '/' + section,
           ) ? (
-            <GlossaryActions actionHost={actionHost} key={pathname} projectId={id} locale={locale}>
+            <GlossaryActions key={pathname} projectId={id} locale={locale}>
               {children}
             </GlossaryActions>
           ) : (

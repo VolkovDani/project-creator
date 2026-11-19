@@ -120,10 +120,8 @@ test('index retry and search are explicit and retain versioned sources', async (
   await page.getByRole('button', { name: 'Повторить индексацию', exact: true }).click();
   await expect.poll(() => indexCalls).toBe(2);
   await page.goto('/projects/demo/search');
-  await page.getByRole('button', { name: 'Новое понятие' }).click();
+  await expect(page.getByRole('button', { name: 'Новое понятие', exact: true })).toHaveCount(0);
   const editor = page.getByRole('dialog');
-  await expect(editor.getByLabel('Название понятия')).toHaveValue('');
-  await page.keyboard.press('Escape');
   await page.getByLabel('Поисковый запрос').fill('черновик');
   await page.getByRole('button', { name: 'Найти требования' }).click();
   await expect(page.getByText('сохранить черновик', { exact: true })).toBeVisible();

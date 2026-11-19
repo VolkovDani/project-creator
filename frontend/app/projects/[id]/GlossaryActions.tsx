@@ -34,13 +34,11 @@ export function GlossaryText({
 }
 
 export function GlossaryActions({
-  actionHost,
   children,
   projectId,
   locale,
 }: {
   children: ReactNode;
-  actionHost: HTMLElement | null;
   projectId: string;
   locale: Locale;
 }) {
@@ -79,13 +77,6 @@ export function GlossaryActions({
   }, []);
   return (
     <EditorContext.Provider value={setDraft}>
-      {actionHost &&
-        createPortal(
-          <button type="button" onClick={() => setDraft({ name: '' })}>
-            {t(locale, 'glossary.new')}
-          </button>,
-          actionHost,
-        )}
       {children}
       {!draft &&
         selection?.target.isConnected &&

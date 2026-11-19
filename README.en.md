@@ -14,6 +14,7 @@ The application runs locally for one user and needs no cloud API keys.
 The CPU setup requires native x86_64 Linux, Python 3, and Docker Engine with
 Compose 2.20 or later. Allow 24 GiB of free disk space for the first install.
 For GPUs and Intel NPUs, see [device selection and system requirements](docs/setup-cli.en.md).
+If you cannot run models locally, connect to [a separate vLLM server or a hosted API](docs/setup-cli.en.md#remote-generation-and-embeddings).
 
 ```bash
 git clone https://github.com/VolkovDani/project-creator.git

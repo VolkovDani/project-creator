@@ -4,7 +4,7 @@ import re
 
 GPU_DEVICES = ('arc', 'nvidia', 'amd', 'amd-vulkan')
 VULKAN_DEVICES = ('arc', 'amd-vulkan')
-DEVICES = ('cpu', *GPU_DEVICES, 'npu')
+DEVICES = ('cpu', *GPU_DEVICES, 'npu', 'remote')
 OVERRIDES = {'arc': 'compose.intel.yml', 'nvidia': 'compose.gpu.yml',
              'amd': 'compose.amd.yml', 'amd-vulkan': 'compose.amd-vulkan.yml',
              'npu': 'compose.npu.yml'}

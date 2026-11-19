@@ -19,7 +19,7 @@ From the root of the cloned repository:
 ./project-creator setup --device npu --ollama-device arc --gpu-id 0
 ```
 
-`setup` explicitly authorizes downloading local weights, containers, and required NPU dependencies. It prepares configuration, downloads and pins models, exports Qwen if needed, starts the runtime and Compose, and checks the UI/API, indexing, and real analysis of three synthetic pairs. On success it prints the application URL. You do not need to create `.env`, copy digests by hand, export weights manually, or start a second terminal.
+For local inference, `setup` explicitly authorizes downloading local weights, containers, and required NPU dependencies. It prepares configuration, downloads and pins models, exports Qwen if needed, starts the runtime and Compose, and checks the UI/API, indexing, and real analysis of three synthetic pairs. On success it prints the application URL. You do not need to create `.env`, copy digests by hand, export weights manually, or start a second terminal.
 
 ```bash
 ./project-creator up       # restart and run the full AI check
@@ -29,6 +29,42 @@ From the root of the cloned repository:
 ```
 
 `up` uses prepared weights; it does not run `ollama pull`, snapshot downloads, `uv pip install`, or the exporter. Container builds may access registries and dependency repositories. `doctor` checks the environment, UI/API availability, and installed model pins; it does not run inference or claim model quality. The diagnostic-tool container starts with `--pull never`.
+
+## Remote generation and embeddings
+
+Use `--device remote` to run the application on a machine without Ollama, an NPU, or local model weights. Use Docker Compose 2.20.2 or later for the remote configuration, including NPU generation with remote embeddings. PostgreSQL runs in Compose. Configure the endpoints in the private repository-root `.env` before setup. On a fresh installation the CLI generates its own database password and application token.
+
+**Self-hosted vLLM.** Substitute the addresses reachable from the backend container and the model IDs served by your deployments. The chat model must support Chat Completions with strict JSON Schema output. The embedding model in this example returns 1024 dimensions natively.
+
+```dotenv
+PROJECT_CREATOR_GENERATOR_URL=http://inference.internal:8000/v1
+PROJECT_CREATOR_GENERATOR_MODEL=team-chat-v1
+PROJECT_CREATOR_EMBEDDING_URL=http://inference.internal:8001/v1
+PROJECT_CREATOR_EMBEDDING_MODEL=team-embed-v1
+```
+
+**Hosted API.** For example, configure these values for an OpenAI API deployment and replace the key placeholders privately. Either endpoint can use its own optional bearer key. Use HTTPS when sending credentials or content across untrusted networks.
+
+```dotenv
+PROJECT_CREATOR_GENERATOR_URL=https://api.openai.com/v1
+PROJECT_CREATOR_GENERATOR_MODEL=gpt-4.1-mini-2025-04-14
+PROJECT_CREATOR_GENERATOR_API_KEY=your-generation-key
+PROJECT_CREATOR_EMBEDDING_URL=https://api.openai.com/v1
+PROJECT_CREATOR_EMBEDDING_MODEL=text-embedding-3-small
+PROJECT_CREATOR_EMBEDDING_API_KEY=your-embedding-key
+PROJECT_CREATOR_EMBEDDING_DIMENSIONS=1024
+```
+
+```bash
+./project-creator setup --device remote
+./project-creator doctor
+```
+
+Use `--switch-device` when changing an existing installation. For mixed operation select the local device and set only the external role's runtime to `openai-compatible` using `PROJECT_CREATOR_GENERATOR_RUNTIME` or `PROJECT_CREATOR_EMBEDDING_RUNTIME`. Configure that role's URL and model explicitly. A direct backend launch also requires explicit runtime selection. Connection and authorization errors stay with the selected provider.
+
+Generation sends the two versioned requirement texts for comparison. Automatic summaries use the generation endpoint and send the versioned source and applicable confirmed glossary hints. The embeddings endpoint receives document chunks during automatic indexing and query text during search. Enabling a provider on an existing installation can send existing requirements as background work begins. Setup and up also run synthetic diagnostics.
+
+Use versioned model IDs. Changing the embedding endpoint, model ID, or dimension mode creates a separate index profile. Restart the backend with the new settings and let automatic indexing finish before relying on search. Retry a failed requirement using the indexing action. If weights change behind a model alias, assign a new model ID before restarting. The backend requires 1024 components per vector.
 
 ## System prerequisites
 

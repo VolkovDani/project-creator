@@ -14,6 +14,7 @@ Project Creator помогает находить противоречия в б
 Для запуска на CPU нужны нативный Linux x86_64, Python 3 и Docker Engine с
 Compose 2.20 или новее. Перед первой установкой потребуется 24 ГиБ свободного
 места. Для GPU и Intel NPU см. [выбор устройства и системные требования](docs/setup-cli.md).
+Если локальный запуск моделей недоступен, подключите [отдельный сервер vLLM или облачный API](docs/setup-cli.md#удалённые-модели-для-генерации-и-эмбеддингов).
 
 ```bash
 git clone https://github.com/VolkovDani/project-creator.git

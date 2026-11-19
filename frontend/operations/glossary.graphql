@@ -7,8 +7,8 @@ query GlossaryList($projectId: ID!, $search: String!, $limit: Int!, $offset: Int
 query GlossaryCandidates($projectId: ID!, $limit: Int!, $offset: Int!) {
   glossaryCandidates(projectId: $projectId, limit: $limit, offset: $offset) { hasMore items { name abbreviation sourceId sourceVersion } }
 }
-query RequirementGlossary($projectId: ID!, $requirementId: ID!, $version: Int!) {
-  requirementGlossary(projectId: $projectId, requirementId: $requirementId, version: $version) {
+query RequirementGlossary($projectId: ID!, $analysisId: ID, $requirementId: ID!, $version: Int!) {
+  requirementGlossary(projectId: $projectId, analysisId: $analysisId, requirementId: $requirementId, version: $version) {
     version matches { start end text terms { ...GlossaryFields } }
   }
 }

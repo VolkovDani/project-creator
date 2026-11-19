@@ -127,7 +127,7 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
     right: { id: 'b', version: 1, text: 'Saved right source' },
   };
   await page.route('**/api/graphql', async (route) => {
-    const { query } = route.request().postDataJSON();
+    const { query, variables } = route.request().postDataJSON();
     const operation = query.match(/(?:query|mutation) (\w+)/)?.[1] || 'unknown';
     requests.push(operation);
     let data: unknown;
@@ -145,7 +145,30 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
         scope: { projectId: 'demo' },
         analysisPairs: current.processedPairs ? [pair] : [],
       };
-    else if (query.includes('analysisPair(')) {
+    else if (operation === 'RequirementGlossary' && variables.analysisId === 'run-live') {
+      const word = variables.requirementId === 'a' ? 'left' : 'right';
+      data = {
+        requirementGlossary: {
+          version: 1,
+          matches: [
+            {
+              start: 6,
+              end: 6 + word.length,
+              text: word,
+              terms: [
+                {
+                  id: word,
+                  name: word,
+                  definition: word + ' definition',
+                  context: '',
+                  variants: [],
+                },
+              ],
+            },
+          ],
+        },
+      };
+    } else if (query.includes('analysisPair(')) {
       const pairResponse = structuredClone(pair);
       if (operation === 'AnalysisPairTechnical' && technicalFailures > 0) {
         technicalFailures--;
@@ -255,7 +278,13 @@ test('group loads compact rows and only an opened pair fetches texts; reopen reu
   await details.locator('summary').click();
   await details.locator('summary').click();
   await details.locator('summary').click();
-  await expect(details.getByText('Saved left source', { exact: true })).toBeVisible();
+  for (const word of ['left', 'right']) {
+    const term = details.getByRole('button', { name: word, exact: true });
+    await term.hover();
+    await expect(page.getByRole('tooltip')).toContainText(word + ' definition');
+    await page.keyboard.press('Escape');
+  }
+  await expect(details.locator('p.user-content').first()).toHaveText('Saved left source');
   expect(live.requests.filter((name) => name === 'AnalysisPairSources')).toHaveLength(1);
   expect(live.requests).not.toContain('AnalysisPairTechnical');
   const technical = group.getByRole('group', { name: 'Техническая информация' });

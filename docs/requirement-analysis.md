@@ -477,15 +477,11 @@ English translation of Russian prose therefore triggers one correction attempt.
 If several alphabets match, they remain eligible. When none covers the source
 (e.g. mixed-language prose), the configured list applies.
 
-A restricted-language summary may preserve isolated ASCII technical identifiers
-from the same source (for example, `Excel`, `API`, or `PDF` in a Russian
-requirement). This exception does not enable English prose: unrelated names and
-foreign-language sentences are still rejected. The summary must retain text in
-the configured alphabet. This is a conservative token check, not recognition of
-arbitrary product names or language detection. Multiword foreign names are not
-covered by this exception. Source-less validation stays strict.
-The policy is recorded in the generation profile, so changed policy creates new
-summaries while previous profiles remain in history.
+The output may use isolated ASCII technical names from the source, identifiers used in calls, assignments or array indexing, and verbatim labels such as `SSO (Single Sign-On)`. The surrounding prose must use the configured alphabet. A foreign passage elsewhere in the source does not invalidate an isolated name. Invented names and foreign prose still fail validation.
+
+After a language rejection the worker makes one fresh attempt using the original text and its confirmed glossary hints. When the request budget permits, the corrective JSON schema constrains the spelling to the configured alphabet, source symbols and recognized identifiers. The worker still validates the result before publication. New results record the validation and correction policy in their provenance. Existing ready previews keep their base model profile and generation history.
+
+A failed preview shows the reason in the interface. `INVALID_FORMAT` identifies a malformed response, `INVALID_TEXT` an empty or unpublishable string, `INVALID_LANGUAGE` an alphabet mismatch, `MISSING_SOURCE_NUMBERS` an omitted numeric literal or numbered identifier, and `CORRECTION_TOO_LONG` a correction that exceeds the request budget. Historical `INVALID_OUTPUT` records remain retryable.
 
 Until a ready preview for the displayed version is available, its card shows the full original directly. When the preview arrives, expand the original to read it.
 

@@ -11,3 +11,10 @@ export function t(
   const template = dict[key] || dict['app.validationUnknown'];
   return template.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? ''));
 }
+
+export function summaryErrorMessage(locale: Locale, code: string) {
+  const key = `summary.error.${code}`;
+  return Object.hasOwn(dictionaries[locale], key)
+    ? t(locale, key)
+    : t(locale, 'summary.error', { code });
+}

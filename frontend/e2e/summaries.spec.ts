@@ -164,7 +164,7 @@ test('summary query failure preserves source access and offers refresh, not gene
   await expect(card.getByText('Не удалось загрузить резюме.', { exact: false })).toBeVisible();
   await expect(card.getByText(suggestion, { exact: true })).toHaveCount(0);
   await expect(card.getByRole('button', { name: 'Создать резюме', exact: true })).toHaveCount(0);
-  await expect(card.getByText(original, { exact: true })).toBeHidden();
+  await expect(card.getByText(original, { exact: true })).toBeVisible();
   api.failSummaryReads(false);
   await card.getByRole('button', { name: 'Обновить состояние резюме', exact: true }).click();
   await expect(card.getByText(suggestion, { exact: true })).toBeVisible();
@@ -179,7 +179,9 @@ test('an old summary version is never shown as the current suggestion', async ({
   await expect(
     card.getByRole('button', { name: 'Повторить создание резюме', exact: true }),
   ).toBeVisible();
-  await card.getByText('Полный исходный текст требования', { exact: true }).click();
+  await expect(
+    card.locator('summary').filter({ hasText: 'Полный исходный текст требования' }),
+  ).toHaveCount(0);
   await expect(card.getByText(original, { exact: true })).toBeVisible();
 });
 

@@ -14,6 +14,7 @@ import { useInvalidation } from '../../../lib/live';
 import { indexStatus, requirementURL } from '../../../lib/rag';
 import Group from '../../components/Group';
 import ResourceState from '../../components/ResourceState';
+import { GlossaryText } from './GlossaryActions';
 
 type Index = RequirementIndexListQuery['requirementIndex'][number];
 export function useProjectIndex(projectId: string, page: number) {
@@ -225,7 +226,9 @@ export default function ProjectSearch({
         >
           {results.map((hit) => (
             <article className="card" key={`${hit.requirementId}:${hit.start}:${hit.end}`}>
-              <p>{hit.text}</p>
+              <GlossaryText sourceId={hit.requirementId} version={hit.version}>
+                {hit.text}
+              </GlossaryText>
               <p className="muted">{t(locale, 'requirements.version', { version: hit.version })}</p>
               <a
                 href={requirementURL(projectId, hit.requirementId)}
@@ -242,7 +245,9 @@ export default function ProjectSearch({
               </a>
               <details>
                 <summary>{t(locale, 'rag.sourceText')}</summary>
-                <p>{hit.sourceText}</p>
+                <GlossaryText sourceId={hit.requirementId} version={hit.version}>
+                  {hit.sourceText}
+                </GlossaryText>
               </details>
             </article>
           ))}

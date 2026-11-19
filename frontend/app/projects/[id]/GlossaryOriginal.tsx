@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { query } from '../../../lib/client';
 import {
   RequirementGlossaryDocument,
@@ -7,7 +7,7 @@ import {
 } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
 import { useResource } from '../../../lib/useResource';
-import GlossaryEditor, { type GlossaryDraft } from './GlossaryEditor';
+import { GlossaryText, useGlossaryEditor } from './GlossaryActions';
 
 type Props = {
   projectId: string;
@@ -40,27 +40,8 @@ function SourceText({ projectId, requirementId, version, original, locale }: Pro
   );
   const result = useResource(load, [tag, `project:${projectId}:requirements`]);
   const [active, setActive] = useState<number>(),
-    [chosen, setChosen] = useState<string>(),
-    [selected, setSelected] = useState(''),
-    [draft, setDraft] = useState<GlossaryDraft>();
-  const root = useRef<HTMLParagraphElement>(null);
-  useEffect(() => {
-    function selectionChanged() {
-      const selection = window.getSelection();
-      if (
-        selection &&
-        !selection.isCollapsed &&
-        root.current?.contains(selection.anchorNode) &&
-        root.current.contains(selection.focusNode)
-      ) {
-        setSelected(selection.toString().trim());
-      } else if (!selection || selection.isCollapsed) {
-        setSelected('');
-      }
-    }
-    document.addEventListener('selectionchange', selectionChanged);
-    return () => document.removeEventListener('selectionchange', selectionChanged);
-  }, []);
+    [chosen, setChosen] = useState<string>();
+  const setDraft = useGlossaryEditor();
   const chars = Array.from(original),
     nodes: React.ReactNode[] = [];
   let pos = 0;
@@ -89,20 +70,9 @@ function SourceText({ projectId, requirementId, version, original, locale }: Pro
     options.length === 1 ? options[0] : options.find((v) => v.id === chosen);
   return (
     <>
-      <p ref={root} className="user-content">
+      <GlossaryText className="user-content" sourceId={requirementId} version={version}>
         {nodes}
-      </p>
-      {selected && (
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() =>
-            setDraft({ name: selected, sourceId: requirementId, sourceVersion: version })
-          }
-        >
-          {t(locale, 'glossary.addSelection')}
-        </button>
-      )}
+      </GlossaryText>
       {options.length > 1 && (
         <label>
           {t(locale, 'glossary.ambiguous')}
@@ -125,14 +95,6 @@ function SourceText({ projectId, requirementId, version, original, locale }: Pro
             {t(locale, 'glossary.edit')}
           </button>
         </div>
-      )}
-      {draft && (
-        <GlossaryEditor
-          draft={draft}
-          projectId={projectId}
-          locale={locale}
-          onClose={() => setDraft(undefined)}
-        />
       )}
     </>
   );

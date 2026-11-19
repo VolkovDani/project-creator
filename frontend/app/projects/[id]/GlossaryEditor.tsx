@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import limits from '../../../../contracts/glossary.json';
 import { query } from '../../../lib/client';
 import {
@@ -80,137 +80,152 @@ export default function GlossaryEditor({
     );
     setSearch('');
   }
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const element = dialog.current;
+    element?.showModal();
+    return () => element?.close();
+  }, []);
   return (
-    <form
+    <dialog
+      ref={dialog}
       aria-label={t(locale, 'glossary.editor')}
-      onSubmit={async (e) => {
+      onCancel={(e) => {
         e.preventDefault();
-        if (busy) return;
-        const invalid = validateGlossary(limits, { name, definition, context, variants });
-        if (invalid) {
-          setErrors([t(locale, invalid.key, invalid.params)]);
-          return;
-        }
-        setBusy(true);
-        setErrors([]);
-        try {
-          const result = await query(
-            SaveTermDocument,
-            {
-              input: {
-                projectId,
-                id: term?.id,
-                version: term?.version,
-                name,
-                definition,
-                context,
-                variants: variants.map(({ kind, text }) => ({ kind, text })),
-                sourceId: draft.sourceId || term?.sourceId || null,
-                sourceVersion: draft.sourceVersion || term?.sourceVersion || null,
-              },
-            },
-            { tags: [tag] },
-          );
-          const payload = result.saveGlossaryTerm;
-          if (payload.term) {
-            onClose();
-            return;
-          }
-          setErrors(
-            payload.fieldErrors.map((err) =>
-              t(
-                locale,
-                err.messageKey,
-                Object.fromEntries(err.params.map((p) => [p.key, p.value])),
-              ),
-            ),
-          );
-        } catch {
-          setErrors([t(locale, 'app.submitError')]);
-        } finally {
-          setBusy(false);
-        }
+        if (!busy) onClose();
       }}
     >
-      <fieldset disabled={busy}>
-        <legend>{t(locale, 'glossary.editor')}</legend>
-        {draft.sourceId && !draft.term && (
-          <>
-            <label>
-              {t(locale, 'glossary.linkExisting')}
-              <input value={search} onChange={(e) => setSearch(e.target.value)} />
-            </label>
-            {search &&
-              options.data?.map((item) => (
-                <button key={item.id} type="button" onClick={() => select(item)}>
-                  {item.name}
-                </button>
-              ))}
-          </>
-        )}
-        <label>
-          {t(locale, 'glossary.name')}
-          <input required value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label>
-          {t(locale, 'glossary.definition')}
-          <textarea value={definition} onChange={(e) => setDefinition(e.target.value)} />
-        </label>
-        <label>
-          {t(locale, 'glossary.context')}
-          <textarea value={context} onChange={(e) => setContext(e.target.value)} />
-        </label>
-        {variants.map((v, i) => (
-          <div key={v.key}>
-            <label>
-              {t(locale, 'glossary.variant')}
-              <input
-                required
-                value={v.text}
-                onChange={(e) =>
-                  setVariants(
-                    variants.map((a, n) => (n === i ? { ...a, text: e.target.value } : a)),
-                  )
-                }
-              />
-            </label>
-            <label>
-              {t(locale, 'glossary.kind')}
-              <select
-                value={v.kind}
-                onChange={(e) =>
-                  setVariants(
-                    variants.map((a, n) => (n === i ? { ...a, kind: e.target.value } : a)),
-                  )
-                }
-              >
-                {limits.kinds.map((kind) => (
-                  <option key={kind} value={kind}>
-                    {t(locale, `glossary.${kind}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button type="button" onClick={() => setVariants(variants.filter((_, n) => i !== n))}>
-              {t(locale, 'glossary.removeVariant')}
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          disabled={variants.length >= limits.variantLimit}
-          onClick={() =>
-            setVariants([...variants, { key: crypto.randomUUID(), text: '', kind: 'synonym' }])
+      <form
+        aria-label={t(locale, 'glossary.editor')}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (busy) return;
+          const invalid = validateGlossary(limits, { name, definition, context, variants });
+          if (invalid) {
+            setErrors([t(locale, invalid.key, invalid.params)]);
+            return;
           }
-        >
-          {t(locale, 'glossary.addVariant')}
-        </button>
-        {errors.length > 0 && <p role="alert">{errors.join(' ')}</p>}
-        <button type="submit">{t(locale, 'glossary.confirm')}</button>
-        <button type="button" onClick={onClose}>
-          {t(locale, 'requirements.cancel')}
-        </button>
-      </fieldset>
-    </form>
+          setBusy(true);
+          setErrors([]);
+          try {
+            const result = await query(
+              SaveTermDocument,
+              {
+                input: {
+                  projectId,
+                  id: term?.id,
+                  version: term?.version,
+                  name,
+                  definition,
+                  context,
+                  variants: variants.map(({ kind, text }) => ({ kind, text })),
+                  sourceId: draft.sourceId || term?.sourceId || null,
+                  sourceVersion: draft.sourceVersion || term?.sourceVersion || null,
+                },
+              },
+              { tags: [tag] },
+            );
+            const payload = result.saveGlossaryTerm;
+            if (payload.term) {
+              onClose();
+              return;
+            }
+            setErrors(
+              payload.fieldErrors.map((err) =>
+                t(
+                  locale,
+                  err.messageKey,
+                  Object.fromEntries(err.params.map((p) => [p.key, p.value])),
+                ),
+              ),
+            );
+          } catch {
+            setErrors([t(locale, 'app.submitError')]);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <fieldset disabled={busy}>
+          <legend>{t(locale, 'glossary.editor')}</legend>
+          {draft.sourceId && !draft.term && (
+            <>
+              <label>
+                {t(locale, 'glossary.linkExisting')}
+                <input value={search} onChange={(e) => setSearch(e.target.value)} />
+              </label>
+              {search &&
+                options.data?.map((item) => (
+                  <button key={item.id} type="button" onClick={() => select(item)}>
+                    {item.name}
+                  </button>
+                ))}
+            </>
+          )}
+          <label>
+            {t(locale, 'glossary.name')}
+            <input required value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label>
+            {t(locale, 'glossary.definition')}
+            <textarea value={definition} onChange={(e) => setDefinition(e.target.value)} />
+          </label>
+          <label>
+            {t(locale, 'glossary.context')}
+            <textarea value={context} onChange={(e) => setContext(e.target.value)} />
+          </label>
+          {variants.map((v, i) => (
+            <div key={v.key}>
+              <label>
+                {t(locale, 'glossary.variant')}
+                <input
+                  required
+                  value={v.text}
+                  onChange={(e) =>
+                    setVariants(
+                      variants.map((a, n) => (n === i ? { ...a, text: e.target.value } : a)),
+                    )
+                  }
+                />
+              </label>
+              <label>
+                {t(locale, 'glossary.kind')}
+                <select
+                  value={v.kind}
+                  onChange={(e) =>
+                    setVariants(
+                      variants.map((a, n) => (n === i ? { ...a, kind: e.target.value } : a)),
+                    )
+                  }
+                >
+                  {limits.kinds.map((kind) => (
+                    <option key={kind} value={kind}>
+                      {t(locale, `glossary.${kind}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" onClick={() => setVariants(variants.filter((_, n) => i !== n))}>
+                {t(locale, 'glossary.removeVariant')}
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            disabled={variants.length >= limits.variantLimit}
+            onClick={() =>
+              setVariants([...variants, { key: crypto.randomUUID(), text: '', kind: 'synonym' }])
+            }
+          >
+            {t(locale, 'glossary.addVariant')}
+          </button>
+          {errors.length > 0 && <p role="alert">{errors.join(' ')}</p>}
+          <button type="submit">{t(locale, 'glossary.confirm')}</button>
+          <button type="button" onClick={onClose}>
+            {t(locale, 'requirements.cancel')}
+          </button>
+        </fieldset>
+      </form>
+    </dialog>
   );
 }

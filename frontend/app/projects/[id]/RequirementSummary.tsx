@@ -10,6 +10,7 @@ import {
 import { type Locale, t } from '../../../lib/i18n';
 import { Latest } from '../../../lib/latest';
 import { useInvalidation } from '../../../lib/live';
+import { GlossaryText } from './GlossaryActions';
 import GlossaryOriginal from './GlossaryOriginal';
 
 type Summary = RequirementSummariesByIdsQuery['requirementSummariesByIds'][number];
@@ -126,7 +127,7 @@ export default function RequirementSummary({
     <section aria-label={t(locale, 'summary.section')}>
       <p className="muted">{t(locale, 'summary.suggestion')}</p>
       {hasText && displayedSummary?.text ? (
-        <p>{displayedSummary.text}</p>
+        <GlossaryText>{displayedSummary.text}</GlossaryText>
       ) : (
         <p
           role={

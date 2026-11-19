@@ -287,7 +287,7 @@ architecture or a commitment to implement all listed capabilities.
 | [#137 — dependencies and Node 26](https://github.com/VolkovDani/project-creator/issues/137) | Node 26 migration completed in [PR #140](https://github.com/VolkovDani/project-creator/pull/140). The NPU export dependency update is tracked in #144. |
 | [#99 — explanation character set](https://github.com/VolkovDani/project-creator/issues/99) | Released in v0.1.1 via [PR #155](https://github.com/VolkovDani/project-creator/pull/155). Pair explanations get one correction attempt within the remaining time budget. |
 | [#108 — summary language](https://github.com/VolkovDani/project-creator/issues/108) | Preserve an allowed source language and retry once on violation. Verify on the pinned profile with the existing quality evaluator. |
-| [#105 — Untitled UI](https://github.com/VolkovDani/project-creator/issues/105) | Selected direction instead of MD2/MUI from #46. First resolve licensing, integration method, shared tokens, and a pilot of requirements/analysis screens. License purchase is not agreed; #46 remains open and serves as a source of requirements, not a parallel design system. |
+| [#105 — Untitled UI](https://github.com/VolkovDani/project-creator/issues/105) | Adapt the free MIT-licensed Untitled UI tokens to the existing HTML components on requirements and analysis screens. See [ADR-011](docs/adr/011-untitled-ui-pilot.md). #46 supplies historical component and accessibility requirements. |
 | #98 — Docker Hardened Images | Keep the Go and Node versions established by #137. Local and CI access to the DHI registry is required. |
 | #22 — Intel NPU | Additional hardware reports, embeddings, and CPU/GPU/NPU comparison; these do not block the already published prerelease. |
 | #40 — SSR | Based on measured need. |
@@ -306,7 +306,7 @@ Before implementing the next stage, the following must be agreed:
 - Availability of #53 explanations for manual classification and operation without Laya. Currently #53 describes a separate generative-LLM explanation on request after saving the Laya result, while #51 allows Laya to be unconfigured.
 - A shared relationship, provenance, and freshness model for #58/#78; this is an overlap of directions, not a proven contradiction in the current implementation. Automatic classification must not become an implicit condition for viewing already saved relationships. Matching types alone do not create a relationship.
 - A shared reference set and baseline for candidate search in #64/#78.
-- Integration method and licensing for Untitled UI in #105, and the future status of the replaced #46.
+- The future status of #46 after the Untitled UI pilot.
 - Classification boundaries in #78 — only with separate authorization for that direction.
 
 Proposed near-term order: #108 → #105 pilot →

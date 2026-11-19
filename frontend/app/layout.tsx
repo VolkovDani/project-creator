@@ -1,4 +1,5 @@
 import './style.css';
+import './ui-panel.css';
 import BackToTop from './components/BackToTop';
 import LocaleProvider from './components/LocaleProvider';
 export default function Layout({ children }: { children: React.ReactNode }) {

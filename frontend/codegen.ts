@@ -16,7 +16,7 @@ export function generate(schema: string, operations: { location: string; text: s
       location,
       document: parse(new Source(text, location)),
     })),
-    config: {},
+    config: { useTypeImports: true },
     plugins: [{ typescriptOperations: {} }, { typedDocumentNode: {} }],
     pluginMap: { typescriptOperations, typedDocumentNode },
   });

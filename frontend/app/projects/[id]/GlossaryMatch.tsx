@@ -9,15 +9,22 @@ export default function GlossaryMatch({
   text,
   terms,
   locale,
+  loading,
+  error,
+  reload,
 }: {
   text: React.ReactNode;
   terms: Term[];
   locale: Locale;
+  loading: boolean;
+  error: boolean;
+  reload: () => Promise<void>;
 }) {
   const [mode, setMode] = useState<'preview' | 'pinned'>();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const keyboardActionPending = useRef(false);
   const id = useId();
   const edit = useGlossaryEditor();
   const open = !!mode;
@@ -79,6 +86,13 @@ export default function GlossaryMatch({
       document.removeEventListener('keydown', dismissOnEscape);
     };
   }, [open]);
+  useLayoutEffect(() => {
+    if (!mode) keyboardActionPending.current = false;
+    if (mode !== 'pinned' || !keyboardActionPending.current || loading || (!error && !terms.length))
+      return;
+    keyboardActionPending.current = false;
+    panel.current?.querySelector('button')?.focus();
+  }, [mode, loading, error, terms.length]);
   return (
     <>
       <button
@@ -92,9 +106,13 @@ export default function GlossaryMatch({
         onPointerLeave={leave}
         onFocus={preview}
         onClick={(e) => {
+          keyboardActionPending.current = e.detail === 0;
+          const action = mode === 'pinned' ? panel.current?.querySelector('button') : undefined;
+          if (keyboardActionPending.current && action) {
+            keyboardActionPending.current = false;
+            action.focus();
+          }
           setMode('pinned');
-          if (e.detail === 0)
-            requestAnimationFrame(() => panel.current?.querySelector('button')?.focus());
         }}
       >
         {text}
@@ -108,15 +126,37 @@ export default function GlossaryMatch({
             onPointerLeave={leave}
           >
             <div role="tooltip" id={id}>
-              {terms.map((term) => (
-                <div key={term.id}>
-                  <strong>{term.name}</strong>
-                  {term.definition && <p>{term.definition}</p>}
-                  {term.context && <p>{term.context}</p>}
-                </div>
-              ))}
+              {loading ? (
+                <p role="status">{t(locale, 'glossary.definitionsLoading')}</p>
+              ) : error ? (
+                <p role="status">{t(locale, 'glossary.definitionsError')}</p>
+              ) : terms.length === 0 ? (
+                <p>{t(locale, 'glossary.definitionsUnavailable')}</p>
+              ) : (
+                terms.map((term) => (
+                  <div key={term.id}>
+                    <strong>{term.name}</strong>
+                    {term.definition && <p>{term.definition}</p>}
+                    {term.context && <p>{term.context}</p>}
+                  </div>
+                ))
+              )}
             </div>
+            {mode === 'pinned' && error && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  keyboardActionPending.current = e.detail === 0;
+                  trigger.current?.focus();
+                  void reload();
+                }}
+              >
+                {t(locale, 'glossary.definitionsRetry')}
+              </button>
+            )}
             {mode === 'pinned' &&
+              !loading &&
+              !error &&
               terms.map((term) => (
                 <button
                   type="button"

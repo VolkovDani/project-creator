@@ -18,6 +18,31 @@ func glossaryTerm(t glossary.Term) *GlossaryTerm {
 	}
 	return v
 }
+func (r *Resolver) GlossaryTermsByIds(ctx context.Context, args GlossaryTermsByIdsArgs) ([]*GlossaryTerm, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
+	if len(args.Ids) < 1 || len(args.Ids) > 100 {
+		return nil, errors.New("invalid glossary term IDs")
+	}
+	ids := make([]string, len(args.Ids))
+	for i, id := range args.Ids {
+		ids[i] = string(id)
+		if strings.TrimSpace(ids[i]) == "" {
+			return nil, errors.New("invalid glossary term IDs")
+		}
+	}
+	terms, err := glossary.TermsByIDs(ctx, r.DB, workspace(ctx), string(args.ProjectId), ids)
+	if err != nil {
+		return nil, errors.New("glossary unavailable")
+	}
+	out := make([]*GlossaryTerm, 0, len(terms))
+	for _, term := range terms {
+		out = append(out, glossaryTerm(term))
+	}
+	return out, nil
+}
+
 func (r *Resolver) GlossaryTerms(ctx context.Context, a GlossaryTermsArgs) ([]*GlossaryTerm, error) {
 	if err := consume(ctx); err != nil {
 		return nil, err

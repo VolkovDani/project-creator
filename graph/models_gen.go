@@ -128,6 +128,10 @@ type GlossaryMentionPage struct {
 	Items    []*Requirement
 	PageInfo *PageInfo
 }
+type GlossaryTermsByIdsArgs struct {
+	ProjectId graphql.ID
+	Ids       []graphql.ID
+}
 type GlossaryMentionsArgs struct {
 	ProjectId graphql.ID
 	TermId    graphql.ID

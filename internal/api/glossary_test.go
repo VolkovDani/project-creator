@@ -222,6 +222,64 @@ func TestGlossaryUsesScopedAnalysisSourceVersion(t *testing.T) {
 	}
 }
 
+func TestGlossaryTermsByIdsOnlyReturnsRequestedTermsInScope(t *testing.T) {
+	s, err := New(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	_, err = s.db.Exec(`
+		INSERT INTO projects VALUES
+			('p','a','P','G','','now','now'), ('q','a','Q','G','','now','now'), ('foreign','b','F','G','','now','now');
+		INSERT INTO glossary_terms (id, workspace, project_id, name, definition, meaning_context, variants, version, source_id, source_version) VALUES
+			('wanted','a','p','Alpha Beta','Current definition','Context','[{"text":"AB","kind":"abbreviation"}]',2,'r',1),
+			('other','a','p','Other','Definition','','[]',1,'',0),
+			('different-project','a','q','Hidden','Definition','','[]',1,'',0),
+			('different-workspace','b','foreign','Hidden','Definition','','[]',1,'',0);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	read := func(token, projectID, ids string) []any {
+		t.Helper()
+		out := summaryRequest(t, s, token, fmt.Sprintf(`{glossaryTermsByIds(projectId:%q,ids:[%s]){
+			id name definition context version sourceId sourceVersion variants{text kind}
+		}}`, projectID, ids))
+		if out["errors"] != nil {
+			t.Fatal(out)
+		}
+		return out["data"].(map[string]any)["glossaryTermsByIds"].([]any)
+	}
+	ids := `"wanted","missing","different-project","wanted","different-workspace"`
+	terms := read("token-a", "p", ids)
+	if len(terms) != 1 {
+		t.Fatalf("expected only one matching term, got %v", terms)
+	}
+	term := terms[0].(map[string]any)
+	variants := term["variants"].([]any)
+	if term["id"] != "wanted" || term["name"] != "Alpha Beta" || term["definition"] != "Current definition" ||
+		term["context"] != "Context" || term["version"] != float64(2) || term["sourceId"] != "r" || term["sourceVersion"] != float64(1) ||
+		len(variants) != 1 || variants[0].(map[string]any)["text"] != "AB" || variants[0].(map[string]any)["kind"] != "abbreviation" {
+		t.Fatalf("unexpected term: %v", term)
+	}
+	if got := read("token-b", "p", ids); len(got) != 0 {
+		t.Fatalf("foreign project returned terms: %v", got)
+	}
+	if got := read("token-a", "p", `"missing"`); len(got) != 0 {
+		t.Fatalf("missing ID returned terms: %v", got)
+	}
+	if got := read("token-a", "p", strings.Repeat(`"wanted",`, 99)+`"wanted"`); len(got) != 1 {
+		t.Fatalf("100 IDs should be accepted and deduplicated: %v", got)
+	}
+	for _, invalidIDs := range []string{"", `" "`, strings.Repeat(`"wanted",`, 100) + `"wanted"`} {
+		out := summaryRequest(t, s, "token-a", `{glossaryTermsByIds(projectId:"p",ids:[`+invalidIDs+`]){id}}`)
+		if out["errors"] == nil {
+			t.Fatalf("batch accepted invalid IDs: %q", invalidIDs)
+		}
+	}
+}
+
 func TestCandidateContextAcrossSources(t *testing.T) {
 	s, err := New(testDatabase(t), map[string]string{"token-a": "a"})
 	if err != nil {

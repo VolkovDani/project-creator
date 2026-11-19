@@ -23,12 +23,26 @@ async function fixture(
 ) {
   let status = options?.initialStatus ?? 'ready';
   let sourceVersion = 3;
-  let sourceText = original;
+  let sourceText = options?.highlight ? `🧪 ${original}` : original;
   let summaryVersion = options?.summaryVersion ?? sourceVersion;
   let failSummaryReads = options?.failSummaryReads ?? false;
   let retries = 0;
   let cancellations = 0;
   let summaryReads = 0;
+  const matchQueries: string[] = [];
+  let termReads = 0;
+  let releaseTerms = () => {};
+  const pendingTerms = new Promise<void>((resolve) => {
+    releaseTerms = resolve;
+  });
+  const term = {
+    id: 'term',
+    name: 'Предложение',
+    definition: 'Определение из словаря проекта',
+    context: '',
+    variants: [],
+    version: 1,
+  };
   const summaryText = () =>
     options?.longPreview
       ? 'я'.repeat(176)
@@ -46,15 +60,7 @@ async function fixture(
           {
             start: 8,
             end: 19,
-            text: 'предложение',
-            terms: [
-              {
-                id: 'term',
-                name: 'Предложение',
-                definition: 'Определение из словаря проекта',
-                context: '',
-              },
-            ],
+            terms: [{ id: term.id }],
           },
         ]
       : [],
@@ -74,11 +80,32 @@ async function fixture(
     let data: unknown;
     if (query.includes('requirementSummariesByIds(')) {
       summaryReads++;
+      matchQueries.push(query);
       if (failSummaryReads) {
         await route.fulfill({ status: 503, json: { error: 'fixture summary failure' } });
         return;
       }
       data = { requirementSummariesByIds: [summary()] };
+    } else if (query.includes('requirementGlossary(')) {
+      matchQueries.push(query);
+      data = {
+        requirementGlossary: {
+          version: sourceVersion,
+          matches: options?.highlight ? [{ start: 2, end: 8, terms: [{ id: term.id }] }] : [],
+        },
+      };
+    } else if (query.includes('glossaryTermsByIds(')) {
+      termReads++;
+      expect(route.request().postDataJSON().variables).toEqual({
+        projectId: project.id,
+        ids: [term.id],
+      });
+      await pendingTerms;
+      if (termReads === 1) {
+        await route.fulfill({ status: 503, json: { error: 'fixture glossary failure' } });
+        return;
+      }
+      data = { glossaryTermsByIds: [term] };
     } else if (query.includes('retryRequirementSummary(')) {
       retries++;
       status = 'queued';
@@ -127,6 +154,9 @@ async function fixture(
     await route.fulfill({ json: { data } }).catch(() => {});
   });
   return {
+    matchQueries,
+    termReads: () => termReads,
+    releaseTerms,
     retries: () => retries,
     cancellations: () => cancellations,
     summaryReads: () => summaryReads,
@@ -231,15 +261,41 @@ test('a ready preview over the Laya limit remains visible without an eligibility
   await expect(card.getByText(original, { exact: true })).toBeHidden();
 });
 
-test('a ready summary shows the project definition inside its own text', async ({ page }) => {
-  await fixture(page, { highlight: true });
+test('a summary preloads its glossary details and the original reuses them', async ({ page }) => {
+  const api = await fixture(page, { highlight: true });
   await page.goto('/projects/summary-project/requirements');
-  const term = page
-    .locator('#requirement-req-1')
-    .getByRole('button', { name: 'предложение', exact: true });
+  const card = page.locator('#requirement-req-1');
+  const term = card.getByRole('button', { name: 'предложение', exact: true });
+  await expect(term).toBeVisible();
+  await expect.poll(api.termReads).toBe(1);
+  expect(api.matchQueries.filter((query) => query.includes('requirementGlossary('))).toHaveLength(
+    0,
+  );
+
   await term.focus();
+  await expect(page.getByRole('tooltip')).toContainText('Загрузка определений');
+  await term.press('Enter');
+  api.releaseTerms();
+  const retry = page.getByRole('button', { name: 'Повторить загрузку определений', exact: true });
+  await expect(retry).toBeFocused();
+  await retry.press('Enter');
   await expect(page.getByRole('tooltip')).toContainText('Определение из словаря проекта');
-  await expect(page.getByText(original, { exact: true })).toBeHidden();
+  const edit = page.getByRole('button', { name: 'Изменить понятие', exact: true });
+  await expect(edit).toBeFocused();
+  await edit.press('Escape');
+  await expect(term).toBeFocused();
+
+  await card.getByText('Полный исходный текст требования', { exact: true }).click();
+  const originalMatch = card.getByRole('button', { name: 'Полный', exact: true });
+  await originalMatch.focus();
+  await expect(page.getByRole('tooltip')).toContainText('Определение из словаря проекта');
+  expect(api.termReads()).toBe(2);
+  expect(api.matchQueries).toHaveLength(2);
+  for (const query of api.matchQueries) {
+    expect(query).toMatch(
+      /(?:glossaryMatches|matches)\s*\{\s*start\s+end\s+terms\s*\{\s*id\s*\}\s*\}/,
+    );
+  }
 });
 
 test('selection in a requirement summary offers to link an existing term', async ({ page }) => {

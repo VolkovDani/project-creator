@@ -37,12 +37,12 @@ export function useRequirementSummaries(
   const identity = `${projectId}:${sourcesKey}`;
   const latest = useRef(new Latest());
   const [snapshot, setSnapshot] = useState<{ identity: string; values: Map<string, Summary> }>();
-  const [failure, setFailure] = useState(false);
+  const [failedIdentity, setFailedIdentity] = useState<string>();
   const load = useCallback(async () => {
     const generation = latest.current.begin();
     if (!ids.length) {
       setSnapshot({ identity, values: new Map() });
-      setFailure(false);
+      setFailedIdentity(undefined);
       return;
     }
     try {
@@ -62,9 +62,9 @@ export function useRequirementSummaries(
           values.set(summary.requirementId, summary);
       }
       setSnapshot({ identity, values });
-      setFailure(false);
+      setFailedIdentity(undefined);
     } catch {
-      if (latest.current.isCurrent(generation)) setFailure(true);
+      if (latest.current.isCurrent(generation)) setFailedIdentity(identity);
     }
   }, [identity, projectId, ids, tags]);
   useEffect(() => {
@@ -78,11 +78,14 @@ export function useRequirementSummaries(
     () => {
       latest.current.invalidate();
       setSnapshot(undefined);
-      setFailure(false);
+      setFailedIdentity(undefined);
     },
   );
+  const failure = failedIdentity === identity;
+  const hasSnapshot = snapshot?.identity === identity;
   return {
-    summaries: snapshot?.identity === identity ? snapshot.values : new Map<string, Summary>(),
+    summaries: hasSnapshot ? snapshot.values : new Map<string, Summary>(),
+    loading: !hasSnapshot && !failure,
     failure,
     retryLoad: load,
   };
@@ -98,6 +101,7 @@ export default function RequirementSummary({
   locale,
   summary,
   loadFailure,
+  loading,
   refresh,
 }: {
   projectId: string;
@@ -109,6 +113,7 @@ export default function RequirementSummary({
   locale: Locale;
   summary?: Summary;
   loadFailure: boolean;
+  loading: boolean;
   refresh: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -135,23 +140,29 @@ export default function RequirementSummary({
     }
   }
   const hasText = versionMatches && summary?.status === 'ready' && !!summary.text;
-  const source = (
-    <GlossaryOriginal
-      highlight={highlight}
-      collapsible={hasText && !showOriginal}
-      projectId={projectId}
-      requirementId={requirementId}
-      version={requirementVersion}
-      original={original}
-      locale={locale}
-    />
-  );
+  const source =
+    loading && !showOriginal ? (
+      <GlossaryText className="user-content" sourceId={requirementId} version={requirementVersion}>
+        {original}
+      </GlossaryText>
+    ) : (
+      <GlossaryOriginal
+        highlight={highlight}
+        collapsible={hasText && !showOriginal}
+        projectId={projectId}
+        requirementId={requirementId}
+        version={requirementVersion}
+        original={original}
+        locale={locale}
+      />
+    );
   return (
     <section aria-label={hasText ? t(locale, 'summary.section') : undefined}>
       {hasText ? <p className="muted">{t(locale, 'summary.suggestion')}</p> : source}
       {hasText && displayedSummary?.text ? (
         <GlossaryText>
           <MatchedText
+            projectId={projectId}
             text={displayedSummary.text}
             matches={displayedSummary.glossaryMatches ?? []}
             locale={locale}

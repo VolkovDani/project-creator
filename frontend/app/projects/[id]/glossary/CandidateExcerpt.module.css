@@ -1,0 +1,17 @@
+/* Slice one continuous mask across the inline fragments of wrapped context. */
+.fadeStart,
+.fadeEnd {
+  box-decoration-break: slice;
+}
+.fadeStart {
+  mask-image: linear-gradient(to right, transparent, black 3ch);
+}
+.fadeEnd {
+  mask-image: linear-gradient(to left, transparent, black 3ch);
+}
+@media (forced-colors: active) {
+  .fadeStart,
+  .fadeEnd {
+    mask-image: none;
+  }
+}

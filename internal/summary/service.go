@@ -227,6 +227,31 @@ func (s *Service) owned(ctx context.Context, j *job) bool {
 	e := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM requirement_summaries s JOIN requirements r ON r.workspace=s.workspace AND r.project_id=s.project_id AND r.id=s.requirement_id AND r.version=s.version JOIN summary_profiles p ON p.workspace=s.workspace AND p.profile=s.profile WHERE s.workspace=$1 AND s.project_id=$2 AND s.requirement_id=$3 AND s.version=$4 AND s.profile=$5 AND s.attempt=$6 AND s.status='running' AND s.lease_until>clock_timestamp())`, j.workspace, j.project, j.source.ID, j.source.Version, j.profile, j.attempt).Scan(&ok)
 	return e == nil && ok
 }
+func summaryErrorCode(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, analysis.ErrSummaryFormat):
+		return "INVALID_FORMAT"
+	case errors.Is(err, analysis.ErrSummaryText):
+		return "INVALID_TEXT"
+	case errors.Is(err, analysis.ErrSummaryLanguage):
+		return "INVALID_LANGUAGE"
+	case errors.Is(err, analysis.ErrSummaryNumbers):
+		return "MISSING_SOURCE_NUMBERS"
+	case errors.Is(err, analysis.ErrSummaryCorrectionTooLong):
+		return "CORRECTION_TOO_LONG"
+	case errors.Is(err, analysis.ErrInvalidSummary):
+		return "INVALID_OUTPUT"
+	case errors.Is(err, analysis.ErrSummaryImpossible):
+		return "CANNOT_COMPRESS"
+	case errors.Is(err, analysis.ErrSummaryInputTooLong):
+		return "INPUT_TOO_LONG"
+	default:
+		return "GENERATION_FAILED"
+	}
+}
+
 func (s *Service) process(j *job) {
 	ctx, cancel := context.WithTimeout(s.ctx, 120*time.Second)
 	defer cancel()
@@ -250,6 +275,9 @@ func (s *Service) process(j *job) {
 	var text string
 	var e error
 	provenance := s.generator.Provenance()
+	if g, ok := s.generator.(interface{ ResultProvenance() string }); ok {
+		provenance = g.ResultProvenance()
+	}
 	if len(j.hints) == 0 {
 		text, e = s.generator.Summarize(ctx, j.source)
 	} else if g, ok := s.generator.(interface {
@@ -264,33 +292,22 @@ func (s *Service) process(j *job) {
 	} else {
 		e = ErrUnavailable
 	}
-	code := ""
-	if e != nil {
-		code = "GENERATION_FAILED"
+	if e == nil {
+		e = analysis.ValidateSummary(text)
 	}
-	if errors.Is(e, analysis.ErrSummaryImpossible) {
-		code = "CANNOT_COMPRESS"
-	}
-	if errors.Is(e, analysis.ErrSummaryInputTooLong) {
-		code = "INPUT_TOO_LONG"
-	}
-	if errors.Is(e, analysis.ErrInvalidSummary) {
-		code = "INVALID_OUTPUT"
-	}
-	if e == nil && !contracts.ValidSummary(text) {
-		code = "INVALID_OUTPUT"
-	}
-	if e == nil && code == "" {
+	if e == nil {
 		if validator, ok := s.generator.(interface {
 			ValidateSummaryForSource(analysis.Source, string) error
 		}); ok {
-			if validator.ValidateSummaryForSource(j.source, text) != nil {
-				code = "INVALID_OUTPUT"
-			}
-		} else if validator, ok := s.generator.(interface{ ValidateSummary(string) error }); ok && validator.ValidateSummary(text) != nil {
-			code = "INVALID_OUTPUT"
+			e = validator.ValidateSummaryForSource(j.source, text)
+		} else if validator, ok := s.generator.(interface{ ValidateSummary(string) error }); ok {
+			e = validator.ValidateSummary(text)
+		}
+		if e != nil && !errors.Is(e, analysis.ErrInvalidSummary) {
+			e = analysis.ErrInvalidSummary
 		}
 	}
+	code := summaryErrorCode(e)
 	if ctx.Err() != nil {
 		code = "INTERRUPTED"
 	}

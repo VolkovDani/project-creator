@@ -2,6 +2,7 @@ package summary
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -90,7 +91,9 @@ func TestUnconfiguredSummariesNeverSendOriginalsToLaya(t *testing.T) {
 
 type validatingSummaryGenerator struct{ fakeGenerator }
 
-func (*validatingSummaryGenerator) ValidateSummary(string) error { return analysis.ErrInvalidSummary }
+func (*validatingSummaryGenerator) ValidateSummary(string) error {
+	return errors.New("custom output rejected")
+}
 
 func TestSummaryPublicationRespectsProviderValidation(t *testing.T) {
 	db := testDB(t)

@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -84,6 +85,16 @@ func TestSummarySourceIdentifierBoundaries(t *testing.T) {
 		{"arbitrary lowercase name", "Открыть zeta.", "Открывается Zeta.", true},
 		{"foreign prose source", "Описание: export all records.", "Нужно export all records.", false},
 		{"punctuated foreign prose", "Описание: export, all, records.", "Нужно export all records.", false},
+		{"isolated name after foreign prose", "Действие export all records, формат Excel.", "Формат Excel.", true},
+		{"part of prose is not an isolated name", "Действие export all records, формат Excel.", "Формат records.", false},
+		{"code identifiers in a source expression", "Повернуть массив. dst[i] = src[i];", "Перенести элемент src в dst по индексу i.", true},
+		{"invented code identifier", "Повернуть массив. dst[i] = src[i];", "Сохранить в other.", false},
+		{"structured identifier in a prose-free version listing", "pkg2/3.1", "Указана версия pkg2/3.1.", true},
+		{"unrelated identifier in a prose-free listing", "pkg2/3.1", "Указана версия pkg3/3.1.", false},
+		{"code-only source", "dst[i] = src[i];", "Копирует элемент src в dst.", true},
+		{"code alone is not target language prose", "dst[i] = src[i];", "dst[i] = src[i];", false},
+		{"parenthesized technical name", "Режим SSO (Single Sign-On) включён.", "Включён SSO (Single Sign-On).", true},
+		{"do not admit individual words from a long name", "Режим SSO (Single Sign-On) включён.", "Включён Single.", false},
 		{"new name", "Экспорт в Excel.", "Экспорт в Word.", false},
 		{"foreign-only source", "Excel", "Файл Excel.", false},
 		{"foreign-only output", "Экспорт в Excel.", "Excel", false},
@@ -116,5 +127,30 @@ func TestSummarySourceAlphabetSelection(t *testing.T) {
 		if got := strings.Join(policy.forSource(tc.source).Codes(), ","); got != tc.want {
 			t.Errorf("%s / %q: got %s, want %s", tc.config, tc.source, got, tc.want)
 		}
+	}
+}
+
+func TestLanguageRepairGrammarKeepsSourceIdentifiersAndRequiresSupportedSpelling(t *testing.T) {
+	p, _ := NewSummaryLanguagePolicy("ru")
+	re := regexp.MustCompile(p.repairPattern("Проверить SSO (Single Sign-On) через api_v2, затем dst[i] = src[i] при ≥ 50 °С."))
+	for text, want := range map[string]bool{"Проверить api_v2.": true, "Режим SSO (Single Sign-On).": true, "Элемент src.": true, "Температура ≥ 50 °С.": true, "Новые foreign words": false, "Вставка 中文": false} {
+		if got := re.MatchString(text); got != want {
+			t.Errorf("%q: %v", text, got)
+		}
+	}
+}
+
+func TestLanguageRepairDoesNotConcatenateOverlappingNames(t *testing.T) {
+	p, _ := NewSummaryLanguagePolicy("ru")
+	re := regexp.MustCompile(p.repairPattern("Открыть A и AA при 12 единицах."))
+	if re.MatchString("Значение AAA") || !re.MatchString("Значения AA, A и 12.") {
+		t.Fatal("overlapping names must have a separator")
+	}
+}
+
+func TestLanguageRepairUsesOnlyOneClassForNativeNames(t *testing.T) {
+	p, _ := NewSummaryLanguagePolicy("en")
+	if strings.Contains(p.repairPattern("Enable SSO (Single Sign-On)."), "|") {
+		t.Fatal("English source names must not duplicate the native alphabet")
 	}
 }

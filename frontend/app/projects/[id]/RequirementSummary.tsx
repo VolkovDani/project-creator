@@ -7,7 +7,7 @@ import {
   type RequirementSummariesByIdsQuery,
   RetryRequirementSummaryDocument,
 } from '../../../lib/generated';
-import { type Locale, t } from '../../../lib/i18n';
+import { type Locale, summaryErrorMessage, t } from '../../../lib/i18n';
 import { Latest } from '../../../lib/latest';
 import { useInvalidation } from '../../../lib/live';
 import { GlossaryText } from './GlossaryActions';
@@ -184,9 +184,9 @@ export default function RequirementSummary({
       )}
       {(summary?.errorCode || actionFailure) && (
         <p role="alert" className="error">
-          {t(locale, actionFailure ? 'summary.actionError' : 'summary.error', {
-            code: summary?.errorCode ?? '',
-          })}
+          {actionFailure
+            ? t(locale, 'summary.actionError')
+            : summaryErrorMessage(locale, summary?.errorCode ?? '')}
         </p>
       )}
       {displayedSummary && hasText && (

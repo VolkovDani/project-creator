@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/VolkovDani/project-creator/internal/glossary"
 	"io"
+	"maps"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/VolkovDani/project-creator/contracts"
+	"github.com/VolkovDani/project-creator/internal/glossary"
 )
 
 // SummaryGenerator creates a compact, explicitly derived representation of a
@@ -32,8 +33,12 @@ const summaryAttempts = 2
 const summaryContextBytes = 32768
 const summaryOutputReserveBytes = 4096
 
-type SummaryOllama struct {
-	runtime             *Ollama
+type SummaryOllama struct{ *chatSummary }
+
+type chatSummary struct {
+	complete            func(context.Context, []map[string]string) (string, error)
+	verify              func(context.Context) error
+	schemaBytes         int
 	profile, provenance string
 	prompt              string
 	languages           SummaryLanguagePolicy
@@ -51,22 +56,46 @@ func NewSummaryOllama(baseURL, model, digest string) (*SummaryOllama, error) {
 
 // NewSummaryOllamaWithLanguages makes the output language policy explicit.
 func NewSummaryOllamaWithLanguages(baseURL, model, digest, allowedLanguages string) (*SummaryOllama, error) {
-	languages, err := NewSummaryLanguagePolicy(allowedLanguages)
-	if err != nil {
-		return nil, err
-	}
 	runtime, err := NewOllama(baseURL, model, digest)
 	if err != nil {
 		return nil, err
 	}
-	prompt := summaryPromptTemplate + " " + languages.Instruction() + " Preserve technical names from the source exactly, including ASCII identifiers. Keep all other wording in the configured languages; do not copy foreign prose or invent identifiers."
-	params := map[string]any{"temperature": 0, "num_ctx": summaryContextBytes, "num_predict": 1024, "maxAttempts": summaryAttempts, "inputBudgetBytes": summaryContextBytes, "outputReserveBytes": summaryOutputReserveBytes, "inputBudgetRule": "serialized-messages-plus-schema-plus-output-reserve-utf8-bytes-conservative-proxy-not-tokenizer-guarantee", "lengthPolicy": "concise-faithful-preview", "sourceNumberPolicy": "preserve-all-numeric-tokens-v1", "allowedLanguages": languages.Codes(), "languagePolicy": "source-alphabets-with-isolated-identifiers-v3"}
-	prov, profile := encodeGenerationProvenance(generationProvenance{Adapter: summaryAdapter, Model: model, Digest: runtime.digest, SystemPrompt: prompt, ResponseSchema: summarySchema(), Parameters: params})
-	return &SummaryOllama{runtime: runtime, profile: profile, provenance: prov, prompt: prompt, languages: languages}, nil
+	spec := generationProvenance{Adapter: summaryAdapter, Model: model, Digest: runtime.digest, ResponseSchema: summarySchema(), Parameters: ollamaParameters()}
+	summary, err := newChatSummary(allowedLanguages, spec, runtime.verify, func(ctx context.Context, messages []map[string]string) (string, error) {
+		return runtime.chat(ctx, messages, spec.ResponseSchema)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &SummaryOllama{summary}, nil
+}
+
+func newChatSummary(allowedLanguages string, spec generationProvenance, verify func(context.Context) error, complete func(context.Context, []map[string]string) (string, error)) (*chatSummary, error) {
+	languages, err := NewSummaryLanguagePolicy(allowedLanguages)
+	if err != nil {
+		return nil, err
+	}
+	spec.SystemPrompt = summaryPromptTemplate + " " + languages.Instruction() + " Preserve technical names from the source exactly, including ASCII identifiers. Keep all other wording in the configured languages; do not copy foreign prose or invent identifiers."
+	maps.Copy(spec.Parameters, map[string]any{
+		"maxAttempts":        summaryAttempts,
+		"inputBudgetBytes":   summaryContextBytes,
+		"outputReserveBytes": summaryOutputReserveBytes,
+		"inputBudgetRule":    "serialized-messages-plus-schema-plus-output-reserve-utf8-bytes-conservative-proxy-not-tokenizer-guarantee",
+		"lengthPolicy":       "concise-faithful-preview",
+		"sourceNumberPolicy": "preserve-all-numeric-tokens-v1",
+		"allowedLanguages":   languages.Codes(),
+		"languagePolicy":     "source-alphabets-with-isolated-identifiers-v3",
+	})
+	prov, profile := encodeGenerationProvenance(spec)
+	schema, err := json.Marshal(spec.ResponseSchema)
+	if err != nil {
+		return nil, errors.New("invalid summary response schema")
+	}
+	return &chatSummary{verify: verify, complete: complete, schemaBytes: len(schema), profile: profile, provenance: prov, prompt: spec.SystemPrompt, languages: languages}, nil
 }
 
 // ValidateSummary rejects unsupported output characters without altering the text.
-func (s *SummaryOllama) ValidateSummary(text string) error {
+func (s *chatSummary) ValidateSummary(text string) error {
 	if !s.languages.Valid(text) {
 		return ErrInvalidSummary
 	}
@@ -75,15 +104,15 @@ func (s *SummaryOllama) ValidateSummary(text string) error {
 
 // ValidateSummaryForSource allows only isolated technical identifiers found in
 // otherwise configured-language source text.
-func (s *SummaryOllama) ValidateSummaryForSource(source Source, text string) error {
+func (s *chatSummary) ValidateSummaryForSource(source Source, text string) error {
 	if !s.languages.forSource(source.Text).ValidForSource(text, source.Text) {
 		return ErrInvalidSummary
 	}
 	return nil
 }
 
-func (s *SummaryOllama) Profile() string    { return s.profile }
-func (s *SummaryOllama) Provenance() string { return s.provenance }
+func (s *chatSummary) Profile() string    { return s.profile }
+func (s *chatSummary) Provenance() string { return s.provenance }
 
 // ValidateSummary checks storable preview text; the Laya byte limit is separate.
 func ValidateSummary(text string) error {
@@ -122,11 +151,11 @@ func summaryRequestFits(messages []map[string]string, schemaBytes int) bool {
 	return err == nil && len(messageBytes)+schemaBytes+summaryOutputReserveBytes <= summaryContextBytes
 }
 
-func (s *SummaryOllama) Summarize(ctx context.Context, src Source) (string, error) {
+func (s *chatSummary) Summarize(ctx context.Context, src Source) (string, error) {
 	return s.SummarizeWithGlossary(ctx, src, nil)
 }
 
-func (s *SummaryOllama) SummarizeWithGlossary(ctx context.Context, src Source, hints []glossary.Hint) (string, error) {
+func (s *chatSummary) SummarizeWithGlossary(ctx context.Context, src Source, hints []glossary.Hint) (string, error) {
 	if !validSummarySource(src) {
 		return "", errors.New("invalid summary source")
 	}
@@ -150,41 +179,21 @@ func (s *SummaryOllama) SummarizeWithGlossary(ctx context.Context, src Source, h
 		prompt += " For this source: " + policy.Instruction()
 	}
 	messages := []map[string]string{{"role": "system", "content": prompt}, {"role": "user", "content": string(sourceJSON)}}
-	schemaBytes, err := json.Marshal(summarySchema())
-	if err != nil {
-		return "", errors.New("invalid summary request")
-	}
-	if !summaryRequestFits(messages, len(schemaBytes)) {
+	if !summaryRequestFits(messages, s.schemaBytes) {
 		return "", ErrSummaryInputTooLong
 	}
-	if err := s.runtime.verify(ctx); err != nil {
+	if err := s.verify(ctx); err != nil {
 		return "", err
 	}
-	var invalid bool
 	for attempt := 0; attempt < summaryAttempts; attempt++ {
-		if !summaryRequestFits(messages, len(schemaBytes)) {
+		if !summaryRequestFits(messages, s.schemaBytes) {
 			return "", ErrInvalidSummary
 		}
-		requestBody, marshalErr := json.Marshal(map[string]any{"model": s.runtime.model, "stream": false, "messages": messages, "format": summarySchema(), "options": map[string]any{"temperature": 0, "num_ctx": summaryContextBytes, "num_predict": 1024}})
-		if marshalErr != nil {
-			return "", errors.New("invalid summary request")
-		}
-		var response struct {
-			Done       bool   `json:"done"`
-			DoneReason string `json:"done_reason"`
-			Message    struct {
-				Role      string            `json:"role"`
-				Content   string            `json:"content"`
-				ToolCalls []json.RawMessage `json:"tool_calls"`
-			} `json:"message"`
-		}
-		if err = s.runtime.request(ctx, "POST", "/api/chat", requestBody, &response); err != nil {
+		content, err := s.complete(ctx, messages)
+		if err != nil {
 			return "", err
 		}
-		if !response.Done || response.DoneReason != "stop" || response.Message.Role != "assistant" || len(response.Message.ToolCalls) != 0 {
-			return "", errors.New("incomplete or unsupported summary response")
-		}
-		text, decodeErr := decodeSummary(response.Message.Content)
+		text, decodeErr := decodeSummary(content)
 		if decodeErr == nil {
 			decodeErr = s.ValidateSummaryForSource(src, text)
 		}
@@ -196,7 +205,7 @@ func (s *SummaryOllama) SummarizeWithGlossary(ctx context.Context, src Source, h
 			}
 		}
 		if decodeErr == nil {
-			if err = s.runtime.verify(ctx); err != nil {
+			if err = s.verify(ctx); err != nil {
 				return "", err
 			}
 			return text, nil
@@ -204,20 +213,16 @@ func (s *SummaryOllama) SummarizeWithGlossary(ctx context.Context, src Source, h
 		if errors.Is(decodeErr, ErrSummaryImpossible) {
 			return "", ErrSummaryImpossible
 		}
-		invalid = true
 		if ctx.Err() != nil {
 			return "", fmt.Errorf("summary generation cancelled: %w", ctx.Err())
 		}
 		if attempt+1 < summaryAttempts {
 			if len(missing) > 0 {
-				messages = append(messages, map[string]string{"role": "assistant", "content": response.Message.Content}, map[string]string{"role": "user", "content": "The preview omitted source numbers or identifiers: " + strings.Join(missing, ", ") + ". Restore every one explicitly, without ranges or ellipses. Return the complete corrected preview."})
+				messages = append(messages, map[string]string{"role": "assistant", "content": content}, map[string]string{"role": "user", "content": "The preview omitted source numbers or identifiers: " + strings.Join(missing, ", ") + ". Restore every one explicitly, without ranges or ellipses. Return the complete corrected preview."})
 				continue
 			}
-			messages = append(messages, map[string]string{"role": "assistant", "content": response.Message.Content}, map[string]string{"role": "user", "content": fmt.Sprintf("Your previous response was invalid (%v). Return a JSON object with a non-empty valid UTF-8 summary without NUL. Remove repetition and preserve all obligations and qualifying details.", decodeErr) + " " + policy.Instruction()})
+			messages = append(messages, map[string]string{"role": "assistant", "content": content}, map[string]string{"role": "user", "content": fmt.Sprintf("Your previous response was invalid (%v). Return a JSON object with a non-empty valid UTF-8 summary without NUL. Remove repetition and preserve all obligations and qualifying details.", decodeErr) + " " + policy.Instruction()})
 		}
-	}
-	if invalid {
-		return "", ErrInvalidSummary
 	}
 	return "", ErrInvalidSummary
 }

@@ -416,28 +416,33 @@ test('dynamic requirement cards keep the load button outside their content', asy
   await page.goto('/projects/demo/requirements');
   await expect(page.locator('#requirement-r0')).toBeVisible();
   const last = page.locator('#requirement-r3');
-  const more = page.getByRole('button', { name: 'Загрузить ещё', exact: true });
-  await expect(more).toBeAttached();
-  await last.getByText('Полный исходный текст требования', { exact: true }).click();
-  await expect
-    .poll(async () => {
-      return page.evaluate(() => {
-        const button = document.querySelector('details.data-group > button');
-        if (!button) return false;
-        const top = button.getBoundingClientRect().top;
-        return [...document.querySelectorAll('[data-virtual-id] section')].every(
-          (el) => el.getBoundingClientRect().bottom <= top,
-        );
-      });
-    })
-    .toBe(true);
-  release();
+  const disclosure = last.getByText('Полный исходный текст требования', { exact: true });
+  await disclosure.click();
+  await expect(last.locator('details[open]')).toContainText('Длинное условие');
+  const group = page.locator('details.data-group').filter({ has: last });
+  const more = group.locator(':scope > button');
+  async function expectCardAboveButton() {
+    await expect(more).toBeVisible();
+    await expect
+      .poll(async () => {
+        const card = await last.boundingBox();
+        const button = await more.boundingBox();
+        return !!card && !!button && card.y + card.height <= button.y;
+      })
+      .toBe(true);
+  }
+  await expectCardAboveButton();
   await expect
     .poll(async () => {
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       return api.connectionReads().length;
     })
     .toBe(2);
+  await expect(more).toBeDisabled();
+  await expectCardAboveButton();
+  release();
+  await expect(more).toHaveCount(0);
+  await expect(page.locator('#requirement-r7')).toBeAttached();
 });
 
 test('infinite page retry keeps the already rendered rows', async ({ page }) => {
@@ -447,10 +452,19 @@ test('infinite page retry keeps the already rendered rows', async ({ page }) => 
   await api.fail(503);
   await page.getByRole('button', { name: 'Загрузить ещё', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Повторить', exact: true })).toBeVisible();
-  await expect(page.locator('#requirement-r39')).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.locator('#requirement-r0')).toBeVisible();
   api.fail(0);
   await page.getByRole('button', { name: 'Повторить', exact: true }).click();
-  await expect.poll(() => api.connectionReads().length).toBeGreaterThanOrEqual(3);
+  await expect
+    .poll(() =>
+      api
+        .connectionReads()
+        .map((read) => read.after)
+        .slice(0, 3),
+    )
+    .toEqual([null, 'cursor-40', 'cursor-40']);
+  await expect(page.getByRole('button', { name: 'Повторить', exact: true })).toHaveCount(0);
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(page.locator('#requirement-r0')).toBeVisible();
 });

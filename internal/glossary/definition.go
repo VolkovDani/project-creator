@@ -9,8 +9,13 @@ type DefinitionRequest struct {
 	Start, End               int
 }
 
-// DefinitionGenerator proposes draft text. An empty result without an error
-// means that the source does not supply enough evidence for a definition.
+// DefinitionDraft is a proposal for review. Hypothesis marks an inferred meaning.
+type DefinitionDraft struct {
+	Text       string
+	Hypothesis bool
+}
+
+// DefinitionGenerator returns an empty draft when the source provides insufficient evidence.
 type DefinitionGenerator interface {
-	SuggestDefinition(context.Context, DefinitionRequest) (string, error)
+	SuggestDefinition(context.Context, DefinitionRequest) (DefinitionDraft, error)
 }

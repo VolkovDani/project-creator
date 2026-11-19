@@ -8,27 +8,31 @@ import (
 	"testing"
 
 	"github.com/VolkovDani/project-creator/contracts"
+	"github.com/VolkovDani/project-creator/internal/analysis"
 	"github.com/VolkovDani/project-creator/internal/glossary"
 )
 
 type definitionStub struct {
 	apiSummaryGenerator
 	calls       []glossary.DefinitionRequest
-	definition  string
+	draft       glossary.DefinitionDraft
 	err         error
 	beforeReply func()
 }
 
-func (s *definitionStub) SuggestDefinition(_ context.Context, r glossary.DefinitionRequest) (string, error) {
+func (s *definitionStub) SuggestDefinition(_ context.Context, r glossary.DefinitionRequest) (glossary.DefinitionDraft, error) {
 	s.calls = append(s.calls, r)
 	if s.beforeReply != nil {
 		s.beforeReply()
 	}
-	return s.definition, s.err
+	return s.draft, s.err
 }
 
 func TestSuggestGlossaryDefinitionScopedDraft(t *testing.T) {
-	g := &definitionStub{definition: "Подпись для проверки отчёта."}
+	g := &definitionStub{
+		apiSummaryGenerator: apiSummaryGenerator{text: func(source analysis.Source) string { return source.Text }},
+		draft:               glossary.DefinitionDraft{Text: "Подпись для проверки отчёта."},
+	}
 	dsn := testDatabase(t)
 	tokens := map[string]string{"token-a": "a", "token-b": "b"}
 	s, err := NewWithSummaryProviders(dsn, tokens, nil, nil, g)
@@ -77,14 +81,14 @@ func TestSuggestGlossaryDefinitionScopedDraft(t *testing.T) {
 
 	got = request("token-a", "p", "r", " Название ", 2, 2, 5)
 	want := glossary.DefinitionRequest{Text: source, Abbreviation: "ЭЦП", Name: "Название", Start: 2, End: 5}
-	if got["status"] != "suggested" || got["definition"] != g.definition || len(g.calls) != 1 || g.calls[0] != want {
+	if got["status"] != "suggested" || got["definition"] != g.draft.Text || len(g.calls) != 1 || g.calls[0] != want {
 		t.Fatalf("%v, requests=%+v", got, g.calls)
 	}
 	var saved int
 	if err := s.db.QueryRow(`SELECT count(*) FROM glossary_terms`).Scan(&saved); err != nil || saved != 0 {
 		t.Fatalf("saved terms=%d, err=%v", saved, err)
 	}
-	g.definition = ""
+	g.draft = glossary.DefinitionDraft{Hypothesis: true}
 	got = request("token-a", "p", "r", "", 2, 2, 5)
 	if got["status"] != "insufficient" || got["definition"] != nil || g.calls[1].Name != "" {
 		t.Fatal(got)
@@ -96,7 +100,7 @@ func TestSuggestGlossaryDefinitionScopedDraft(t *testing.T) {
 	}
 
 	g.err = nil
-	g.definition = "Сторона договора."
+	g.draft = glossary.DefinitionDraft{Text: "Сторона договора."}
 	const phrase = "Генеральный подрядчик ("
 	start := len([]rune(phrase))
 	if _, err := s.db.Exec(`UPDATE requirements SET version=3, text=$1 WHERE id='r'`, phrase+"ГП) проверяет отчёт."); err != nil {
@@ -105,6 +109,12 @@ func TestSuggestGlossaryDefinitionScopedDraft(t *testing.T) {
 	got = request("token-a", "p", "r", "", 3, start, start+2)
 	if got["status"] != "suggested" || g.calls[len(g.calls)-1].Name != "Генеральный подрядчик" {
 		t.Fatal(got, g.calls)
+	}
+
+	g.draft = glossary.DefinitionDraft{Text: "Вероятно, участник строительства.", Hypothesis: true}
+	got = request("token-a", "p", "r", "", 3, start, start+2)
+	if got["status"] != "hypothesis" || got["definition"] != g.draft.Text {
+		t.Fatal(got)
 	}
 
 	g.beforeReply = func() {

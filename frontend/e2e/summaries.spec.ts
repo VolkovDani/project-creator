@@ -287,6 +287,11 @@ test('a summary preloads its glossary details and the original reuses them', asy
 
   await card.getByText('Полный исходный текст требования', { exact: true }).click();
   const originalMatch = card.getByRole('button', { name: 'Полный', exact: true });
+  for (const highlight of [originalMatch, term]) {
+    await expect(highlight).toHaveCSS('border-top-width', '0px');
+    await expect(highlight).toHaveCSS('padding-inline-start', '0px');
+    await expect(highlight).toHaveCSS('text-decoration-style', 'dotted');
+  }
   await originalMatch.focus();
   await expect(page.getByRole('tooltip')).toContainText('Определение из словаря проекта');
   expect(api.termReads()).toBe(2);

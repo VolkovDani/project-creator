@@ -131,7 +131,12 @@ boundaries are a proposal and will be refined during development.
 - The frontend and backend use a shared declarative validation contract; the server remains the final source of validation.
 - Input errors are returned with a field path, stable code, translation key, and parameters. The current API supports field errors; nested entities and separate general form errors require an SDL extension.
 - All user-facing text goes through i18n. Shared Go and TypeScript dictionaries are stored in the repository; technical logs and user content are not translatable interface strings.
-- The primary storage is PostgreSQL + pgvector ([ADR-001](docs/adr/001-postgresql-pgvector.md)). The MVP uses Ollama, BGE-M3 embeddings, and exact cosine search; the Qwen2.5 7B generator is configured separately. Running the entire MVP locally is described in the root README; Docker Compose stores the database and Ollama weights in volumes. The experimental OpenVINO generator on Intel NPU is selected explicitly and uses host weights and runtime ([ADR-002](docs/adr/002-openvino-npu.md)); fixed hardware examples, including insufficient-data cases, pass after link normalization. Full acceptance with CPU/GPU comparison remains a separate task.
+- The primary store is PostgreSQL with pgvector and exact cosine search. By default, models
+  run locally through Ollama with BGE-M3 for embeddings. Generation can explicitly use
+  experimental OpenVINO on Intel NPU. The CPU and Arc GPU comparison applies to the
+  devices, weights and inputs in the report. [ADR-001](docs/adr/001-postgresql-pgvector.md),
+  [ADR-002](docs/adr/002-openvino-npu.md), [hardware verification](docs/intel-device-verification.md).
+
 - Contract details and verification criteria are described in [ARCHITECTURE.md](ARCHITECTURE.md).
 - Start with a simple application with explicit module boundaries; independently evolving sections do not by themselves require microservices.
 - Development follows **TDD: Red → Green → Refactor**.
@@ -140,42 +145,56 @@ boundaries are a proposal and will be refined during development.
 
 ## Published MVP and Near-Term Tasks
 
-The v0.1.0 scope is limited to a local, single-user MVP: requirements, their
-versions and indexing, search, pair analysis, and execution management.
-Multi-user access control is not implemented. Typology, automatic record
-classification, the glossary, knowledge base, and relationship map remain a
-later stage, not capabilities of the published MVP.
+### Published as of November 19, 2026
 
-### State snapshot as of November 17, 2026
+The latest published prerelease is **v0.1.1**, dated November 18, at commit
+`142392b17a290527a26a2fea123de8d5ca5bf560`. It is a local, single-user MVP
+for managing requirements and their versions, indexing, search and pair analysis.
+The patch added a requirement editing dialog, alphabet validation for pair
+explanations, and installation fixes. Multi-user access control, the knowledge base
+and the relationship map remain outside the published MVP. The first Source + Compose release was
+v0.1.0 on November 17. [v0.1.1 release](https://github.com/VolkovDani/project-creator/releases/tag/v0.1.1),
+[changes and limitations](docs/release-notes-v0.1.1.md),
+[v0.1.0 release](https://github.com/VolkovDani/project-creator/releases/tag/v0.1.0).
 
-[v0.1.0](https://github.com/VolkovDani/project-creator/releases/tag/v0.1.0)
-was published as the initial Source + Compose prerelease. The tag points to
-`8ff1e0e56f754b932bf611f44244e42e0c04eeef`, the `main` branch head at the time
-of verification. The [release workflow](https://github.com/VolkovDani/project-creator/actions/runs/44100924433)
-succeeded on the same SHA. [PR #139](https://github.com/VolkovDani/project-creator/pull/139)
-includes the #136 fix from [PR #138](https://github.com/VolkovDani/project-creator/pull/138).
-Russian summaries retain separate technical names from the source, such as
-Excel, API, and PDF, without allowing arbitrary English text. This does not
-resolve the separate summary-language switching issue #108.
+The November 17 report records results for commit `5fb98a8d29c4161c0904eb43d103442853ddd053`.
+Pair analysis passed 2 of 2 examples. Qwen2.5:7b summaries passed 3 of 5, with
+two English responses to Russian sources. A full clean installation with a real
+model, an application upgrade with migrations and the maximum supported project
+size remain open acceptance questions. The PostgreSQL dump/restore check covers
+database recovery. [Verification report](docs/release-verification-2026-11-17.en.md).
 
-Release UI fixes #44, the infinite-scroll fix from PR #80, and the auto-merge
-instructions from PR #84 have already been integrated; the previous list of
-release PRs awaiting integration is no longer the current plan.
+### Changes in `develop` since v0.1.1
 
-[Pair analysis acceptance](docs/pair-analysis-acceptance.md) and the
-[November 17 report](docs/release-verification-2026-11-17.md) retain their
-original SHAs and results. They do not confirm model quality or full hardware
-compatibility of the final release. On the historical baseline
-`5fb98a8d29c4161c0904eb43d103442853ddd053`, real analysis passed 2/2 smoke
-examples, while Qwen2.5:7b summaries passed 3/5: two Russian examples received
-English answers ([#108](https://github.com/VolkovDani/project-creator/issues/108)).
-The example with 90 identifiers completed without a timeout. This result does
-not rewrite the previous v3 report of 4/5 with one timeout.
+The branch was checked at commit `8bb95ea` on November 19.
 
-A complete clean installation with a real model and application/migration
-upgrade have not yet been accepted; PostgreSQL dump/restore verification
-confirms database recovery only. A generally supported maximum project size has
-not been established. Limitations are published in the [release notes](docs/release-notes-v0.1.0.md).
+- **Pair analysis.** New runs identify exact duplicates, reuse eligible cached
+  results and pass the full originals of selected pairs to the generator. The
+  preliminary Laya stage was removed. Historical results retain their provenance.
+  [PR #205](https://github.com/VolkovDani/project-creator/pull/205).
+- **Summaries.** A requirement card shows the original until a summary is ready
+  for that version. Generation preserves the source language when allowed and
+  retains technical identifiers. There is no byte target. Users can see failures
+  and retry a single requirement or all failed summaries in the project.
+  [Analysis guide](docs/requirement-analysis.md).
+- **Glossary.** Readers can look up confirmed terms in requirements, summaries and
+  saved pairs. For a suggested abbreviation they can open the source mention and
+  request a draft definition. If the quotation provides insufficient evidence,
+  the model can offer a labeled hypothesis. Users can copy or edit a draft and
+  decide whether to save the glossary entry. [Glossary guide](docs/project-glossary.md).
+- **Classification.** Users can confirm a semantic type and a representation for
+  a specific requirement version. Editing the text marks the decision as stale
+  and preserves its history. The contract specifies `classifying` for a classification
+  in progress. [Classification rules](docs/requirement-classification.md).
+- **Model providers.** Generation and embeddings can independently use an explicitly
+  configured OpenAI-compatible API, including a self-hosted vLLM server. The generator
+  receives texts for comparison or summarization. The embedding service receives
+  document chunks and search queries. Integration checks used deterministic HTTP
+  services. Quality on live remote models still requires evaluation.
+  [Setup guide](docs/setup-cli.en.md), [PR #235](https://github.com/VolkovDani/project-creator/pull/235).
+- **Interface.** A dark theme followed the Untitled UI pilot. The control next
+  to the language selector saves the user's preference.
+  [PR #245](https://github.com/VolkovDani/project-creator/pull/245).
 
 ### Foundation already implemented
 
@@ -218,22 +237,12 @@ preserved. Measurement methods and limitations are described in the
 [report](docs/analysis-live-performance.md); these checks did not use real
 models or hardware. #39 remains in BACKLOG.
 
-**#48 + #72 completed:** [PR #71](https://github.com/VolkovDani/project-creator/pull/71)
-merged on November 9, 2026 after successful CI. At the owner’s direction, #72
-was completed in the same PR as #48. Summaries are created automatically after
-a requirement is saved and used as card previews; the full original is
-available by expanding it. 350 UTF-8 bytes is a soft size target and a
-condition for admitting a summary to Laya, but not a storage limit: a longer
-valid summary is saved. If a summary is missing, failed, exceeds 350 bytes, or
-Laya fails, the pair skips Laya, while the final LLM still compares the full
-originals. A preliminary error is retained as the skip reason. 21 pairs were
-hardware-tested on CPU + NPU and Arc + NPU, along with search during analysis
-and the end-to-end path from real summaries to full comparison on NPU
-([report](docs/requirement-summary-verification.md)). The historical strict
-Qwen v2 evaluation set had dense examples that did not pass. The new v3 profile
-quality smoke passed 4/5: valid dense summaries of 447 and 767 bytes were saved
-but not admitted to Laya; generation of the example with 90 identifiers timed
-out without publishing a result.
+**#48 and #72 in v0.1.0.** The original pipeline used 350 UTF-8 bytes as the
+threshold for admitting a summary to Laya. Hardware checks on that implementation
+covered 21 pairs on CPU + NPU and Arc + NPU and search during analysis. The v3
+summary profile passed 4 of 5 examples. Generation timed out on the example with
+90 identifiers. [PR #71](https://github.com/VolkovDani/project-creator/pull/71),
+[historical report](docs/requirement-summary-verification.md).
 
 **#73 completed:** [PR #74](https://github.com/VolkovDani/project-creator/pull/74)
 merged on November 9, 2026 and is included in `main`. Summaries use only allowed
@@ -269,51 +278,27 @@ Further acceptance and regression scenarios:
 Current pipeline limitations are confirmed by the code:
 [prepare.go](internal/analysis/prepare.go) iterates over potential pairs in
 batches and in `related` mode; reducing model calls does not eliminate the
-quadratic iteration. New runs resolve exact duplicates deterministically and
-compare other selected pairs using full originals and the generator profile cache.
-Issue #204 retires the Laya stage introduced for pairs in #48.
+quadratic iteration.
 
-The historical v3 summary quality smoke
-result — **4/5, one timeout** — is retained in the
-[report](docs/requirement-summary-verification.md).
+### Open work and dependencies as of November 19
 
-### Next stage and open agreements
-
-These are directions and proposals for reconsidering tasks, not an approved new
-architecture or a commitment to implement all listed capabilities.
-
-| Tasks | Place in the plan |
+| Area | Status and next step |
 | --- | --- |
-| [#137 — dependencies and Node 26](https://github.com/VolkovDani/project-creator/issues/137) | Node 26 migration completed in [PR #140](https://github.com/VolkovDani/project-creator/pull/140). The NPU export dependency update is tracked in #144. |
-| [#99 — explanation character set](https://github.com/VolkovDani/project-creator/issues/99) | Released in v0.1.1 via [PR #155](https://github.com/VolkovDani/project-creator/pull/155). Pair explanations get one correction attempt within the remaining time budget. |
-| [#108 — summary language](https://github.com/VolkovDani/project-creator/issues/108) | [PR #158](https://github.com/VolkovDani/project-creator/pull/158) preserves the source language with one correction attempt. The pinned Qwen profile passed five of five fixed cases. |
-| [#105 — Untitled UI](https://github.com/VolkovDani/project-creator/issues/105) | [PR #176](https://github.com/VolkovDani/project-creator/pull/176) applies the MIT-licensed tokens to native controls on the requirements and analysis screens. The pilot supersedes #46. [ADR-011](docs/adr/011-untitled-ui-pilot.md). |
-| #98 — Docker Hardened Images | Keep the Go and Node versions established by #137. Local and CI access to the DHI registry is required. |
-| #22 — Intel NPU | [PR #194](https://github.com/VolkovDani/project-creator/pull/194) records the local CPU, Arc GPU and NPU comparison and its hardware limitations. |
-| #40 — SSR | Based on measured need. |
-| #49–53 — typology and classification | [PR #199](https://github.com/VolkovDani/project-creator/pull/199) adds the two-axis classification contract and manual confirmation. #50 uses synthetic fixtures to verify the evaluator. Choosing automation for #51 depends on measurements against independently reviewed examples. |
-| [#77 — glossary](https://github.com/VolkovDani/project-creator/issues/77) | [PR #197](https://github.com/VolkovDani/project-creator/pull/197) adds confirmed project vocabulary, reviewed abbreviation candidates and glossary context for summaries. |
-| #57–58 — Mermaid and map | After agreeing on the relationship model; #57 provides a viewer, #58 displays actual saved relationships. Neither is a condition of the published MVP. |
-| #64 — BGE-M3 search | Deferred research; first revisit hypotheses using Laya results and coordinate with #78. Implementation requires a separate decision and PR. |
-| [#78 — knowledge base](https://github.com/VolkovDani/project-creator/issues/78) | Post-release research direction, retaining current pair analysis as the baseline. BACKLOG: start only on a separate explicit direction from the owner. |
-| #39 — observability | BACKLOG: do not start or create a branch or PR without a separate explicit direction from the owner. |
+| Summaries and pair analysis | The summary-language fix passed five fixed examples on the pinned Qwen profile. Showing a draft explanation while a pair is being compared is a separate issue marked `Ready`. Streaming still needs verification for Ollama, OpenVINO and the OpenAI-compatible API. [PR #158](https://github.com/VolkovDani/project-creator/pull/158), [#218](https://github.com/VolkovDani/project-creator/issues/218). |
+| Classification quality | Manual two-axis classification is available. For #50, the evaluator calculates metrics on synthetic examples. The issue is marked `Blocked`. Evaluating a model requires independently labeled Russian requirements and actual runs with a recorded checkpoint and prompting schemes, including coverage of long inputs. [#50](https://github.com/VolkovDani/project-creator/issues/50), [evaluation method](docs/classification-evaluator.md). |
+| Automatic classification | The model and thresholds for #51 depend on measurements from #50. Laya is a candidate for classifying individual records with explicit configuration. Showing the provenance of a suggestion is planned in #52. For #53, when to explain a saved classification remains open, including manual decisions and cases without an automatic suggestion. [#51](https://github.com/VolkovDani/project-creator/issues/51), [#52](https://github.com/VolkovDani/project-creator/issues/52), [#53](https://github.com/VolkovDani/project-creator/issues/53). |
+| Relationship map | #57 proposes a Mermaid viewer. #58 would display saved relationships and requires agreement on their model, provenance and freshness. Users should be able to view a saved relationship with manual classification. A matching type alone does not create a relationship. [#57](https://github.com/VolkovDani/project-creator/issues/57), [#58](https://github.com/VolkovDani/project-creator/issues/58). |
+| BGE-M3 search | #64 remains in the backlog. Retrieval alternatives should be evaluated on reviewed examples against current candidate selection and full-source comparison. This evaluation can run independently of the historical Laya stage. [#64](https://github.com/VolkovDani/project-creator/issues/64). |
+| Operations | The NPU export dependency update remains open in #144. Docker Hardened Images require registry access locally and in CI while retaining the established Go and Node versions. The SSR decision depends on measurements. [#144](https://github.com/VolkovDani/project-creator/issues/144), [#98](https://github.com/VolkovDani/project-creator/issues/98), [#40](https://github.com/VolkovDani/project-creator/issues/40). |
 
-The API and UI use the agreed `classifying` state for active classification in #49 and #52.
-
-Before implementing the next stage, the following must be agreed:
-
-- Model and automation choice for #51 based on #50; if quality is insufficient, consider manual classification and `needs_review`.
-- Availability of #53 explanations for manual classification and operation without Laya. Currently #53 describes a separate generative-LLM explanation on request after saving the Laya result, while #51 allows Laya to be unconfigured.
-- A shared relationship, provenance, and freshness model for #58/#78; this is an overlap of directions, not a proven contradiction in the current implementation. Automatic classification must not become an implicit condition for viewing already saved relationships. Matching types alone do not create a relationship.
-- A shared reference set and baseline for candidate search in #64/#78.
-- Classification boundaries in #78 — only with separate authorization for that direction.
-
-The summary-language fix, UI pilot and glossary are integrated in `develop`. The next classification milestone is the #50 benchmark. Its quality and cost measurements inform the decisions on #51–53.
-
-#78 and #39 remain in BACKLOG until the owner gives a separate explicit
-direction. Experimental work on #78 was previously proposed for
-`experiment/knowledge-base`; branch creation is unconfirmed. Moving results to
-integration branches requires measurements and a separate decision.
+The knowledge base (#78) and observability (#39) are deferred. Starting work or
+creating a branch or PR requires a separate explicit instruction from the owner.
+If the #78 experiment is approved, its baseline is the current pair selection,
+exact duplicate handling, cache reuse and full-source comparison. Classification
+scope, a shared relationship model with #58 and a reference set for retrieval
+with #64 remain open. Integration requires measurements and a separate decision.
+[#78](https://github.com/VolkovDani/project-creator/issues/78),
+[#39](https://github.com/VolkovDani/project-creator/issues/39).
 
 Previous decisions remain in force: #31 was closed without implementing the
 “one line — one requirement” scenario; a new bulk-entry format has not been
@@ -327,6 +312,6 @@ the current modes, duplicate handling, and cache in #35.
 - Quality of the selected local models on real requirements and parameters for future hybrid search.
 - Expansion and possible review of the current GraphQL, cache, codegen, validation, and i18n tools. The MVP already uses graph-gophers/graphql-go, GraphQL Code Generator for TypeScript, custom Go codegen, a tagged client cache, shared JSON validation contracts, and RU/EN dictionaries.
 - Quality of local models on target languages, data, and hardware.
-- The first external provider and data-transfer policy.
+- Conditions for adding further external providers and policies for transferring client data.
 - Initial integrations with a tracker, repository, and documentation.
 - Concrete data and methodology for estimating timelines and risks.

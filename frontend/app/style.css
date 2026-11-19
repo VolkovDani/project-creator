@@ -129,11 +129,6 @@ select {
 }
 
 .project-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
   min-height: 72px;
   overflow-wrap: anywhere;
 }
@@ -280,4 +275,25 @@ select {
   font: inherit;
   text-decoration: underline dotted;
   user-select: text;
+}
+
+.glossary-tooltip {
+  position: fixed;
+  z-index: 30;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(24rem, calc(100vw - 16px));
+  max-height: min(20rem, calc(100dvh - 16px));
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: 10px 14px;
+  color: #182236;
+  background: white;
+  border: 1px solid #b8b2c8;
+  border-radius: 8px;
+  box-shadow: 0 4px 18px #18223626;
+}
+.glossary-tooltip p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
 }

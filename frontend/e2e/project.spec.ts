@@ -147,6 +147,9 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
   await page.getByRole('button', { name: 'Добавить требование' }).click();
   await page.getByRole('link', { name: 'Словарь проекта', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'Словарь проекта', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Новое понятие', exact: true }).click();
+  await expect(page.getByRole('dialog').getByLabel('Название понятия')).toHaveValue('');
+  await page.keyboard.press('Escape');
   await expect(page.getByLabel('Режим списка')).toHaveValue('infinite');
   await page.getByLabel('Режим списка').selectOption('pages');
   await expect(page.getByText('Страница 1', { exact: true })).toHaveCount(2);
@@ -163,8 +166,23 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
   const mention = page.getByRole('dialog').getByRole('link', { name: /Генеральный подрядчик/ });
   await expect(mention).toHaveAttribute('href', /requirements\?requirement=/);
   await mention.click();
-  await page.getByRole('button', { name: 'ГП', exact: true }).click();
-  await expect(page.getByText('Исполнитель работ', { exact: true })).toBeVisible();
+  const termButton = page.getByRole('button', { name: 'ГП', exact: true });
+  await termButton.scrollIntoViewIfNeeded();
+  const termPosition = await termButton.boundingBox();
+  await termButton.hover();
+  const definition = page.getByRole('tooltip');
+  await expect(definition).toContainText('Исполнитель работ');
+  expect(await termButton.boundingBox()).toEqual(termPosition);
+  await page.keyboard.press('Escape');
+  await expect(definition).toHaveCount(0);
+  await termButton.focus();
+  await expect(definition).toBeVisible();
+  await termButton.click();
+  await page.getByRole('button', { name: 'Изменить понятие', exact: true }).click();
+  await expect(page.getByRole('dialog').getByLabel('Название понятия')).toHaveValue(
+    'Генеральный подрядчик',
+  );
+  await page.keyboard.press('Escape');
   const original = page.locator('article.card p.user-content').filter({ hasText: 'Генподрядчик' });
   const before = await original.textContent();
   await original.evaluate((paragraph) => {

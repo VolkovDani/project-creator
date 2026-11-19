@@ -36,18 +36,6 @@ func (g *apiSummaryGenerator) Summarize(ctx context.Context, source analysis.Sou
 	return g.text(source), nil
 }
 
-type apiSummaryClassifier struct {
-	calls   atomic.Int32
-	derived atomic.Bool
-}
-
-func (c *apiSummaryClassifier) Profile() string { return "api-summary-classifier-v1" }
-func (c *apiSummaryClassifier) Classify(_ context.Context, pair analysis.Pair) (analysis.Preclassification, error) {
-	c.calls.Add(1)
-	c.derived.Store(strings.HasPrefix(pair.Left.Text, "derived:") && strings.HasPrefix(pair.Right.Text, "derived:"))
-	return analysis.Preclassification{Decision: "related", Scores: map[string]float64{"related": 1, "unrelated": 0, "uncertain": 0}}, nil
-}
-
 type apiSummaryFinalGenerator struct {
 	calls atomic.Int32
 	bad   atomic.Bool
@@ -56,7 +44,7 @@ type apiSummaryFinalGenerator struct {
 func (*apiSummaryFinalGenerator) Profile() string { return "api-full-source-v1" }
 func (g *apiSummaryFinalGenerator) Compare(_ context.Context, pair analysis.Pair) (analysis.Finding, error) {
 	g.calls.Add(1)
-	if len(pair.Left.Text) < 2000 || len(pair.Right.Text) < 2000 || strings.HasPrefix(pair.Left.Text, "derived:") || strings.HasPrefix(pair.Right.Text, "derived:") || pair.Preclassification == nil {
+	if pair.Left.Text != strings.Repeat("full left obligation ", 120) || pair.Right.Text != strings.Repeat("full right obligation ", 120) || pair.Preclassification != nil {
 		g.bad.Store(true)
 	}
 	return analysis.Finding{LeftID: pair.Left.ID, RightID: pair.Right.ID, LeftVersion: pair.Left.Version, RightVersion: pair.Right.Version, Verdict: "compatible", Explanation: "Compared full requirement sources."}, nil
@@ -159,9 +147,9 @@ func TestGraphQLSummaryCRUDBatchAuthorizationAndCommittedInvalidation(t *testing
 
 func TestGraphQLSummaryCancelRetryAndFullSourcePipeline(t *testing.T) {
 	blocked := make(chan struct{})
-	g := &apiSummaryGenerator{text: func(source analysis.Source) string { return "derived:" + source.ID }, first: make(chan struct{}), release: blocked}
-	classifier, final := &apiSummaryClassifier{}, &apiSummaryFinalGenerator{}
-	s, err := NewWithSummaryProviders(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"}, nil, final, g, classifier)
+	g := &apiSummaryGenerator{text: func(source analysis.Source) string { return strings.Repeat("derived ", 60) + source.ID }, first: make(chan struct{}), release: blocked}
+	final := &apiSummaryFinalGenerator{}
+	s, err := NewWithSummaryProviders(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"}, nil, final, g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,22 +171,9 @@ func TestGraphQLSummaryCancelRetryAndFullSourcePipeline(t *testing.T) {
 	}
 	close(blocked)
 	waitAPISummary(t, s, "token-a", "p", "left", "cancelled")
-	retry := summaryRequest(t, s, "token-a", `mutation{retryRequirementSummary(projectId:"p",requirementId:"left"){status}}`)
-	if retry["errors"] != nil {
-		t.Fatal(retry)
-	}
-	waitAPISummary(t, s, "token-a", "p", "left", "ready")
-	waitAPISummary(t, s, "token-a", "p", "right", "ready")
-	// API batch reads expose only the bounded derived values, while the classifier
-	// receives those values and the final comparison still sees full originals.
-	read := summaryRequest(t, s, "token-a", `{requirementSummariesByIds(projectId:"p",requirementIds:["left","right"]){text version provenance}}`)
-	if read["errors"] != nil {
-		t.Fatal(read)
-	}
-	for _, row := range read["data"].(map[string]any)["requirementSummariesByIds"].([]any) {
-		if len(row.(map[string]any)["text"].(string)) > 350 {
-			t.Fatalf("summary exceeded limit: %v", row)
-		}
+	right := waitAPISummary(t, s, "token-a", "p", "right", "ready")
+	if len(right["text"].(string)) <= 350 {
+		t.Fatal("expected a stored preview over the former admission limit")
 	}
 	start := summaryRequest(t, s, "token-a", `mutation{startProjectAnalysis(projectId:"p",mode:"all"){id status}}`)
 	if start["errors"] != nil {
@@ -217,7 +192,12 @@ func TestGraphQLSummaryCancelRetryAndFullSourcePipeline(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	current, err := s.analysis.Get(context.Background(), "a", "p", analysisID)
-	if err != nil || current.Status != "completed" || classifier.calls.Load() != 1 || !classifier.derived.Load() || final.calls.Load() != 1 || final.bad.Load() {
-		t.Fatalf("pipeline status=%v classifier=%d derived=%v final=%d bad=%v err=%v", current, classifier.calls.Load(), classifier.derived.Load(), final.calls.Load(), final.bad.Load(), err)
+	if err != nil || current.Status != "completed" || current.ClassifierProfile != "" || current.LayaCompletedPairs != 0 || final.calls.Load() != 1 || final.bad.Load() {
+		t.Fatalf("pipeline status=%v final=%d bad=%v err=%v", current, final.calls.Load(), final.bad.Load(), err)
 	}
+	retry := summaryRequest(t, s, "token-a", `mutation{retryRequirementSummary(projectId:"p",requirementId:"left"){status}}`)
+	if retry["errors"] != nil {
+		t.Fatal(retry)
+	}
+	waitAPISummary(t, s, "token-a", "p", "left", "ready")
 }

@@ -44,7 +44,7 @@ func (r *Resolver) SuggestGlossaryDefinition(ctx context.Context, a SuggestGloss
 	if name == "" {
 		name = candidate.Name
 	}
-	definition, err := r.Definitions.SuggestDefinition(ctx, glossary.DefinitionRequest{
+	draft, err := r.Definitions.SuggestDefinition(ctx, glossary.DefinitionRequest{
 		Text: source, Name: name, Abbreviation: candidate.Abbreviation, Start: candidate.Start, End: candidate.End,
 	})
 	if err != nil {
@@ -58,8 +58,12 @@ func (r *Resolver) SuggestGlossaryDefinition(ctx context.Context, a SuggestGloss
 	if !current {
 		return &GlossaryDefinitionSuggestion{Status: "stale"}, nil
 	}
-	if definition == "" {
+	if draft.Text == "" {
 		return &GlossaryDefinitionSuggestion{Status: "insufficient"}, nil
 	}
-	return &GlossaryDefinitionSuggestion{Status: "suggested", Definition: &definition}, nil
+	status := "suggested"
+	if draft.Hypothesis {
+		status = "hypothesis"
+	}
+	return &GlossaryDefinitionSuggestion{Status: status, Definition: &draft.Text}, nil
 }

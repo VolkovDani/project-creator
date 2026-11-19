@@ -12,7 +12,7 @@ const candidate = {
   start: 12,
   end: 15,
 };
-const proposed = 'Подпись для подтверждения документа.';
+const proposed = 'Подпись для подтверждения документа.\nСохраняет  исходный текст.';
 
 async function visitGlossary(page: Page, results: string[], candidates = [candidate]) {
   const requests: unknown[] = [];
@@ -42,11 +42,10 @@ async function visitGlossary(page: Page, results: string[], candidates = [candid
           await new Promise<void>((resolve) => {
             release = resolve;
           });
-        const success = status === 'suggested' || status === 'delayed';
         data = {
           suggestGlossaryDefinition: {
-            status: success ? 'suggested' : status,
-            definition: success ? proposed : null,
+            status: status === 'delayed' ? 'suggested' : status,
+            definition: ['suggested', 'delayed', 'hypothesis'].includes(status) ? proposed : null,
             fieldErrors: [],
           },
         };
@@ -149,6 +148,58 @@ test('changing the concept name ignores a late suggestion and failed generation 
     await expect(name).toHaveValue('Новое название');
     await expect(apply).toHaveCount(0);
   }
+  expect(saves).toEqual([]);
+});
+
+test('copy writes the exact suggestion and leaves the draft and preview in place', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const { dialog, definition, generate, apply, requests, saves } = await openCandidate(page);
+  await definition.fill('Моя формулировка');
+  await generate.click();
+  await dialog.getByRole('button', { name: 'Скопировать' }).click();
+  await expect(dialog.getByText('Определение скопировано.')).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(proposed);
+  await expect(definition).toHaveValue('Моя формулировка');
+  await expect(apply).toBeVisible();
+  expect(requests).toHaveLength(1);
+  expect(saves).toEqual([]);
+});
+
+test('denied clipboard access selects only the definition for manual copying', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => Promise.reject(new DOMException('Denied', 'NotAllowedError')) },
+    });
+  });
+  const { dialog, definition, generate, apply, saves } = await openCandidate(page);
+  await generate.click();
+  await dialog.getByRole('button', { name: 'Скопировать' }).click();
+  await expect(dialog.getByText('Скопируйте выделенный текст вручную.')).toBeVisible();
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(proposed);
+  await expect(definition).toHaveValue('');
+  await expect(apply).toBeVisible();
+  expect(saves).toEqual([]);
+});
+
+test('an unconfirmed meaning is labeled as a hypothesis and can be copied or applied explicitly', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const { dialog, definition, generate, apply, saves } = await openCandidate(page, ['hypothesis']);
+  await definition.fill('Черновик');
+  await generate.click();
+  await expect(dialog.getByText('Гипотеза ИИ', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Источник не подтверждает это значение.')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Скопировать' }).click();
+  await expect(dialog.getByText('Определение скопировано.')).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(proposed);
+  await expect(definition).toHaveValue('Черновик');
+  await apply.click();
+  await expect(definition).toHaveValue(proposed);
   expect(saves).toEqual([]);
 });
 

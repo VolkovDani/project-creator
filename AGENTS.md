@@ -120,11 +120,11 @@
   effort than the work. Separate implementation, testing, and review among
   agents when useful. While a subagent works, do other useful independent work;
   do not repeat its assigned work without a specific reason.
-- Current repository data may be delegated to Luna: issue and PR states,
+- Current repository data may be delegated to a subagent: issue and PR states,
   branches and SHAs, GitHub Actions results, review comments, and other
   information needed for the task. Specify read-only mode and limit requests to
   the needed data; use batched requests and reasonable CI polling intervals to
-  reduce cost and duplicate requests. Luna provides the primary agent with a
+  reduce cost and duplicate requests. The subagent provides the primary agent with a
   concise summary including sources, SHA, and state at the time of checking,
   and marks unavailable or unconfirmed data. The primary agent makes decisions
   and verifies key facts before changing the repository or merging a PR.
@@ -134,8 +134,9 @@
 
 ### Subtask Setup and Assignment
 
-- Use `model: "gpt-6-luna"` and `fork_turns: "none"` for all subagents. If this
-  model is unavailable, perform the subtask yourself and report the limitation.
+- Use `fork_turns: "none"` and omit the model override to inherit the parent
+  model by default. If the task explicitly requires a particular model, check
+  the models offered by the current tool before requesting it.
 - Provide context explicitly: goal, completion criteria, constraints, relevant
   files, starting commit, and checks already performed. Specify the expected
   result, such as a list of confirmed defects with code locations or specific

@@ -11,7 +11,7 @@ import { type Locale, t } from '../../../lib/i18n';
 import { Latest } from '../../../lib/latest';
 import { useInvalidation } from '../../../lib/live';
 import { GlossaryText } from './GlossaryActions';
-import GlossaryOriginal from './GlossaryOriginal';
+import GlossaryOriginal, { MatchedText } from './GlossaryOriginal';
 
 type Summary = RequirementSummariesByIdsQuery['requirementSummariesByIds'][number];
 
@@ -26,6 +26,14 @@ export function useRequirementSummaries(
   );
   const sources = useMemo(() => JSON.parse(sourcesKey) as Array<[string, number]>, [sourcesKey]);
   const ids = useMemo(() => sources.map(([id]) => id), [sources]);
+  const tags = useMemo(
+    () => [
+      `project:${projectId}:summaries`,
+      `project:${projectId}:requirements`,
+      `project:${projectId}:glossary`,
+    ],
+    [projectId],
+  );
   const identity = `${projectId}:${sourcesKey}`;
   const latest = useRef(new Latest());
   const [snapshot, setSnapshot] = useState<{ identity: string; values: Map<string, Summary> }>();
@@ -47,7 +55,7 @@ export function useRequirementSummaries(
             projectId,
             requirementIds: ids.slice(offset, offset + 100),
           },
-          { version: identity },
+          { version: identity, tags },
         );
         if (!latest.current.isCurrent(generation)) return;
         for (const summary of result.requirementSummariesByIds)
@@ -58,14 +66,14 @@ export function useRequirementSummaries(
     } catch {
       if (latest.current.isCurrent(generation)) setFailure(true);
     }
-  }, [identity, projectId, ids]);
+  }, [identity, projectId, ids, tags]);
   useEffect(() => {
     void load();
     const state = latest.current;
     return () => state.invalidate();
   }, [load]);
   useInvalidation(
-    [`project:${projectId}:summaries`, `project:${projectId}:requirements`],
+    tags,
     () => void load(),
     () => {
       latest.current.invalidate();
@@ -137,7 +145,13 @@ export default function RequirementSummary({
     <section aria-label={hasText ? t(locale, 'summary.section') : undefined}>
       {hasText ? <p className="muted">{t(locale, 'summary.suggestion')}</p> : source}
       {hasText && displayedSummary?.text ? (
-        <GlossaryText>{displayedSummary.text}</GlossaryText>
+        <GlossaryText>
+          <MatchedText
+            text={displayedSummary.text}
+            matches={displayedSummary.glossaryMatches ?? []}
+            locale={locale}
+          />
+        </GlossaryText>
       ) : (
         <p
           role={

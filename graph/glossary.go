@@ -123,16 +123,22 @@ WHERE r.workspace=$1 AND r.project_id=$2 AND r.id=$3 AND s.requirement_id=$4 AND
 		return nil, errors.New("glossary unavailable")
 	}
 	out := &RequirementGlossary{Version: a.Version}
-	for _, m := range glossary.Matches(source, terms) {
+	out.Matches = glossaryMatches(glossary.Matches(source, terms))
+	out.Candidates = unconfirmedCandidates(source, a.RequirementId, a.Version, terms)
+	return out, nil
+}
+func glossaryMatches(matches []glossary.Match) []*GlossaryMatch {
+	var out []*GlossaryMatch
+	for _, m := range matches {
 		v := &GlossaryMatch{Start: int32(m.Start), End: int32(m.End), Text: m.Text}
 		for _, t := range m.Terms {
 			v.Terms = append(v.Terms, glossaryTerm(t))
 		}
-		out.Matches = append(out.Matches, v)
+		out = append(out, v)
 	}
-	out.Candidates = unconfirmedCandidates(source, a.RequirementId, a.Version, terms)
-	return out, nil
+	return out
 }
+
 func knownGlossaryCandidate(c glossary.Candidate, terms []glossary.Term) bool {
 	for _, t := range terms {
 		if strings.EqualFold(t.Name, c.Name) {

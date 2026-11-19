@@ -40,7 +40,7 @@ type AnalysisRunMetadata { id: ID! projectId: ID! generatorProfile: String! gene
 
 type ProjectAnalysisSummary { classifierProfile: String! layaPendingPairs: Int! layaRunningPairs: Int! layaCompletedPairs: Int! layaFailedPairs: Int! layaSkippedPairs: Int! revision: String! mode: String! similarityThreshold: Float! possiblePairs: Int notSelectedPairs: Int duplicatePairs: Int! reusedPairs: Int! newPairs: Int! completedPairs: Int! pendingPairs: Int! runningPairs: Int! failedPairs: Int! collisionPairs: Int! compatiblePairs: Int! insufficientPairs: Int! stage: String! totalPairs: Int processedPairs: Int! activePairId: ID! reasonCode: String! missingRequirementIds: [ID!]! id: ID! projectId: ID! status: String! outcome: String! errorCode: String! createdAt: String! completedAt: String! stale: Boolean! }
 
-type RequirementSummary { byteLength: Int! layaEligible: Boolean! requirementId: ID! projectId: ID! version: Int! status: String! text: String! profile: String! provenance: String! createdAt: String! errorCode: String! }
+type RequirementSummary { glossaryMatches: [GlossaryMatch!]! byteLength: Int! layaEligible: Boolean! requirementId: ID! projectId: ID! version: Int! status: String! text: String! profile: String! provenance: String! createdAt: String! errorCode: String! }
 
 type GlossaryVariant { text: String! kind: String! }
 input GlossaryVariantInput { text: String! kind: String! }

@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useState } from 'react';
 import { query } from '../../../lib/client';
-import { RequirementGlossaryDocument } from '../../../lib/generated';
+import { RequirementGlossaryDocument, type RequirementGlossaryQuery } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
 import { useResource } from '../../../lib/useResource';
 import { GlossaryText } from './GlossaryActions';
@@ -49,19 +49,30 @@ export function SourceText({
     [projectId, requirementId, version, tag, analysisId],
   );
   const result = useResource(load, [tag, `project:${projectId}:requirements`]);
-  const chars = Array.from(original),
+  return (
+    <GlossaryText className="user-content" sourceId={requirementId} version={version}>
+      <MatchedText text={original} matches={result.data?.matches ?? []} locale={locale} />
+    </GlossaryText>
+  );
+}
+
+export function MatchedText({
+  text,
+  matches,
+  locale,
+}: {
+  text: string;
+  matches: NonNullable<RequirementGlossaryQuery['requirementGlossary']>['matches'];
+  locale: Locale;
+}) {
+  const chars = Array.from(text),
     nodes: React.ReactNode[] = [];
   let pos = 0;
-  const matches = result.data?.matches ?? [];
   for (const m of matches) {
     nodes.push(chars.slice(pos, m.start).join(''));
     nodes.push(<GlossaryMatch key={m.start} text={m.text} terms={m.terms} locale={locale} />);
     pos = m.end;
   }
   nodes.push(chars.slice(pos).join(''));
-  return (
-    <GlossaryText className="user-content" sourceId={requirementId} version={version}>
-      {nodes}
-    </GlossaryText>
-  );
+  return <>{nodes}</>;
 }

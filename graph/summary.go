@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"errors"
+	"github.com/VolkovDani/project-creator/internal/glossary"
 
 	"github.com/VolkovDani/project-creator/internal/summary"
 	graphql "github.com/graph-gophers/graphql-go"
@@ -26,12 +27,36 @@ func (r *Resolver) RequirementSummariesByIds(ctx context.Context, args Requireme
 	if e != nil {
 		return nil, errors.New("summaries unavailable")
 	}
+	return r.summaryStates(ctx, rows)
+}
+
+func (r *Resolver) summaryStates(ctx context.Context, rows []summary.State) ([]*RequirementSummary, error) {
 	out := make([]*RequirementSummary, 0, len(rows))
+	var match func(string) []glossary.Match
 	for _, v := range rows {
-		out = append(out, summaryState(v))
+		state := summaryState(v)
+		if v.Status == "ready" {
+			if match == nil {
+				terms, err := glossary.List(ctx, r.DB, workspace(ctx), v.ProjectID)
+				if err != nil {
+					return nil, errors.New("glossary unavailable")
+				}
+				match = glossary.MatchText(terms)
+			}
+			state.GlossaryMatches = glossaryMatches(match(v.Text))
+		}
+		out = append(out, state)
 	}
 	return out, nil
 }
+func (r *Resolver) singleSummaryState(ctx context.Context, v summary.State) (*RequirementSummary, error) {
+	out, err := r.summaryStates(ctx, []summary.State{v})
+	if err != nil {
+		return nil, err
+	}
+	return out[0], nil
+}
+
 func (r *Resolver) RetryRequirementSummary(ctx context.Context, args RetryRequirementSummaryArgs) (*RequirementSummary, error) {
 	if e := consume(ctx); e != nil {
 		return nil, e
@@ -43,7 +68,7 @@ func (r *Resolver) RetryRequirementSummary(ctx context.Context, args RetryRequir
 	if e != nil {
 		return nil, errors.New("summary retry unavailable")
 	}
-	return summaryState(v), nil
+	return r.singleSummaryState(ctx, v)
 }
 func (r *Resolver) CancelRequirementSummary(ctx context.Context, args CancelRequirementSummaryArgs) (*RequirementSummary, error) {
 	if e := consume(ctx); e != nil {
@@ -56,5 +81,5 @@ func (r *Resolver) CancelRequirementSummary(ctx context.Context, args CancelRequ
 	if e != nil {
 		return nil, errors.New("summary cancellation unavailable")
 	}
-	return summaryState(v), nil
+	return r.singleSummaryState(ctx, v)
 }

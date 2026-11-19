@@ -145,6 +145,9 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
     .getByLabel('Текст требования')
     .fill('Генеральный подрядчик (ГП), также Генподрядчик, проверяет документы.');
   await page.getByRole('button', { name: 'Добавить требование' }).click();
+  await page.getByLabel('Текст требования').fill('😀 Запросить ЭЦП у ГП.');
+  await page.getByRole('button', { name: 'Добавить требование' }).click();
+  await expect(page.getByText('😀 Запросить ЭЦП у ГП.', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Словарь проекта', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'Словарь проекта', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Новое понятие', exact: true }).click();
@@ -154,6 +157,22 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
   await page.getByLabel('Режим списка').selectOption('pages');
   await expect(page.getByText('Страница 1', { exact: true })).toHaveCount(2);
   await page.getByLabel('Режим списка').selectOption('infinite');
+  const standalone = page
+    .locator('article')
+    .filter({ has: page.getByRole('button', { name: 'ЭЦП', exact: true }) });
+  await expect(standalone.locator('mark')).toHaveText('ЭЦП');
+  await standalone.getByRole('link', { name: 'Открыть в тексте' }).click();
+  await expect(page.locator('mark[data-candidate]')).toHaveText('ЭЦП');
+  const stale = new URL(page.url());
+  stale.searchParams.set('version', '99');
+  await page.goto(stale.toString());
+  await expect(page.getByText(/Требование изменилось/)).toBeVisible();
+  await expect(page.locator('mark[data-candidate]')).toHaveCount(0);
+  await page.getByRole('link', { name: 'Словарь проекта', exact: true }).first().click();
+  await standalone.getByRole('button', { name: 'ЭЦП', exact: true }).click();
+  await expect(page.getByLabel('Название понятия')).toHaveValue('');
+  await expect(page.getByLabel('Найти существующее понятие для варианта')).toBeVisible();
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Генеральный подрядчик (ГП)', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByLabel('Название понятия')).toHaveValue('Генеральный подрядчик');
@@ -162,11 +181,15 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
   await expect(
     page.getByRole('button', { name: 'Генеральный подрядчик', exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ГП', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Где упоминается' }).click();
   const mention = page.getByRole('dialog').getByRole('link', { name: /Генеральный подрядчик/ });
   await expect(mention).toHaveAttribute('href', /requirements\?requirement=/);
   await mention.click();
-  const termButton = page.getByRole('button', { name: 'ГП', exact: true });
+  const termButton = page
+    .locator('article')
+    .filter({ hasText: 'Генподрядчик' })
+    .getByRole('button', { name: 'ГП', exact: true });
   await termButton.scrollIntoViewIfNeeded();
   const termPosition = await termButton.boundingBox();
   await termButton.hover();

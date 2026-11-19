@@ -266,6 +266,8 @@
   "glossary.noMentions": "No mentions in current requirements.",
   "glossary.new": "New concept",
   "glossary.empty": "No matching terms",
+  "glossary.openMention": "Open in text",
+  "glossary.mentionChanged": "The requirement has changed. This is the current version and the mention may have moved.",
   "glossary.candidates": "Unconfirmed candidates",
   "glossary.noCandidates": "No suggested abbreviations",
   "glossary.ambiguous": "Choose the meaning for this view",

@@ -279,3 +279,41 @@ func TestGlossaryTermsByIdsOnlyReturnsRequestedTermsInScope(t *testing.T) {
 		}
 	}
 }
+
+func TestCandidateContextAcrossSources(t *testing.T) {
+	s, err := New(testDatabase(t), map[string]string{"token-a": "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	_, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now');
+ INSERT INTO requirements VALUES('r','a','p','😀 ЭЦП нужна',2,'now','now'),('s','a','p','Проверить ЭЦП',1,'now','now')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := func() []any {
+		t.Helper()
+		res := summaryRequest(t, s, "token-a", `{glossaryCandidatesConnection(projectId:"p"){items{name abbreviation sourceId sourceVersion start end before after}}}`)
+		if res["errors"] != nil {
+			t.Fatal(res)
+		}
+		return res["data"].(map[string]any)["glossaryCandidatesConnection"].(map[string]any)["items"].([]any)
+	}
+	items := list()
+	if len(items) != 2 {
+		t.Fatal(items)
+	}
+	for i, want := range []struct {
+		id, before, after string
+		start, version    int
+	}{{"r", "😀 ", " нужна", 2, 2}, {"s", "Проверить ", "", 10, 1}} {
+		row := items[i].(map[string]any)
+		if row["sourceId"] != want.id || row["before"] != want.before || row["after"] != want.after || row["start"] != float64(want.start) || row["end"] != float64(want.start+3) || row["sourceVersion"] != float64(want.version) || row["name"] != "" || row["abbreviation"] != "ЭЦП" {
+			t.Fatal(row)
+		}
+	}
+	res := summaryRequest(t, s, "token-a", `mutation{saveGlossaryTerm(input:{projectId:"p",name:"эцп",context:"",definition:"",variants:[]}){term{id}}}`)
+	if len(list()) != 0 {
+		t.Fatal(res)
+	}
+}

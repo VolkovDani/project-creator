@@ -130,10 +130,12 @@ var summaryTechnicalLabel = regexp.MustCompile(`\b[A-Z][A-Z0-9]{1,11} \([A-Z][A-
 
 func sourceCodeName(source string, start, end int) bool {
 	before, after := source[:start], source[end:]
-	return strings.HasPrefix(after, "[") || strings.HasPrefix(after, "(") ||
+	left, right := strings.TrimRight(before, " \t"), strings.TrimLeft(after, " \t")
+	typedParameter := strings.HasPrefix(right, ":") && (strings.HasSuffix(left, "(") || strings.HasSuffix(left, ","))
+	return typedParameter || strings.HasSuffix(before, "@") || strings.HasPrefix(after, "[") || strings.HasPrefix(after, "(") ||
 		strings.HasPrefix(after, "]") || strings.HasSuffix(before, "[") ||
-		strings.HasPrefix(strings.TrimLeft(after, " \t"), "=") ||
-		strings.HasSuffix(strings.TrimRight(before, " \t"), "=")
+		strings.HasPrefix(right, "=") ||
+		strings.HasSuffix(left, "=")
 }
 
 // forSource narrows the configured alphabets to those that can represent the

@@ -174,3 +174,36 @@ func TestOpenAICompatibleProfileTracksDeploymentAndPolicy(t *testing.T) {
 		t.Fatal("different task or language policy reused summary profile")
 	}
 }
+
+func TestOpenAICompatibleSummaryRepairsLanguageFromScopedSource(t *testing.T) {
+	src := summarySource("Сохранить отчёт за 42 дня.")
+	calls := 0
+	server := chatStub(t, func(req chatRequestFixture) (string, map[string]any) {
+		calls++
+		output := "Retain the report for 42 days."
+		if calls == 2 {
+			fields := req.Format.Schema.Schema["properties"].(map[string]any)["summary"].(map[string]any)
+			if fields["pattern"] == nil || fields["minLength"] != nil {
+				t.Error("repair must send a constrained compatible schema")
+			}
+			if len(req.Messages) != 2 || !strings.Contains(req.Messages[0]["content"], russianLanguageRepair) || strings.Contains(req.Messages[1]["content"], src.ID) || !strings.Contains(req.Messages[1]["content"], src.Text) || !strings.Contains(req.Messages[1]["content"], "confirmedGlossary") {
+				t.Error("repair must restart from scoped source and glossary")
+			}
+			output = src.Text
+		}
+		encoded, _ := json.Marshal(map[string]string{"summary": output})
+		return "stop", map[string]any{"role": "assistant", "content": string(encoded)}
+	})
+	g, err := NewSummaryOpenAICompatible(server.URL+"/v1", "model-id", "fixture-key", "ru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := g.SummarizeWithGlossary(context.Background(), src, []glossary.Hint{{Spelling: "отчёт", Definition: "Документ"}})
+	if err != nil || calls != 2 || got != src.Text {
+		t.Fatalf("got=%q calls=%d err=%v", got, calls, err)
+	}
+	result, ok := any(g).(interface{ ResultProvenance() string })
+	if !ok || !strings.Contains(result.ResultProvenance(), "source-identifiers-verbatim-labels-and-language-repair-schema-v1") {
+		t.Error("repair validation missing from result provenance")
+	}
+}

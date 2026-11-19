@@ -29,12 +29,11 @@ func compatibleSchema(schema map[string]any) map[string]any {
 	return schema
 }
 
-func compatibleProvenance(client *oaicompat.Client, adapter string, schema map[string]any) generationProvenance {
+func compatibleProvenance(client *oaicompat.Client, adapter string) generationProvenance {
 	return generationProvenance{
 		Adapter:               adapter,
 		Model:                 client.Model(),
 		EndpointModelIdentity: client.Identity(),
-		ResponseSchema:        compatibleSchema(schema),
 		Parameters:            map[string]any{"max_completion_tokens": chatCompletionTokens, "stream": false, "responseFormat": "json_schema", "strict": true},
 	}
 }
@@ -44,7 +43,8 @@ func NewOpenAICompatible(baseURL, model, key string) (*OpenAICompatible, error) 
 	if err != nil {
 		return nil, err
 	}
-	spec := compatibleProvenance(client, "openai-compatible-pair-v1", findingSchema())
+	spec := compatibleProvenance(client, "openai-compatible-pair-v1")
+	spec.ResponseSchema = compatibleSchema(findingSchema())
 	spec.SystemPrompt = systemPrompt
 	provenance, profile := encodePairProvenance(spec)
 	return &OpenAICompatible{client: client, schema: spec.ResponseSchema, profile: profile, provenance: provenance}, nil
@@ -79,9 +79,10 @@ func NewSummaryOpenAICompatible(baseURL, model, key, allowedLanguages string) (*
 	if err != nil {
 		return nil, err
 	}
-	spec := compatibleProvenance(client, "openai-compatible-summary-v1", summarySchema())
-	summary, err := newChatSummary(allowedLanguages, spec, context.Context.Err, func(ctx context.Context, messages []map[string]string) (string, error) {
-		return compatibleChat(ctx, client, messages, "requirement_summary", spec.ResponseSchema)
+	spec := compatibleProvenance(client, "openai-compatible-summary-v1")
+	schemaFor := func(pattern string) map[string]any { return compatibleSchema(summaryResponseSchema(pattern)) }
+	summary, err := newChatSummary(allowedLanguages, spec, schemaFor, context.Context.Err, func(ctx context.Context, messages []map[string]string, schema map[string]any) (string, error) {
+		return compatibleChat(ctx, client, messages, "requirement_summary", schema)
 	})
 	if err != nil {
 		return nil, err

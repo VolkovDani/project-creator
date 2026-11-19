@@ -124,6 +124,16 @@ type GlossaryMatchesPage struct {
 	Items    []*GlossaryCandidate
 	PageInfo *PageInfo
 }
+type GlossaryMentionPage struct {
+	Items    []*Requirement
+	PageInfo *PageInfo
+}
+type GlossaryMentionsArgs struct {
+	ProjectId graphql.ID
+	TermId    graphql.ID
+	First     *int32
+	After     *string
+}
 type GlossaryTermsConnectionArgs struct {
 	ProjectId graphql.ID
 	Search    string

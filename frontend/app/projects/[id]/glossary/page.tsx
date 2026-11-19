@@ -13,8 +13,9 @@ import { ListModeSelect } from '../../../components/ListControls';
 import GlossaryEditor, { type GlossaryDraft } from '../GlossaryEditor';
 import { useProject } from '../ProjectShell';
 import { GlossaryListView } from './GlossaryListView';
-
+import GlossaryMentions from './GlossaryMentions';
 export default function GlossaryPage() {
+  const [mentions, setMentions] = useState<Term>();
   const { project, locale } = useProject();
   const projectId = project.id;
   const tag = `project:${projectId}:glossary`,
@@ -49,6 +50,14 @@ export default function GlossaryPage() {
   return (
     <section>
       <h2>{t(locale, 'nav.glossary')}</h2>
+      {mentions && (
+        <GlossaryMentions
+          projectId={projectId}
+          locale={locale}
+          term={mentions}
+          onClose={() => setMentions(undefined)}
+        />
+      )}
       <ListModeSelect locale={locale} mode={mode} onChange={setMode} />
       <label>
         {t(locale, 'glossary.search')}
@@ -87,6 +96,9 @@ export default function GlossaryPage() {
                 {term.name}
               </button>
             </h3>
+            <button type="button" onClick={() => setMentions(term)}>
+              {t(locale, 'glossary.mentions')}
+            </button>
             <p>{term.definition}</p>
             <p>{term.context}</p>
             {term.variants.map((v) => (

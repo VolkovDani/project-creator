@@ -171,7 +171,10 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
   await expect(
     page.getByRole('button', { name: 'Генеральный подрядчик', exact: true }),
   ).toBeVisible();
-  await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Где упоминается' }).click();
+  const mention = page.getByRole('dialog').getByRole('link', { name: /Генеральный подрядчик/ });
+  await expect(mention).toHaveAttribute('href', /requirements\?requirement=/);
+  await mention.click();
   await revealOriginal(page);
   await page.getByRole('button', { name: 'ГП', exact: true }).click();
   await expect(page.getByText('Исполнитель работ', { exact: true })).toBeVisible();

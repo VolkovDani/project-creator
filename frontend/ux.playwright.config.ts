@@ -9,6 +9,7 @@ export default defineConfig({
     'analysis-live.spec.ts',
     'rag.spec.ts',
     'summaries.spec.ts',
+    'glossary.spec.ts',
   ],
   timeout: 30000,
   workers: 1,

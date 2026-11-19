@@ -54,6 +54,17 @@ func readTerms(ctx context.Context, db Reader, suffix string, args ...any) ([]Te
 func invalid(field, code, key string) project.FieldError {
 	return project.FieldError{Path: []string{"input", field}, Code: code, MessageKey: key, Params: map[string]int{}}
 }
+
+// DraftName applies the glossary name rules to an optional expansion supplied by the editor.
+func DraftName(name string) (string, []project.FieldError) {
+	if strings.TrimSpace(name) == "" {
+		return "", nil
+	}
+	term := Term{Name: name}
+	errs := validate(&term)
+	return term.Name, errs
+}
+
 func validate(t *Term) []project.FieldError {
 	c := contracts.GlossaryRules()
 	var errs []project.FieldError

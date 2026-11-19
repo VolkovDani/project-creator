@@ -8,6 +8,7 @@ import (
 	"errors"
 	"github.com/VolkovDani/project-creator/graph"
 	"github.com/VolkovDani/project-creator/internal/analysis"
+	"github.com/VolkovDani/project-creator/internal/glossary"
 	"github.com/VolkovDani/project-creator/internal/rag"
 	"github.com/VolkovDani/project-creator/internal/storage"
 	"github.com/VolkovDani/project-creator/internal/summary"
@@ -74,7 +75,8 @@ func NewWithSummaryProviders(path string, tokens map[string]string, embedder rag
 	if generator != nil {
 		generatorProfile = analyzer.Profile()
 	}
-	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, RAG: retriever, Analysis: analyzer, Summaries: summaries}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
+	definitions, _ := summarizer.(glossary.DefinitionGenerator)
+	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, RAG: retriever, Analysis: analyzer, Summaries: summaries, Definitions: definitions}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
 	if err != nil {
 		analyzer.Close()
 		summaries.Close()

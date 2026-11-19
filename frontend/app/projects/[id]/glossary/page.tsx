@@ -160,7 +160,10 @@ export default function GlossaryPage() {
         empty={t(locale, 'glossary.noCandidates')}
         render={(c) => (
           <article className="card" key={c.id}>
-            <button type="button" onClick={() => setDraft({ ...c, variant: c.abbreviation })}>
+            <button
+              type="button"
+              onClick={() => setDraft({ name: c.name, variant: c.abbreviation, candidate: c })}
+            >
               {c.name ? `${c.name} (${c.abbreviation})` : c.abbreviation}
             </button>
             <p className="user-content">

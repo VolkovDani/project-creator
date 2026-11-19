@@ -7,7 +7,7 @@ import { query } from '../../../lib/client';
 import { CreateProjectDocument } from '../../../lib/generated';
 import { t } from '../../../lib/i18n';
 import { type FieldError, type Input, validate } from '../../../lib/validation';
-import { Language, useLocale } from '../../components/LocaleProvider';
+import { InterfacePreferences, useLocale } from '../../components/LocaleProvider';
 
 const empty: Input = { name: '', goal: '', description: '' };
 export default function NewProject() {
@@ -59,7 +59,7 @@ export default function NewProject() {
     <main>
       <div className="top">
         <Link href="/">{t(locale, 'app.back')}</Link>
-        <Language />
+        <InterfacePreferences />
       </div>
       <section>
         <h1>{t(locale, 'app.create')}</h1>

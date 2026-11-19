@@ -5,6 +5,35 @@ test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status === 'passed') await expectLayout(page);
 });
 
+test('dark theme follows the user across navigation, language changes and reloads', async ({
+  page,
+}) => {
+  await fixture(page, 1);
+  await page.goto('/projects/new');
+  const language = page.getByRole('combobox', { name: 'Язык' });
+  const theme = page.getByRole('button', { name: 'Тёмная тема' });
+  await expect(theme).toHaveAttribute('aria-pressed', 'false');
+  await language.focus();
+  await page.keyboard.press('Tab');
+  await expect(theme).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(theme).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(27, 28, 28)');
+  await expect(page).toHaveURL(/\/projects\/new$/);
+  await language.selectOption('en');
+  const englishTheme = page.getByRole('button', { name: 'Dark theme' });
+  await expect(englishTheme).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('.top a[href="/"]').click();
+  await expect(englishTheme).toHaveAttribute('aria-pressed', 'true');
+  await page.reload();
+  await expect(englishTheme).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark');
+  await englishTheme.click();
+  await page.reload();
+  await expect(englishTheme).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('html')).toHaveCSS('color-scheme', 'light');
+});
+
 test('requirement editing opens a native dialog and Escape discards the draft', async ({
   page,
 }) => {

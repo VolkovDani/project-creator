@@ -21,6 +21,7 @@
   "app.next": "Next",
   "app.previous": "Previous",
   "app.language": "Language",
+  "app.darkTheme": "Dark theme",
   "app.page": "Page {page}",
   "app.validationUnknown": "Please check your input",
   "ui.backToTop": "Back to top",

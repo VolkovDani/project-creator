@@ -269,11 +269,11 @@ Further acceptance and regression scenarios:
 Current pipeline limitations are confirmed by the code:
 [prepare.go](internal/analysis/prepare.go) iterates over potential pairs in
 batches and in `related` mode; reducing model calls does not eliminate the
-quadratic iteration. In [pipeline.go](internal/analysis/pipeline.go), the Laya
-result does not filter a pair out of final comparison; Laya failure or skipping
-allows the full originals to be compared. Exact duplicates are handled
-deterministically, and ready results may be reused from cache. Savings from
-Laya have not yet been demonstrated. The historical v3 summary quality smoke
+quadratic iteration. New runs resolve exact duplicates deterministically and
+compare other selected pairs using full originals and the generator profile cache.
+Issue #204 retires the Laya stage introduced for pairs in #48.
+
+The historical v3 summary quality smoke
 result — **4/5, one timeout** — is retained in the
 [report](docs/requirement-summary-verification.md).
 

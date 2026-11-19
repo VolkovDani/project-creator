@@ -34,10 +34,10 @@ func New(path string, tokens map[string]string) (*Server, error) {
 func NewWithEmbedder(path string, tokens map[string]string, embedder rag.Embedder) (*Server, error) {
 	return NewWithProviders(path, tokens, embedder, nil)
 }
-func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedder, generator analysis.Generator, classifiers ...analysis.Classifier) (*Server, error) {
-	return NewWithSummaryProviders(path, tokens, embedder, generator, nil, classifiers...)
+func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedder, generator analysis.Generator) (*Server, error) {
+	return NewWithSummaryProviders(path, tokens, embedder, generator, nil)
 }
-func NewWithSummaryProviders(path string, tokens map[string]string, embedder rag.Embedder, generator analysis.Generator, summarizer summary.Generator, classifiers ...analysis.Classifier) (*Server, error) {
+func NewWithSummaryProviders(path string, tokens map[string]string, embedder rag.Embedder, generator analysis.Generator, summarizer summary.Generator) (*Server, error) {
 	if len(tokens) == 0 {
 		return nil, errors.New("at least one workspace token is required")
 	}
@@ -64,15 +64,12 @@ func NewWithSummaryProviders(path string, tokens map[string]string, embedder rag
 		db.Close()
 		return nil, errors.New("summary queue startup unavailable")
 	}
-	if len(classifiers) > 0 {
-		classifiers = []analysis.Classifier{summaries.Classifier(classifiers[0])}
-	}
 	retriever := rag.New(db, embedder)
 	embeddingProfile := ""
 	if embedder != nil {
 		embeddingProfile = embedder.Profile()
 	}
-	analyzer := analysis.New(db, retriever, generator, embeddingProfile, classifiers...)
+	analyzer := analysis.New(db, retriever, generator, embeddingProfile)
 	generatorProfile := ""
 	if generator != nil {
 		generatorProfile = analyzer.Profile()

@@ -491,16 +491,16 @@ With `PROJECT_CREATOR_SUMMARY_MODEL` and a full `PROJECT_CREATOR_SUMMARY_DIGEST`
 explicitly set, requirements automatically enter a local background queue after
 saving. `PROJECT_CREATOR_SUMMARY_URL` selects a separate Ollama runtime. CRUD and
 search do not wait for generation; summaries are tied to the source version and
-profile. 350 UTF-8 bytes is a soft generation target and a Laya eligibility limit,
-but longer valid summaries are retained. In a card, the summary is a preview, and
-the full original is available by expanding it. Laya compares summaries; the final
-LLM receives full originals. If a summary is missing, invalid, longer than 350
-bytes, or Laya returns an error, the pair skips preliminary classification and
-still goes to the final LLM with full originals. The skip reason is saved; a summary
-remains a model suggestion.
+profile. The soft generation target is 350 UTF-8 bytes. Longer valid previews
+remain available alongside the full original. Pair analysis compares full sources
+independently of summary availability or length. New runs use the direct generator
+profile for cache reuse. Previous Laya runs retain their stage details and model
+provenance. Start a new run to repeat an unfinished comparison from that profile.
 
-Configuration, cancellation/retry, and limitations: [Laya pipeline](laya-pipeline.md),
-[ADR-009](adr/009-requirement-summaries.md), and
-[ADR-010](adr/010-optional-laya.md).
+The former pair classifier could skip long previews and still required final
+comparison for every candidate. Issue #204 retires this stage. Legacy
+`PROJECT_CREATOR_LAYA_*` settings are ignored. The single-record classifier
+in #51 is a separate decision informed by benchmark #50.
+
 Hardware results and limitations of the real model are in the
 [verification report](requirement-summary-verification.md).

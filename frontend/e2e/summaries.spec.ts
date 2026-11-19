@@ -200,13 +200,13 @@ test('saving a new source version refetches its summary without another SSE even
   await expect(card.getByText('Обновлённая версия требования.', { exact: true })).toBeHidden();
 });
 
-test('a ready preview over the Laya limit remains visible with an eligibility notice', async ({
+test('a ready preview over the Laya limit remains visible without an eligibility notice', async ({
   page,
 }) => {
   await fixture(page, { longPreview: true });
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
   await expect(card.getByText('я'.repeat(176), { exact: true })).toBeVisible();
-  await expect(card.getByText(/Предпросмотр занимает 352 байт UTF-8/)).toBeVisible();
+  await expect(card.getByText(/Предпросмотр занимает 352 байт UTF-8/)).toHaveCount(0);
   await expect(card.getByText(original, { exact: true })).toBeHidden();
 });

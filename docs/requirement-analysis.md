@@ -478,7 +478,7 @@ English translation of Russian prose therefore triggers one correction attempt.
 If several alphabets match, they remain eligible. When none covers the source
 (e.g. mixed-language prose), the configured list applies.
 
-The output may use isolated ASCII technical names from the source, identifiers used in calls, assignments or array indexing, and verbatim labels such as `SSO (Single Sign-On)`. The surrounding prose must use the configured alphabet. A foreign passage elsewhere in the source does not invalidate an isolated name. Invented names and foreign prose still fail validation.
+The output may use isolated ASCII technical names from the source, identifiers used in calls, typed parameters, annotations, assignments or array indexing, and verbatim labels such as `SSO (Single Sign-On)`. The surrounding prose must use the configured alphabet. A foreign passage elsewhere in the source does not invalidate an isolated name. Invented names and foreign prose still fail validation.
 
 After a language rejection the worker makes one fresh attempt using the original text and its confirmed glossary hints. When the request budget permits, the corrective JSON schema constrains the spelling to the configured alphabet, source symbols and recognized identifiers. The worker still validates the result before publication. New results record the validation and correction policy in their provenance. Existing ready previews keep their base model profile and generation history.
 

@@ -7,54 +7,65 @@ import (
 	"unicode"
 )
 
-var asciiLetterRun = regexp.MustCompile(`[A-Za-z]+`)
-
-// Only constrain the corrective generation. Its result still passes all normal
-// checks, including whole identifiers, source numbers and configured-language prose.
+// A word uses either the native alphabet or one complete source spelling.
+// Separate the alternatives by non-word characters so the decoder cannot
+// splice an identifier into native prose or invent one from a source prefix.
 func (p SummaryLanguagePolicy) repairPattern(source string) string {
 	names, labels := p.sourceNames(source)
 	literals := map[string]bool{}
-	add := func(name string) {
-		for _, word := range asciiLetterRun.FindAllString(name, -1) {
+	for _, word := range summaryWord.FindAllString(source, -1) {
+		if names[strings.ToLower(word)] && !p.Valid(word) {
+			literals[word] = true
+		}
+	}
+	for label := range labels {
+		for _, word := range summaryWord.FindAllString(label, -1) {
 			if !p.Valid(word) {
 				literals[word] = true
 			}
 		}
 	}
-	for _, word := range summaryWord.FindAllString(source, -1) {
-		if names[strings.ToLower(word)] {
-			add(word)
-		}
-	}
-	for label := range labels {
-		add(label)
-	}
-	options := make([]string, 0, len(literals)+1)
-	for literal := range literals {
-		options = append(options, regexp.QuoteMeta(literal))
-	}
-	sort.Strings(options)
-	var class strings.Builder
-	const common = " 0123456789.,:;!?/%()+=_«»“”…—–-"
-	class.WriteString("[ 0-9.,:;!?/%()+=_«»“”…—–")
-	// Put source units and punctuation in the same character class. Duplicate
-	// alternatives inside a repetition create ambiguity for the grammar sampler.
-	var symbols []rune
+
+	// Periods and dashes can belong to a source name. They may also surround
+	// one as punctuation, but never join it to another word.
+	var native, separator strings.Builder
+	native.WriteString("[0-9_.")
+	native.WriteString(p.repairAlphabet())
+	separator.WriteString("[ ,:;!?/%()+=«»“”…—–")
 	seen := map[rune]bool{}
 	for _, r := range source {
-		if !seen[r] && !strings.ContainsRune(common, r) && (unicode.IsSymbol(r) || unicode.IsPunct(r) || unicode.IsNumber(r)) {
-			seen[r] = true
-			symbols = append(symbols, r)
+		if seen[r] || strings.ContainsRune("0123456789_.- ,:;!?/%()+=«»“”…—–", r) {
+			continue
+		}
+		seen[r] = true
+		switch {
+		case unicode.IsNumber(r):
+			native.WriteRune(r)
+		case unicode.IsSymbol(r) || unicode.IsPunct(r):
+			if strings.ContainsRune(`[]^\`, r) {
+				separator.WriteByte('\\')
+			}
+			separator.WriteRune(r)
 		}
 	}
-	sort.Slice(symbols, func(i, j int) bool { return symbols[i] < symbols[j] })
-	for _, r := range symbols {
-		if strings.ContainsRune(`[]^\`, r) {
-			class.WriteByte('\\')
+	native.WriteString("-]+")
+	separator.WriteByte(']')
+	word := native.String()
+	if len(literals) > 0 {
+		options := make([]string, 0, len(literals))
+		for literal := range literals {
+			options = append(options, regexp.QuoteMeta(literal))
 		}
-		class.WriteRune(r)
+		sort.Strings(options)
+		word = "(" + word + "|[.-]*(" + strings.Join(options, "|") + ")[.-]*)"
 	}
-	// Compress the same alphabet tables used for validation into regex ranges.
+	sep := separator.String()
+	return "^" + sep + "*(" + word + sep + "+)*(" + word + ")?$"
+}
+
+// Compress the same alphabet tables used for publication into regex ranges.
+func (p SummaryLanguagePolicy) repairAlphabet() string {
+	var class strings.Builder
 	var first rune
 	for r := rune(1); r <= unicode.MaxRune+1; r++ {
 		allowed := false
@@ -76,13 +87,5 @@ func (p SummaryLanguagePolicy) repairPattern(source string) string {
 			first = 0
 		}
 	}
-	class.WriteString("-]")
-	native := class.String()
-	if len(options) == 0 {
-		return "^" + native + "+$"
-	}
-	// Foreign letter runs and the native class are disjoint. A separator between
-	// runs gives overlapping names (A, AA) a single parse even in long answers.
-	word := "(" + strings.Join(options, "|") + ")"
-	return "^" + native + "*(" + word + native + "+)*" + word + "?$"
+	return class.String()
 }

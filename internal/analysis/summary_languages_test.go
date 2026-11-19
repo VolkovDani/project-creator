@@ -154,3 +154,24 @@ func TestLanguageRepairUsesOnlyOneClassForNativeNames(t *testing.T) {
 		t.Fatal("English source names must not duplicate the native alphabet")
 	}
 }
+
+func TestSummaryKeepsGroundedTypedParameterAndAnnotation(t *testing.T) {
+	p, _ := NewSummaryLanguagePolicy("ru")
+	source := "Проверить список. @param entries — вход. function check(entries: number[]) {}"
+	for _, text := range []string{"Проверяет параметр entries.", "Аннотация @param описывает вход."} {
+		if !p.ValidForSource(text, source) {
+			t.Errorf("rejected %q", text)
+		}
+	}
+}
+
+func TestLanguageRepairKeepsWholeTechnicalWords(t *testing.T) {
+	p, _ := NewSummaryLanguagePolicy("ru")
+	source := "Формат config_v2 и версия Q7/12.5. Использовать API."
+	re := regexp.MustCompile(p.repairPattern(source))
+	for text, want := range map[string]bool{"Результат config_v2, версия Q7/12.5.": true, "Принять «API».": true, "Использовать config.": false, "Имя яAPI": false, "Имя APIя": false, "Имя API-объект": false, "Имя Q8.": false} {
+		if got := re.MatchString(text); got != want {
+			t.Errorf("%q: got %v, want %v", text, got, want)
+		}
+	}
+}

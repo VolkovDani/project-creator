@@ -138,7 +138,7 @@ func (s *chatSummary) ResultProvenance() string {
 		Validation            string          `json:"outputValidation"`
 		LanguageRepair        string          `json:"languageRepair"`
 		RussianLanguageRepair string          `json:"russianLanguageRepair"`
-	}{json.RawMessage(s.provenance), "source-identifiers-verbatim-labels-and-language-repair-schema-v1", languageRepair, russianLanguageRepair})
+	}{json.RawMessage(s.provenance), "source-identifiers-verbatim-labels-and-language-repair-schema-v2", languageRepair, russianLanguageRepair})
 	return string(data)
 }
 

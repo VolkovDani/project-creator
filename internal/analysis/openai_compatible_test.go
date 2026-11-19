@@ -202,8 +202,16 @@ func TestOpenAICompatibleSummaryRepairsLanguageFromScopedSource(t *testing.T) {
 	if err != nil || calls != 2 || got != src.Text {
 		t.Fatalf("got=%q calls=%d err=%v", got, calls, err)
 	}
-	result, ok := any(g).(interface{ ResultProvenance() string })
-	if !ok || !strings.Contains(result.ResultProvenance(), "source-identifiers-verbatim-labels-and-language-repair-schema-v1") {
+	var provenance struct {
+		Validation string          `json:"outputValidation"`
+		Repair     string          `json:"languageRepair"`
+		Generator  json.RawMessage `json:"generator"`
+	}
+	if err := json.Unmarshal([]byte(g.ResultProvenance()), &provenance); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(provenance.Validation, "source-identifiers-verbatim-labels-and-language-repair-schema-v") ||
+		provenance.Repair != languageRepair || string(provenance.Generator) != g.Provenance() {
 		t.Error("repair validation missing from result provenance")
 	}
 }

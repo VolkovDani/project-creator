@@ -160,7 +160,7 @@ export default function RequirementSummary({
     <section aria-label={hasText ? t(locale, 'summary.section') : undefined}>
       {hasText ? <p className="muted">{t(locale, 'summary.suggestion')}</p> : source}
       {hasText && displayedSummary?.text ? (
-        <GlossaryText>
+        <GlossaryText className="user-content">
           <MatchedText
             projectId={projectId}
             text={displayedSummary.text}

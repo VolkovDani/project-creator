@@ -22,6 +22,6 @@ version. Selections from generated previews and explanations prefill only the na
 
 Inside an analysis pair, highlighted names and variants refer to the current project glossary. Matches use the original text and version saved with the run, even after a requirement is edited.
 
-Ready previews highlight matches in the summary text using the current project glossary. Highlighting works with previously saved previews and requires no generation.
+Ready previews use the same inline highlight and dotted underline as the original for matches from the current project glossary. Highlighting works with previously saved previews and requires no generation.
 
 Highlighted texts receive match ranges and term IDs. When a text is displayed, the browser fetches missing definitions in batches and reuses them across texts in the same project. Opening a collapsed original starts its lookup. Glossary changes refresh displayed matches and definitions.

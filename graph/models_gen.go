@@ -557,14 +557,16 @@ type GlossaryCandidatePage struct {
 	HasMore bool
 }
 type GlossaryCandidate struct {
-	SourceId      graphql.ID
-	SourceVersion int32
-	Name          string
-	Abbreviation  string
-	Before        string
-	After         string
-	Start         int32
-	End           int32
+	SourceId        graphql.ID
+	SourceVersion   int32
+	Name            string
+	Abbreviation    string
+	Before          string
+	After           string
+	BeforeTruncated bool
+	AfterTruncated  bool
+	Start           int32
+	End             int32
 }
 type RequirementGlossary struct {
 	Version    int32

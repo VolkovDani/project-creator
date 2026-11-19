@@ -181,7 +181,11 @@ func knownGlossaryCandidate(c glossary.Candidate, terms []glossary.Term) bool {
 }
 
 func candidateResult(c glossary.Candidate, id graphql.ID, version int32) *GlossaryCandidate {
-	return &GlossaryCandidate{Name: c.Name, Abbreviation: c.Abbreviation, SourceId: id, SourceVersion: version, Before: c.Before, After: c.After, Start: int32(c.Start), End: int32(c.End)}
+	return &GlossaryCandidate{
+		Name: c.Name, Abbreviation: c.Abbreviation, SourceId: id, SourceVersion: version,
+		Before: c.Before, After: c.After, Start: int32(c.Start), End: int32(c.End),
+		BeforeTruncated: c.BeforeTruncated, AfterTruncated: c.AfterTruncated,
+	}
 }
 
 func unconfirmedCandidates(source string, id graphql.ID, version int32, terms []glossary.Term) []*GlossaryCandidate {

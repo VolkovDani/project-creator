@@ -3,6 +3,7 @@ package glossary
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -58,5 +59,33 @@ func TestStandaloneAbbreviation(t *testing.T) {
 	got := Candidates("😀 ГП, ГП. ГП2 ГПшка xAPI _ТЗ АБВГДЕЖЗИ")
 	if len(got) != 1 || got[0].Name != "" || got[0].Abbreviation != "ГП" {
 		t.Fatal(got)
+	}
+}
+
+func TestCandidateContextClipping(t *testing.T) {
+	before := strings.Repeat("😀", 59) + " "
+	after := " " + strings.Repeat("я", 59)
+	for _, tc := range []struct {
+		name, prefix, suffix            string
+		beforeTruncated, afterTruncated bool
+	}{
+		{"exact fit", "", "", false, false},
+		{"start omitted", "x", "", true, false},
+		{"end omitted", "", "x", false, true},
+		{"both omitted", "x", "x", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Candidates(tc.prefix + before + "ГП" + after + tc.suffix)
+			if len(got) != 1 {
+				t.Fatal(got)
+			}
+			c := got[0]
+			if c.Before != before || c.After != after || c.BeforeTruncated != tc.beforeTruncated || c.AfterTruncated != tc.afterTruncated {
+				t.Fatalf("unexpected candidate context: %+v", c)
+			}
+			if c.Start != 60+len(tc.prefix) || c.End != c.Start+2 {
+				t.Fatalf("unexpected mention offsets: %d–%d", c.Start, c.End)
+			}
+		})
 	}
 }

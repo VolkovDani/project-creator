@@ -26,6 +26,7 @@ type Match struct {
 }
 type Candidate struct {
 	Name, Abbreviation, Before, After string
+	BeforeTruncated, AfterTruncated   bool
 	Start, End                        int // Unicode code point offsets in the source.
 }
 
@@ -169,7 +170,14 @@ func Candidates(text string) []Candidate {
 		start := runePos + utf8.RuneCountInString(text[bytePos:span[0]])
 		end := start + length
 		bytePos, runePos = span[1], end
-		result = append(result, Candidate{Name: name, Abbreviation: token, Start: start, End: end, Before: string(chars[max(0, start-60):start]), After: string(chars[end:min(len(chars), end+60)])})
+		const contextRunes = 60
+		left := max(0, start-contextRunes)
+		right := min(len(chars), end+contextRunes)
+		result = append(result, Candidate{
+			Name: name, Abbreviation: token, Start: start, End: end,
+			Before: string(chars[left:start]), After: string(chars[end:right]),
+			BeforeTruncated: left > 0, AfterTruncated: right < len(chars),
+		})
 	}
 	return result
 }

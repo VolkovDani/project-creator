@@ -287,13 +287,13 @@ func TestCandidateContextAcrossSources(t *testing.T) {
 	}
 	defer s.Close()
 	_, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now');
- INSERT INTO requirements VALUES('r','a','p','😀 ЭЦП нужна',2,'now','now'),('s','a','p','Проверить ЭЦП',1,'now','now')`)
+ INSERT INTO requirements VALUES('r','a','p',repeat('😀',60) || ' ЭЦП нужна',2,'now','now'),('s','a','p','Проверить ЭЦП ' || repeat('я',60),1,'now','now')`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	list := func() []any {
 		t.Helper()
-		res := summaryRequest(t, s, "token-a", `{glossaryCandidatesConnection(projectId:"p"){items{name abbreviation sourceId sourceVersion start end before after}}}`)
+		res := summaryRequest(t, s, "token-a", `{glossaryCandidatesConnection(projectId:"p"){items{name abbreviation sourceId sourceVersion start end before after beforeTruncated afterTruncated}}}`)
 		if res["errors"] != nil {
 			t.Fatal(res)
 		}
@@ -304,10 +304,17 @@ func TestCandidateContextAcrossSources(t *testing.T) {
 		t.Fatal(items)
 	}
 	for i, want := range []struct {
-		id, before, after string
-		start, version    int
-	}{{"r", "😀 ", " нужна", 2, 2}, {"s", "Проверить ", "", 10, 1}} {
+		id, before, after               string
+		start, version                  int
+		beforeTruncated, afterTruncated bool
+	}{
+		{"r", strings.Repeat("😀", 59) + " ", " нужна", 61, 2, true, false},
+		{"s", "Проверить ", " " + strings.Repeat("я", 59), 10, 1, false, true},
+	} {
 		row := items[i].(map[string]any)
+		if row["beforeTruncated"] != want.beforeTruncated || row["afterTruncated"] != want.afterTruncated {
+			t.Fatal(row)
+		}
 		if row["sourceId"] != want.id || row["before"] != want.before || row["after"] != want.after || row["start"] != float64(want.start) || row["end"] != float64(want.start+3) || row["sourceVersion"] != float64(want.version) || row["name"] != "" || row["abbreviation"] != "ЭЦП" {
 			t.Fatal(row)
 		}

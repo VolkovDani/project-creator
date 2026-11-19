@@ -52,5 +52,5 @@ type GlossaryPayload { term: GlossaryTerm fieldErrors: [FieldError!]! }
 type DeleteGlossaryPayload { deleted: Boolean! }
 type GlossaryMatch { start: Int! end: Int! text: String! terms: [GlossaryTerm!]! }
 type GlossaryCandidatePage { items: [GlossaryCandidate!]! hasMore: Boolean! }
-type GlossaryCandidate { sourceId: ID! sourceVersion: Int!  name: String! abbreviation: String! before: String! after: String! start: Int! end: Int! }
+type GlossaryCandidate { sourceId: ID! sourceVersion: Int!  name: String! abbreviation: String! before: String! after: String! beforeTruncated: Boolean! afterTruncated: Boolean! start: Int! end: Int! }
 type RequirementGlossary { version: Int! matches: [GlossaryMatch!]! candidates: [GlossaryCandidate!]! }

@@ -39,6 +39,7 @@ func (r *Resolver) RequirementClassification(ctx context.Context, a RequirementC
 	}
 	if v != nil {
 		addCacheDependency(ctx, classificationItemTag(a.ProjectId, v.ID))
+		addCacheDependency(ctx, "project:"+string(a.ProjectId)+":classification-profile")
 	}
 	return classificationResult(a.ProjectId, v), nil
 }
@@ -170,6 +171,9 @@ func (r *Resolver) ClassificationListByIds(ctx context.Context, a Classification
 	}
 	rows, err := r.Classifications.ListByIDs(ctx, workspace(ctx), string(a.ProjectId), ids)
 	if err == nil {
+		if len(rows) > 0 {
+			addCacheDependency(ctx, "project:"+string(a.ProjectId)+":classification-profile")
+		}
 		for _, row := range rows {
 			addCacheDependency(ctx, classificationItemTag(a.ProjectId, row.ID))
 		}

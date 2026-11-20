@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"slices"
 	"testing"
 )
 
@@ -31,14 +32,12 @@ func TestStartupInvalidatesChangedProfileForExistingClients(t *testing.T) {
 	}
 	found := false
 	for _, event := range batch.events {
-		for _, key := range event.keys {
-			if key == "project:p" {
-				found = true
-			}
+		if slices.Contains(event.keys, "project:p") && slices.Contains(event.keys, "project:p:classification-profile") && slices.Contains(event.keys, "project:p:classifications") {
+			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("restart failed to invalidate project subscriptions: %+v", batch)
+		t.Fatalf("restart failed to invalidate project profile subscriptions: %+v", batch)
 	}
 	other, err := readEventBatch(context.Background(), s.db, "other", eventCursor{})
 	if err != nil || len(other.events) != 0 {

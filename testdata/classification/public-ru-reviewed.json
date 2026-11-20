@@ -1,0 +1,389 @@
+{
+  "status": "reviewed",
+  "language": "ru",
+  "taxonomy": "2",
+  "origins": {
+    "va": {
+      "license": "BSD-3-Clause",
+      "attribution": "Vanessa Automation. Copyright (c) 2018, Pautov Leonid",
+      "license_notice": "https://github.com/Pr-Mex/vanessa-automation/blob/08e27ef26ef72e9670bade7b52684a4bb3477520/LICENSE"
+    },
+    "sem": {
+      "license": "CC-BY-3.0",
+      "attribution": "Semantic Versioning 2.0.0, Tom Preston-Werner and contributors to the Russian translation",
+      "license_notice": "https://github.com/semver/semver.org/blob/88e3357f2213196669a6fdefc5a59afe5ec17bee/lang/ru/spec/v2.0.0.md#L251-L264",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/"
+    },
+    "os": {
+      "license": "MPL-2.0",
+      "attribution": "gitsync contributors",
+      "license_notice": "https://github.com/oscript-library/gitsync/blob/dd70547174fad967d534d07dd671a5eda80254d7/LICENSE"
+    },
+    "runner": {
+      "license": "MPL-2.0",
+      "attribution": "vanessa-runner contributors",
+      "license_notice": "https://github.com/oscript-library/vanessa-runner/blob/4d214c78ac14ff46040fd2bf7cc669a812ba13be/LICENSE"
+    },
+    "cc": {
+      "license": "CC-BY-3.0",
+      "attribution": "Conventional Commits 1.0.0 contributors, Russian translation",
+      "license_notice": "https://www.conventionalcommits.org/ru/v1.0.0/#license",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/"
+    },
+    "change": {
+      "license": "MIT",
+      "attribution": "Keep a Changelog. Copyright (c) 2014 Olivier Lacan. Russian translation by project contributors including aishek.",
+      "license_notice": "https://github.com/olivierlacan/keep-a-changelog/blob/08d0df5a7e93b71d902def8be0f0d40025b56289/LICENSE"
+    },
+    "webdev": {
+      "license": "CC-BY-3.0",
+      "attribution": "Скорость загрузки основного контента (LCP), Philip Walton, web.dev contributors",
+      "license_notice": "https://github.com/GoogleChrome/web.dev/blob/a64d870f59c25431bbedf0ef06aa635072c43a2e/LICENSE#L1-L3",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/"
+    },
+    "wiki": {
+      "license": "CC-BY-SA-4.0",
+      "attribution": "Язык Си в примерах/Максимум. Русский Викиучебник, авторы перечислены в истории правок страницы.",
+      "license_notice": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "history": "https://ru.wikibooks.org/w/index.php?title=%D0%AF%D0%B7%D1%8B%D0%BA%20%D0%A1%D0%B8%20%D0%B2%20%D0%BF%D1%80%D0%B8%D0%BC%D0%B5%D1%80%D0%B0%D1%85/%D0%9C%D0%B0%D0%BA%D1%81%D0%B8%D0%BC%D1%83%D0%BC&action=history"
+    }
+  },
+  "source_handling": "Contiguous line excerpts, with LF line endings and common indentation removed. The Wikibooks entry uses the rendered definition list in reading order. Labels and tags are proposed annotations. Each origin is assigned to one split.",
+  "examples": [
+    {
+      "id": "RU-001",
+      "text": "Как разработчик я хочу\nчтобы я мог выводить произвольный текст в консоль\nчтобы получать дополнительную информацию о выполнении теста",
+      "source": "https://github.com/Pr-Mex/vanessa-automation/blob/08e27ef26ef72e9670bade7b52684a4bb3477520/features/Core/Console/%D0%92%D1%8B%D0%B2%D0%BE%D0%B4%D0%A2%D0%B5%D0%BA%D1%81%D1%82%D0%B0%D0%92%D0%9A%D0%BE%D0%BD%D1%81%D0%BE%D0%BB%D1%8C.feature#L24-L26",
+      "origin": "va",
+      "license": "BSD-3-Clause",
+      "split": "tuning",
+      "tags": [],
+      "semantic": "stakeholder_requirement",
+      "representation": "user_story"
+    },
+    {
+      "id": "RU-002",
+      "text": "Сценарий: Получение версии продукта\n    Когда Я добавляю параметр \"--version\" для команды \"gitsync\"\n    Когда Я выполняю команду \"gitsync\"\n    Тогда Вывод команды \"gitsync\" содержит \".\"\n    И Вывод команды \"gitsync\" не содержит \"Внешнее исключение\"\n    И Код возврата команды \"gitsync\" равен 0",
+      "source": "https://github.com/oscript-library/gitsync/blob/dd70547174fad967d534d07dd671a5eda80254d7/features/cmd/version.feature#L12-L17",
+      "origin": "os",
+      "license": "MPL-2.0",
+      "split": "holdout",
+      "tags": [
+        "test_without_dano"
+      ],
+      "semantic": "functional_requirement",
+      "representation": "test_case"
+    },
+    {
+      "id": "RU-003",
+      "text": "Чтобы пользователям и контрибуторам было проще в точности понять,\nкакие значимые изменения были внесены в каждый выпуск (или версию)\nпроекта.",
+      "source": "https://github.com/olivierlacan/keep-a-changelog/blob/08d0df5a7e93b71d902def8be0f0d40025b56289/source/ru/1.1.0/index.html.haml#L32-L34",
+      "origin": "change",
+      "license": "MIT",
+      "split": "tuning",
+      "tags": [],
+      "semantic": "business_requirement",
+      "representation": "statement"
+    },
+    {
+      "id": "RU-004",
+      "text": "2. Обычный номер версии ДОЛЖЕН иметь формат X.Y.Z, где X, Y и Z — неотрицательные\nцелые числа и НЕ ДОЛЖНЫ содержать ведущие нули. X — мажорная версия, Y — минорная\nверсия и Z — патч-версия. Каждый элемент ДОЛЖЕН увеличиваться численно.\nНапример: 1.9.0 ->1.10.0 -> 1.11.0.",
+      "source": "https://github.com/semver/semver.org/blob/88e3357f2213196669a6fdefc5a59afe5ec17bee/lang/ru/spec/v2.0.0.md#L65-L68",
+      "origin": "sem",
+      "license": "CC-BY-3.0",
+      "split": "holdout",
+      "tags": [],
+      "semantic": "constraint",
+      "representation": "statement"
+    },
+    {
+      "id": "RU-005",
+      "text": "1. _Тип_ `feat` должен (MUST) использоваться, когда коммит добавляет новый\n   функционал в ваше приложение или вашу библиотеку.",
+      "source": "https://github.com/conventional-commits/conventionalcommits.org/blob/7d293dc59e88abc8ce6c6698344d4da518ff3f27/content/v1.0.0/index.ru.md#L116-L117",
+      "origin": "cc",
+      "license": "CC-BY-3.0",
+      "split": "tuning",
+      "tags": [],
+      "semantic": "business_rule",
+      "representation": "statement"
+    },
+    {
+      "id": "RU-006",
+      "text": "Сценарий: Закрытие клиента тестирования\n\tИ я закрываю сеанс TESTCLIENT\n\tИ в таблице клиентов тестирования я активизирую строку 'Этот клиент'",
+      "source": "https://github.com/Pr-Mex/vanessa-automation/blob/08e27ef26ef72e9670bade7b52684a4bb3477520/features/Core/FeatureLoad/%D0%9F%D1%80%D0%BE%D0%B2%D0%B5%D1%80%D0%BA%D0%B0%D0%9E%D0%BF%D1%82%D0%B8%D0%BC%D0%B8%D0%B7%D0%B0%D1%86%D0%B8%D0%B8%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D0%BA%D0%B8%D0%A4%D0%B8%D1%87.feature#L21-L23",
+      "origin": "va",
+      "license": "BSD-3-Clause",
+      "split": "tuning",
+      "tags": [],
+      "semantic": "other",
+      "representation": "scenario"
+    },
+    {
+      "id": "RU-007",
+      "text": "Для обеспечения удобства работы пользователей сайты должны стремиться к тому, чтобы максимальная продолжительность отрисовки контента составляла **2,5 секунды** или меньше. Чтобы убедиться, что вы достигли этой цели для большинства пользователей, рекомендуется в качестве порогового значения использовать **75-й процентиль** загрузки страниц, сегментированный по мобильным и настольным устройствам.",
+      "source": "https://github.com/GoogleChrome/web.dev/blob/a64d870f59c25431bbedf0ef06aa635072c43a2e/src/site/content/ru/metrics/lcp/index.md#L35-L35",
+      "origin": "webdev",
+      "license": "CC-BY-3.0",
+      "split": "holdout",
+      "tags": [
+        "quantitative"
+      ],
+      "semantic": "non_functional_requirement",
+      "representation": "acceptance_criterion"
+    },
+    {
+      "id": "RU-008",
+      "text": "Объявление функциональности устаревшей — это обычное дело в ходе разработки и часто\nнеобходимо для продвижения вперёд. Когда вы объявляете устаревшим часть\nпубличного API, вы должны сделать две вещи: (1) обновить вашу документацию,\nчтобы дать пользователям узнать об этом изменении; (2) выпустить новый релиз с\nувеличением минорной версии. Прежде чем вы полностью удалите устаревшую\nфункциональность в релизе с увеличением главной версии, должен быть как минимум один\nминорный релиз, содержащий объявление функциональности устаревшим, чтобы\nпользователи могли плавно перейти на новый API.",
+      "source": "https://github.com/semver/semver.org/blob/88e3357f2213196669a6fdefc5a59afe5ec17bee/lang/ru/spec/v2.0.0.md#L236-L243",
+      "origin": "sem",
+      "license": "CC-BY-3.0",
+      "split": "holdout",
+      "tags": [
+        "mixed"
+      ],
+      "semantic": "transition_requirement",
+      "representation": "statement"
+    },
+    {
+      "id": "RU-009",
+      "text": "Сценарий: Проверка модифицированности формы\n\tИ я удаляю все элементы Справочника \"Справочник1\"\n\tДано Я запускаю сценарий открытия TestClient или подключаю уже существующий\n\tИ я закрываю все окна клиентского приложения\n\n\t* Создание элемента Справчоник1\n\t\tИ В командном интерфейсе я выбираю \"Основная\" \"Справочник1\"\n\t\tТогда открылось окно \"Справочник1\"\n\t\tИ я нажимаю на кнопку с именем 'ФормаСоздать'\n\t\tТогда открылось окно \"Справочник1 (создание)\"\n\t\tИ в поле с именем 'Наименование' я ввожу текст \"Тест\"\n\t\tИ я перехожу к следующему реквизиту\n\n\t* Проверка шагов, проверки модифицированности\n\t\tИ форма текущего окна имеет признак модифицированности\n\t\tИ я жду, что у формы текущего окна появится признак модифицированности в течение 10 секунд\n\n\t\tИ я нажимаю на кнопку с именем 'ФормаЗаписать'\n\t\tИ Пауза 1\n\n\t\tИ форма текущего окна не имеет признак модифицированности\n\t\tИ я жду, что у формы текущего окна пропадёт признак модифицированности в течение 10 секунд",
+      "source": "https://github.com/Pr-Mex/vanessa-automation/blob/08e27ef26ef72e9670bade7b52684a4bb3477520/features/Core/CheckSteps/%D0%9C%D0%BE%D0%B4%D0%B8%D1%84%D0%B8%D1%86%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%D0%BD%D0%BD%D0%BE%D1%81%D1%82%D1%8C%D0%A4%D0%BE%D1%80%D0%BC%D1%8B.feature#L15-L36",
+      "origin": "va",
+      "license": "BSD-3-Clause",
+      "split": "tuning",
+      "tags": [
+        "test_with_dano"
+      ],
+      "semantic": "functional_requirement",
+      "representation": "test_case"
+    },
+    {
+      "id": "RU-010",
+      "text": "Как Пользователь\nЯ хочу выполнять автоматическую устоановка и загрузку плагинов к gitsync\nЧтобы автоматизировать свою работу с хранилищем с git",
+      "source": "https://github.com/oscript-library/gitsync/blob/dd70547174fad967d534d07dd671a5eda80254d7/features/cmd/plugins.feature#L4-L6",
+      "origin": "os",
+      "license": "MPL-2.0",
+      "split": "holdout",
+      "tags": [],
+      "semantic": "stakeholder_requirement",
+      "representation": "user_story"
+    },
+    {
+      "id": "RU-011",
+      "text": "Для каждой версии без исключения следует создать отдельный раздел.",
+      "source": "https://github.com/olivierlacan/keep-a-changelog/blob/08d0df5a7e93b71d902def8be0f0d40025b56289/source/ru/1.1.0/index.html.haml#L58-L58",
+      "origin": "change",
+      "license": "MIT",
+      "split": "tuning",
+      "tags": [],
+      "semantic": "business_rule",
+      "representation": "statement"
+    },
+    {
+      "id": "RU-012",
+      "text": "### Что мне делать, если я случайно использовал неправильный _тип_ коммита?\n\n#### Когда вы использовали неправильный _тип_, но соответствующий спецификации.  Например, `fix` вместо `feat`\n\nПеред объединением или выпуском ошибки мы рекомендуем использовать `git rebase\n-i` для редактирования истории коммитов.  После выпуска редактирование будет\nотличаться в зависимости от того, какие инструменты и процессы вы используете.\n\n#### Когда вы использовали _тип_, не указанный в спецификации.  Например, `feet` вместо `feat`\n\nВ худшем случае это ещё не конец света, если коммит не соответствует\nспецификации «Соглашения о коммитах».  Это просто означает, что коммит будет\nпропущен инструментами, основанными на спецификации.",
+      "source": "https://github.com/conventional-commits/conventionalcommits.org/blob/7d293dc59e88abc8ce6c6698344d4da518ff3f27/content/v1.0.0/index.ru.md#L217-L229",
+      "origin": "cc",
+      "license": "CC-BY-3.0",
+      "split": "tuning",
+      "tags": [
+        "mixed"
+      ],
+      "semantic": "other",
+      "representation": "use_case"
+    },
+    {
+      "id": "RU-013",
+      "text": "Простой пример демонстрирует, как Семантическое Версионирование может сделать\n«ад зависимостей» вещью из прошлого. Представим библиотеку, названную\n«Firetruck». Она требует Семантически Версионированный пакет под названием\n«Ladder». Когда Firetruck был создан, Ladder был 3.1.0 версии. Так как Firetruck\nиспользует функциональности версии 3.1.0,  вы спокойно можете объявить зависимость от\nLadder версии 3.1.0, но менее чем 4.0.0. Теперь, когда доступен Ladder 3.1.1 и\n3.2.0 версии, вы можете интегрировать его в вашу систему и знать, что он будет\nсовместим с текущей функциональностью.",
+      "source": "https://github.com/semver/semver.org/blob/88e3357f2213196669a6fdefc5a59afe5ec17bee/lang/ru/spec/v2.0.0.md#L146-L153",
+      "origin": "sem",
+      "license": "CC-BY-3.0",
+      "split": "holdout",
+      "tags": [],
+      "semantic": "other",
+      "representation": "scenario"
+    },
+    {
+      "id": "RU-014",
+      "text": "Сценарий: Инициализация и обновление с инкрементальной загрузкой по логу GIT\n    Когда Я выполняю команду \"git\" с параметрами \"init\"\n        И Я очищаю параметры команды \"git\" в контексте\n    Когда Я выполняю команду \"echo\" с параметрами \"lastUploadedCommit.txt >> .gitignore\"\n        И Я очищаю параметры команды \"echo\" в контексте\n    Когда Я выполняю команду \"git\" с параметрами \"add -A\"\n        И Я очищаю параметры команды \"git\" в контексте\n    Когда Я выполняю команду \"git\" с параметрами 'commit -m \"first commit\"'\n        И Я очищаю параметры команды \"git\" в контексте\n    Когда Я выполняю команду \"git\" с параметрами \"rev-parse --short HEAD >> ./cf/lastUploadedCommit.txt\"\n        И Я очищаю параметры команды \"git\" в контексте\n    Тогда Файл \"./cf/lastUploadedCommit.txt\" существует\n\n    Когда Я сохраняю каталог проекта в контекст\n    Когда Я выполняю команду \"oscript\" с параметрами \"<КаталогПроекта>/src/main.os init-dev --src ./cf --nocacheuse --language ru\"\n        И Я очищаю параметры команды \"oscript\" в контексте\n\n    Когда Я выполняю команду \"echo\" с параметрами 'Сообщить(\"Управляемое приложение\"); A=1; >> ./cf/Ext/ManagedApplicationModule.bsl'\n    Когда Я выполняю команду \"git\" с параметрами \"status\"\n    Тогда Вывод команды \"git\" содержит \"modified:   cf/Ext/ManagedApplicationModule.bsl\"\n        И Я очищаю параметры команды \"git\" в контексте\n    Когда Я выполняю команду \"git\" с параметрами \"add -A\"\n        И Я очищаю параметры команды \"git\" в контексте\n    Когда Я выполняю команду \"git\" с параметрами 'commit -m \"second commit\"'\n        И Я очищаю параметры команды \"git\" в контексте\n\n    Когда Я сохраняю каталог проекта в контекст\n    Когда Я выполняю команду \"oscript\" с параметрами \"<КаталогПроекта>/src/main.os update-dev --src ./cf --nocacheuse --git-increment --language ru\"\n    Тогда Вывод команды \"oscript\" содержит \"Будет выполнена инкрементальная загрузка\"\n        И Вывод команды \"oscript\" содержит \"Измененные файлы:\"\n        И Вывод команды \"oscript\" содержит \"ManagedApplicationModule.bsl\"\n        И Вывод команды \"oscript\" содержит \"Обновление конфигурации базы данных успешно завершено\"\n        И Код возврата команды \"oscript\" равен 0",
+      "source": "https://github.com/oscript-library/vanessa-runner/blob/4d214c78ac14ff46040fd2bf7cc669a812ba13be/features/%D0%9E%D0%B1%D0%BD%D0%BE%D0%B2%D0%BB%D0%B5%D0%BD%D0%B8%D0%B5%D0%9E%D0%BA%D1%80%D1%83%D0%B6%D0%B5%D0%BD%D0%B8%D1%8F.feature#L40-L72",
+      "origin": "runner",
+      "license": "MPL-2.0",
+      "split": "holdout",
+      "tags": [
+        "test_without_dano"
+      ],
+      "semantic": "functional_requirement",
+      "representation": "test_case"
+    },
+    {
+      "id": "RU-015",
+      "text": "1. Коммиты должны (MUST) начинается с _типа_, который является существительным:\n   `feat`, `fix` и т.д. За ним следует необязательный (OPTIONAL) _контекст_,\n   необязательный (OPTIONAL) восклицательный знак (`!`) и обязательные\n   (REQUIRED) двоеточие (`:`) и пробел (` `).",
+      "source": "https://github.com/conventional-commits/conventionalcommits.org/blob/7d293dc59e88abc8ce6c6698344d4da518ff3f27/content/v1.0.0/index.ru.md#L112-L115",
+      "origin": "cc",
+      "license": "CC-BY-3.0",
+      "split": "tuning",
+      "tags": [],
+      "semantic": "constraint",
+      "representation": "statement"
+    },
+    {
+      "id": "RU-016",
+      "text": "Сценарий: Дерево метаданных учитывает начальную дату и сортировку по убыванию\n\n\t* Подготовка каталога и настроек\n\t\tИ я перехожу к закладке \"Работа с UI\"\n\t\tИ я нажимаю на кнопку \"Генератор дымовых тестов\"\n\t\tКогда открылось окно \"Генератор дымовых тестов:*\"\n\t\tИ я меняю значение переключателя с именем 'ЯзыкШагов' на \"Русский\"\n\t\tИ я создаю каталог \"$КаталогГенераторD1$\"\n\t\tИ я очищаю каталог \"$КаталогГенераторD1$\"\n\t\tИ в поле с именем 'КаталогВыходныхФайлов' я ввожу текст '$КаталогГенераторD1$'\n\t\tИ я перехожу к следующему реквизиту\n\t\tИ я перехожу к закладке с именем \"СтраницаФомированияСценариевФичаФайлами\"\n\t\tИ в поле с именем 'ДымовыеТестыНачальнаяДатаДляПодбораДокументов' я ввожу текст '01.01.2000'\n\t\tИ я перехожу к следующему реквизиту\n\t\tИ я устанавливаю флаг с именем 'ДымовыеТестыСортироватьДокументыПоДатеУбыв'\n\n\t* Генерация сценария из дерева\n\t\tИ я перехожу к закладке с именем 'СтраницаФормированияСценариевПоМетаданным'\n\t\tИ я нажимаю кнопку очистить у поля с именем 'КаталогФайловИсключений1'\n\t\tИ я снимаю флаг с именем 'ТолькоВведенныеОбъекты1'\n\t\tИ в таблице 'ДеревоМетаданных' я нажимаю на кнопку с именем 'ДеревоМетаданныхОбновитьСтруктуруМетаданных'\n\t\tИ в таблице 'ДеревоМетаданных' я разворачиваю строку:\n\t\t\t| 'Пометка' | 'Представление' | 'Данные'   |\n\t\t\t| 'Нет'     | 'Документы'     | 'Документ' |\n\t\tИ в таблице 'ДеревоМетаданных' я перехожу к строке:\n\t\t\t| 'Данные'    |\n\t\t\t| 'Документ1' |\n\t\tИ в таблице 'ДеревоМетаданных' я устанавливаю флаг с именем 'ДеревоМетаданныхПометка'\n\t\tИ я нажимаю на кнопку с именем 'ДеревоМетаданныхСформироватьСценарииПоМетаданным'\n\t\tТогда таблица 'ТаблицаКодаСценариев1С' содержит строки:\n\t\t\t| 'Сценарий' |\n\t\t\t| 'Документ.Документ1 - Запись' |\n\n\t* Создание feature-файла\n\t\tИ я нажимаю на кнопку с именем 'СоздатьОбновитьФичаФайлы'\n\t\tТогда открылось окно \"1С:Предприятие\"\n\t\tИ я нажимаю на кнопку с именем 'Button0'\n\t\tИ я жду существования файла \"$КаталогГенераторD1$/023_Документы_Запись.feature\" в течение 30 секунд\n\n\t* Проверка отбора и сортировки\n\t\tТогда файл \"$КаталогГенераторD1$/023_Документы_Запись.feature\" содержит строки\n\t\t\t| \"ТекДанныеИсточник.Дата >= &ДымовыеТестыНачальнаяДатаДляПодбораДокументов\" |\n\t\t\t| \"УПОРЯДОЧИТЬ ПО\"                                                              |\n\t\t\t| \"ТекДанныеИсточник.Дата УБЫВ\"                                                  |\n\t\t\t| \"Дата('2000-01-01T00:00:00')\"                                                  |",
+      "source": "https://github.com/Pr-Mex/vanessa-automation/blob/08e27ef26ef72e9670bade7b52684a4bb3477520/features/Core/FeatureGeneration/D1_%D0%94%D0%B0%D1%82%D0%B0%D0%98%D0%A1%D0%BE%D1%80%D1%82%D0%B8%D1%80%D0%BE%D0%B2%D0%BA%D0%B0%D0%92%D0%94%D0%B5%D1%80%D0%B5%D0%B2%D0%B5.feature#L40-L84",
+      "origin": "va",
+      "license": "BSD-3-Clause",
+      "split": "tuning",
+      "tags": [
+        "test_without_dano"
+      ],
+      "semantic": "functional_requirement",
+      "representation": "test_case"
+    },
+    {
+      "id": "RU-017",
+      "text": "Указаны даты выпуска каждой версии.",
+      "source": "https://github.com/olivierlacan/keep-a-changelog/blob/08d0df5a7e93b71d902def8be0f0d40025b56289/source/ru/1.1.0/index.html.haml#L66-L66",
+      "origin": "change",
+      "license": "MIT",
+      "split": "tuning",
+      "tags": [],
+      "semantic": "business_rule",
+      "representation": "acceptance_criterion"
+    },
+    {
+      "id": "RU-018",
+      "text": "3. После релиза новой версии пакета содержание этой версии НЕ ДОЛЖНО быть\nмодифицировано. Любые изменения ДОЛЖНЫ быть выпущены как новая версия.",
+      "source": "https://github.com/semver/semver.org/blob/88e3357f2213196669a6fdefc5a59afe5ec17bee/lang/ru/spec/v2.0.0.md#L70-L71",
+      "origin": "sem",
+      "license": "CC-BY-3.0",
+      "split": "holdout",
+      "tags": [],
+      "semantic": "business_rule",
+      "representation": "statement"
+    },
+    {
+      "id": "RU-019",
+      "text": "Функциональность: ГенераторДанных",
+      "source": "https://github.com/Pr-Mex/vanessa-automation/blob/08e27ef26ef72e9670bade7b52684a4bb3477520/features/Core/DataGenerator/%D0%93%D0%B5%D0%BD%D0%B5%D1%80%D0%B0%D1%82%D0%BE%D1%80%D0%94%D0%B0%D0%BD%D0%BD%D1%8B%D1%85.feature#L7-L7",
+      "origin": "va",
+      "license": "BSD-3-Clause",
+      "split": "tuning",
+      "tags": [
+        "fragment"
+      ],
+      "semantic": "unknown",
+      "representation": "unknown"
+    },
+    {
+      "id": "RU-020",
+      "text": "11. Приоритет определяет, как версии соотносятся друг с другом, когда\nупорядочиваются. Приоритет версий ДОЛЖЕН рассчитываться путём разделения номеров\nверсий на мажорную, минорную, патч и предрелизные идентификаторы. Именно в\nтакой последовательности (сборочные метаданные не фигурируют в расчёте).\nПриоритет определяется по первому отличию при сравнении каждого из этих\nидентификаторов слева направо: Мажорная, минорная и патч-версия всегда\nсравниваются численно. Пример: 1.0.0 < 2.0.0 < 2.1.0 < 2.1.1. Когда мажорная,\nминорная и патч-версия равны, предрелизная версия имеет более низкий приоритет,\nчем нормальная версия. Пример: 1.0.0-alpha < 1.0.0. Приоритет двух предрелизных\nверсий с одинаковыми мажорной, минорной и патч-версией ДОЛЖНЫ быть определены\nсравнением каждого разделённого точкой идентификатора слева направо до тех пор,\nпока различие не будет найдено следующим образом: идентификаторы, состоящие\nтолько из цифр, сравниваются численно; буквенные идентификаторы или дефисы\nсравниваются лексически в ASCII-порядке. Численные идентификаторы всегда имеют\nнизший приоритет, чем символьные. Больший набор предрелизных символов имеет\nбольший приоритет, чем меньший набор, если сравниваемые идентификаторы равны.\nПример: 1.0.0-alpha < 1.0.0-alpha.1 < 1.0.0-alpha.beta < 1.0.0-beta <\n1.0.0-beta.2 < 1.0.0-beta.11 < 1.0.0-rc.1 < 1.0.0.",
+      "source": "https://github.com/semver/semver.org/blob/88e3357f2213196669a6fdefc5a59afe5ec17bee/lang/ru/spec/v2.0.0.md#L116-L133",
+      "origin": "sem",
+      "license": "CC-BY-3.0",
+      "split": "holdout",
+      "tags": [
+        "mixed"
+      ],
+      "semantic": "business_rule",
+      "representation": "statement"
+    },
+    {
+      "id": "RU-021",
+      "text": "Дано\nнепустая последовательность разделенных пробельными символами целых чисел (в «текстовом» десятичном представлении) на стандартном вводе программы.  Последовательность конечна, но ее длина заранее неизвестна.\nНайти\nпредельные значения последовательности (минимум, максимум) и основные статистики (среднее, среднеквадратичное отклонение.)\nУказания\nвоспользуйтесь циклом «пока» (while) для чтения последовательности и функциями pow, sqrt для вычисления среднеквадратичного отклонения.",
+      "source": "https://ru.wikibooks.org/w/index.php?oldid=255511#Дано",
+      "origin": "wiki",
+      "license": "CC-BY-SA-4.0",
+      "split": "holdout",
+      "tags": [
+        "dano_outside_test",
+        "mixed"
+      ],
+      "semantic": "functional_requirement",
+      "representation": "statement"
+    },
+    {
+      "id": "RU-022",
+      "text": "Нет!  Если вы используете рабочий процесс на основе соединения (squash)\nкоммитов в Git, то ведущие специалисты по сопровождению могут приводить в\nпорядок сообщения коммитов по мере их слияния (merge), не добавляя нагрузки для\nобычных коммиттеров.  Обычный рабочий процесс для этого состоит в том, чтобы\nваша система Git автоматически соединяла коммиты из PR и представляла форму для\nведущего сопровождающего, чтобы ввести более подходящее сообщение коммита для\nслияния.",
+      "source": "https://github.com/conventional-commits/conventionalcommits.org/blob/7d293dc59e88abc8ce6c6698344d4da518ff3f27/content/v1.0.0/index.ru.md#L233-L239",
+      "origin": "cc",
+      "license": "CC-BY-3.0",
+      "split": "tuning",
+      "tags": [],
+      "semantic": "functional_requirement",
+      "representation": "use_case"
+    },
+    {
+      "id": "RU-023",
+      "text": "Следует предусмотреть возможность поставить ссылку на любую версию или раздел.",
+      "source": "https://github.com/olivierlacan/keep-a-changelog/blob/08d0df5a7e93b71d902def8be0f0d40025b56289/source/ru/1.1.0/index.html.haml#L62-L62",
+      "origin": "change",
+      "license": "MIT",
+      "split": "tuning",
+      "tags": [],
+      "semantic": "functional_requirement",
+      "representation": "statement"
+    },
+    {
+      "id": "RU-024",
+      "text": "Авторство спецификаций Семантического Версионирования принадлежит\n[Тому Престон-Вернеру](http://tom.preston-werner.com), основателю Gravatars и\nсоучредителю GitHub.",
+      "source": "https://github.com/semver/semver.org/blob/88e3357f2213196669a6fdefc5a59afe5ec17bee/lang/ru/spec/v2.0.0.md#L254-L256",
+      "origin": "sem",
+      "license": "CC-BY-3.0",
+      "split": "holdout",
+      "tags": [],
+      "semantic": "other",
+      "representation": "statement"
+    },
+    {
+      "id": "RU-025",
+      "text": "Сценарий: Вывод текста в консоль с помощью флага в настройках VA\n\t* Подготовка теста\n\t\tИ я запоминаю строку \"c:\\temp\\consoleout.txt\" в переменную \"ИмяФайлаВывода\"\n\t\tИ я запоминаю строку \"c:\\temp\\consoleflag.txt\" в переменную \"ИмяФайлаФлага\"\n\t\tЗатем я удаляю файл \"$ИмяФайлаВывода$\"\n\t\tЗатем я удаляю файл \"$ИмяФайлаФлага$\"\n\n\t* Запуск VA из командной строки\n\t\tИ я запускаю Vanessa Automation для теста вывода текста в консоль \"$ИмяФайлаФлага$\" \"$ИмяФайлаВывода$\" \"TestConsoleFlag.json\"\n\n\t* Проверка файла с выводом консоли\n\t\tИ я жду существования файла \"$ИмяФайлаФлага$\" в течение 30 секунд\n\t\tИ Пауза 3\n\t\tИ файл \"$ИмяФайлаВывода$\" содержит строки\n\t\t\t|'Перед выводом консоли процесса. Строка выводится в onescript'|\n\t\t\t|'Сценарий: Проверка вывода в консоль с помощью флага'|\n\t\t\t|'И пауза 1'|\n\t\t\t|'И Я запоминаю значение выражения'|\n\t\t\t|'И я добавляю информацию в лог'|\n\t\t\t|'Текст из шага вывода в лог1'|\n\t\t\t|'Failed:'|\n\t\t\t|'Технические данные:'|\n\t\t\t|'После вывода консоли процесса. Строка выводится в onescript'|",
+      "source": "https://github.com/Pr-Mex/vanessa-automation/blob/08e27ef26ef72e9670bade7b52684a4bb3477520/features/Core/Console/%D0%92%D1%8B%D0%B2%D0%BE%D0%B4%D0%A2%D0%B5%D0%BA%D1%81%D1%82%D0%B0%D0%92%D0%9A%D0%BE%D0%BD%D1%81%D0%BE%D0%BB%D1%8C.feature#L30-L52",
+      "origin": "va",
+      "license": "BSD-3-Clause",
+      "split": "tuning",
+      "tags": [
+        "test_without_dano"
+      ],
+      "semantic": "functional_requirement",
+      "representation": "test_case"
+    },
+    {
+      "id": "RU-026",
+      "text": "Как Пользователь\nЯ хочу получать версию продукта gitsync\nЧтобы понимать актуальность продукта",
+      "source": "https://github.com/oscript-library/gitsync/blob/dd70547174fad967d534d07dd671a5eda80254d7/features/cmd/version.feature#L4-L6",
+      "origin": "os",
+      "license": "MPL-2.0",
+      "split": "holdout",
+      "tags": [],
+      "semantic": "stakeholder_requirement",
+      "representation": "user_story"
+    },
+    {
+      "id": "RU-027",
+      "text": "Людям. Конечные пользователи программного обеспечения, будь то клиенты или разработчики, —\nэто человеческие существа, которым небезразлично, с чем они работают. Когда\nпрограммное обеспечение изменяется, люди хотят знать, что и почему изменилось.",
+      "source": "https://github.com/olivierlacan/keep-a-changelog/blob/08d0df5a7e93b71d902def8be0f0d40025b56289/source/ru/1.1.0/index.html.haml#L41-L43",
+      "origin": "change",
+      "license": "MIT",
+      "split": "tuning",
+      "tags": [],
+      "semantic": "stakeholder_requirement",
+      "representation": "statement"
+    },
+    {
+      "id": "RU-028",
+      "text": "Как только вы поняли, что нарушили спецификации Семантического Версионирования,\nисправьте проблему и выпустите новую минорную версию, которая исправляет\nпроблему и восстанавливает обратную совместимость. Даже в таких обстоятельствах\nнеприемлемо модифицировать уже выпущенные релизы. Если это необходимо, укажите в\nдокументации о нарушении обратной совместимости, версионирования и\nпроинформируйте ваших пользователей, чтобы они знали о нарушении порядка версий.",
+      "source": "https://github.com/semver/semver.org/blob/88e3357f2213196669a6fdefc5a59afe5ec17bee/lang/ru/spec/v2.0.0.md#L207-L212",
+      "origin": "sem",
+      "license": "CC-BY-3.0",
+      "split": "holdout",
+      "tags": [
+        "mixed"
+      ],
+      "semantic": "transition_requirement",
+      "representation": "scenario"
+    }
+  ],
+  "reviewer": "Project Creator repository owner",
+  "reviewed_at": "2026-11-20"
+}

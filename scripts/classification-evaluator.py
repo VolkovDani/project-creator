@@ -232,6 +232,9 @@ def main():
             parser.exit(1, f"Experiment failed: {exc}\n")
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return
+    if isinstance(examples, dict):
+        bench.validate_corpus(examples, contract)
+        examples = examples["examples"]
     if args.self_check:
         predictions = {
             "copy_reference": examples,

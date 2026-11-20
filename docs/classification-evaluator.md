@@ -47,3 +47,41 @@ The default full-text ceiling is the runtime’s 64 KiB transport cap. Request f
 The audited GGUF template uses a 256-token head and allows at most 48 text tokens per option. The pinned renderer can shorten the question and options when crowded. The runner uses single-letter wire keys and short Russian descriptions. Before sending each question, it checks a conservative UTF-8 byte upper bound for the rendered options, their markers and the question. The pinned GGUF renderer preserves the state suffix. The multilingual checkpoint was trained with a 1,024-token total limit. Responses above this limit retain raw evidence under `steps` and are excluded from quality/threshold metrics. Inspect `over_budget`, `reserved_token`, `runtime_rejected` (HTTP 400/413) and `outside_training_context` separately. Other runtime errors stop the run. [Pinned GGUF implementation](https://github.com/ggml-org/llama.cpp/blob/b12177/tools/server/server-decision.cpp#L1269-L1321) · [Ollama request limit](https://github.com/ollama/ollama/blob/v0.40.16/server/routes.go#L948-L1027) · [Checkpoint configuration](https://github.com/NandhaKishorM/laya/blob/main/laya-rust/README.md#checkpoints)
 
 Each flat or binary decision uses the selected option’s score. The hierarchical decision uses the lowest selected score along its path. These scores and the runtime’s concentration measure are model outputs. For each scheme and axis, sweep the observed tuning scores and choose the greatest coverage meeting the specified accepted accuracy and minimum count. Apply that threshold unchanged to the holdout. If no threshold qualifies, abstain on all examples. `raw_metrics` score available predictions before applying a cutoff. `metrics` include abstentions; `accepted_accuracy` describes accepted predictions only. Inspect `accepted_errors`, `rejected_errors`, `below_threshold` and `unavailable` by ID and compare the class supports. A weak or unavailable decision calls for human review. No threshold from this exploratory sample is automatically adopted by the application.
+
+## Measured result on 20 November 2026
+
+The project owner reviewed both axes of all 28 records before inference. Tuning used 15 records and holdout used 13 from separate source projects. The table counts correct answers before thresholding. The target declared before the run was at least five accepted tuning decisions with 90% accuracy among accepted decisions. None of the schemes met it on either axis. No threshold qualified for automatic suggestions. Classification stays manual. An explicitly enabled diagnostic model should route uncertain decisions to review with `unknown` labels.
+
+| Scheme | Meaning, tuning / holdout | Form, tuning / holdout |
+| --- | --- | --- |
+| `flat` | 3/15 · 3/13 | 1/15 · 2/13 |
+| `flat_reverse` | 0/15 · 2/13 | 0/15 · 0/13 |
+| `flat_reword` | 3/15 · 2/13 | 3/15 · 2/13 |
+| `hierarchical` | 1/15 · 4/13 | 7/15 · 3/13 |
+| `flat_marker` | 0/15 · 1/13 | 0/15 · 2/13 |
+
+The binary User Story probe was correct on 11/15 and 9/13 records. On the nine holdout records with a marker, the full text gave two correct semantic labels and the excerpt gave one. For representation those counts were one and two. Four holdout records contained no marker. The longest record, RU-016 (2,419 characters), exceeded the checkpoint’s training context for the full-input profile. On holdout the hierarchical scheme called both user stories `statement` and one of two test cases `scenario`. The sources primarily cover developer tooling and specifications. Business objectives and nonfunctional requirements have only one reference each.
+
+### Hierarchical scheme on holdout
+
+| Label | Support | Precision | Recall | F1 |
+| --- | ---: | ---: | ---: | ---: |
+| `semantic.business_requirement` | 0 | — | — | — |
+| `semantic.stakeholder_requirement` | 2 | — | 0.00 | 0.00 |
+| `semantic.functional_requirement` | 3 | 0.50 | 0.33 | 0.40 |
+| `semantic.non_functional_requirement` | 1 | 0.25 | 1.00 | 0.40 |
+| `semantic.transition_requirement` | 2 | 0.20 | 0.50 | 0.29 |
+| `semantic.business_rule` | 2 | 1.00 | 0.50 | 0.67 |
+| `semantic.constraint` | 1 | — | 0.00 | 0.00 |
+| `semantic.other` | 2 | — | 0.00 | 0.00 |
+| `semantic.unknown` | 0 | 0.00 | — | 0.00 |
+| `representation.statement` | 6 | 0.33 | 0.33 | 0.33 |
+| `representation.user_story` | 2 | — | 0.00 | 0.00 |
+| `representation.use_case` | 0 | — | — | — |
+| `representation.scenario` | 2 | 0.00 | 0.00 | 0.00 |
+| `representation.acceptance_criterion` | 1 | 0.00 | 0.00 | 0.00 |
+| `representation.test_case` | 2 | 0.50 | 0.50 | 0.50 |
+| `representation.other` | 0 | — | — | — |
+| `representation.unknown` | 0 | — | — | — |
+
+The experiment made 324 SystemOne calls with the installed BF16 GGUF, Ollama 0.40.16 and llama.cpp on an Intel Core Ultra 7 268V system. Ollama reported 100% GPU. The command above names the full digest. The experiment used code revision `727e116` and reviewed corpus SHA-256 `fb48e31638240586aa16837291ad4785870b7dfb4461113c9a53f1f496add135`. Reproduce the run with the [reviewed records](../testdata/classification/public-ru-reviewed.json). The [frozen outputs](../testdata/classification/laya-benchmark-predictions.json) store labels and scores by ID. Pass the reviewed corpus and the frozen outputs to `--predictions` to recalculate the metrics.

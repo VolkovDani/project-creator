@@ -11,7 +11,11 @@ import ResourceState from '../../components/ResourceState';
 import { GlossaryActions } from './GlossaryActions';
 
 type Project = NonNullable<ProjectDetailQuery['project']>;
-const Context = createContext<{ project: Project; locale: Locale } | null>(null);
+const Context = createContext<{
+  project: Project;
+  analysisDefaultThreshold: number;
+  locale: Locale;
+} | null>(null);
 export function useProject() {
   const context = useContext(Context);
   if (!context) throw Error('Project context unavailable');
@@ -36,11 +40,9 @@ export default function ProjectShell({ children }: { children: React.ReactNode }
 function ProjectContent({ id, children }: { id: string; children: React.ReactNode }) {
   const { locale } = useLocale();
   const pathname = usePathname();
-  const loader = useCallback(
-    async () => (await query(ProjectDetailDocument, { id })).project,
-    [id],
-  );
-  const { data: project, loading, error, reload } = useResource(loader, [`project:${id}`]);
+  const loader = useCallback(() => query(ProjectDetailDocument, { id }), [id]);
+  const { data, loading, error, reload } = useResource(loader, [`project:${id}`]);
+  const project = data?.project;
   const base = `/projects/${encodeURIComponent(id)}`;
   return (
     <main>
@@ -55,11 +57,13 @@ function ProjectContent({ id, children }: { id: string; children: React.ReactNod
         locale={locale}
         loading={loading}
         error={error}
-        hasData={project !== undefined}
+        hasData={data !== undefined}
         retry={() => void reload()}
       />
       {project ? (
-        <Context.Provider value={{ project, locale }}>
+        <Context.Provider
+          value={{ project, locale, analysisDefaultThreshold: data.analysisDefaultThreshold }}
+        >
           <nav className="project-nav" aria-label={t(locale, 'ui.sections')}>
             {sections.map((section) => {
               const href = section === 'overview' ? base : `${base}/${section}`;

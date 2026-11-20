@@ -46,6 +46,23 @@ test('create a project and open it after reload', async ({ page }) => {
   await expect(page.getByText('Требований пока нет')).toBeVisible();
   await other.close();
 });
+test('pair analysis uses the threshold configured on the running backend', async ({ page }) => {
+  await page.goto('/projects/new');
+  await page.getByLabel('Название').fill('Настраиваемый порог');
+  await page.getByLabel('Цель').fill('Проверка отбора пар');
+  await page.getByRole('button', { name: 'Создать проект' }).click();
+  await page.getByRole('navigation').getByRole('link', { name: 'Анализ', exact: true }).click();
+
+  const input = page.getByRole('spinbutton', { name: 'Порог семантической близости' });
+  await expect(input).toHaveValue('0.735');
+  const started = page.waitForRequest(
+    (request) =>
+      request.url().endsWith('/api/graphql') &&
+      request.postDataJSON()?.operationName === 'StartProjectAnalysis',
+  );
+  await page.getByRole('button', { name: 'Проверить требования', exact: true }).click();
+  expect((await started).postDataJSON().variables.threshold).toBe(0.735);
+});
 test('create stays locked until its response completes', async ({ page }) => {
   let release!: () => void;
   const pending = new Promise<void>((resolve) => {

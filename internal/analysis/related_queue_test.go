@@ -250,3 +250,27 @@ func TestRelatedSelectionRejectsInvalidOptionsBeforeModelCalls(t *testing.T) {
 		t.Fatal("invalid selection invoked provider")
 	}
 }
+
+func TestConfiguredDefaultThresholdForServiceStarts(t *testing.T) {
+	db, retriever, _ := analysisDB(t)
+	ctx := context.Background()
+	s := NewWithDefaultThreshold(db, retriever, nil, "", .81)
+	defer s.Close()
+	legacy, err := s.Start(ctx, "a", "p")
+	if err != nil || legacy.Mode != "all" || legacy.SimilarityThreshold != .81 {
+		t.Fatalf("legacy start: %+v, %v", legacy, err)
+	}
+	waitForRun(t, s, "a", "p", legacy.ID)
+	for _, tc := range []struct {
+		options Options
+		want    float64
+	}{
+		{Options{}, .81}, {Options{Mode: "related", Threshold: 0}, 0}, {Options{Mode: "related", Threshold: 1}, 1},
+	} {
+		run, err := s.StartWithOptions(ctx, "a", "p", tc.options)
+		if err != nil || run.Mode != "related" || run.SimilarityThreshold != tc.want {
+			t.Fatalf("options %+v: %+v, %v", tc.options, run, err)
+		}
+		waitForRun(t, s, "a", "p", run.ID)
+	}
+}

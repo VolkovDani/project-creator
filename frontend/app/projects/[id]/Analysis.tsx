@@ -627,17 +627,20 @@ function PairList({
 
 export default function Analysis({
   projectId,
+  defaultThreshold,
   locale,
   onSource,
 }: {
   projectId: string;
+  defaultThreshold: number;
   locale: Locale;
   onSource?: SourceHandler;
 }) {
   const [run, setRun] = useState<LiveRun | null>();
   const [selected, setSelected] = useState('');
   const [mode, setMode] = useState(analysisRules.defaultMode);
-  const [threshold, setThreshold] = useState(String(analysisRules.defaultThreshold));
+  const [thresholdOverride, setThresholdOverride] = useState<string>();
+  const threshold = thresholdOverride ?? String(defaultThreshold);
   const [replacementStrategy, setReplacementStrategy] = useState<'wait' | 'cancel'>('wait');
   const thresholdValue = threshold.trim() === '' ? NaN : Number(threshold);
   const selectionValidation = validateAnalysisSelection({ mode, threshold: thresholdValue });
@@ -881,9 +884,9 @@ export default function Analysis({
             type="number"
             min={analysisRules.minThreshold}
             max={analysisRules.maxThreshold}
-            step="0.01"
+            step={Number(defaultThreshold.toFixed(2)) === defaultThreshold ? 0.01 : 'any'}
             value={threshold}
-            onChange={(event) => setThreshold(event.target.value)}
+            onChange={(event) => setThresholdOverride(event.target.value)}
             disabled={busy}
           />
         </label>

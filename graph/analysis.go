@@ -128,11 +128,18 @@ func (r *Resolver) AnalysisRunMetadata(ctx context.Context, args AnalysisRunMeta
 	}
 	return &AnalysisRunMetadata{ID: graphql.ID(run.ID), ProjectId: graphql.ID(run.ProjectID), GeneratorProfile: run.GeneratorProfile, GeneratorProvenance: run.GeneratorProvenance, EmbeddingProfile: run.EmbeddingProfile, SelectionProfile: run.SelectionProfile}, nil
 }
+func (r *Resolver) AnalysisDefaultThreshold(ctx context.Context) (float64, error) {
+	if err := consume(ctx); err != nil {
+		return 0, err
+	}
+	return r.Analysis.DefaultThreshold(), nil
+}
+
 func (r *Resolver) StartProjectAnalysis(ctx context.Context, args StartProjectAnalysisArgs) (*ProjectAnalysis, error) {
 	if err := consume(ctx); err != nil {
 		return nil, err
 	}
-	options, err := analysisOptions(args.Mode, args.Threshold)
+	options, err := analysisOptions(args.Mode, args.Threshold, r.Analysis.DefaultThreshold())
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +155,7 @@ func (r *Resolver) ReplaceProjectAnalysis(ctx context.Context, args ReplaceProje
 	if err := consume(ctx); err != nil {
 		return nil, err
 	}
-	options, err := analysisOptions(args.Mode, args.Threshold)
+	options, err := analysisOptions(args.Mode, args.Threshold, r.Analysis.DefaultThreshold())
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +256,10 @@ func (e analysisSelectionError) Extensions() map[string]interface{} {
 	return map[string]interface{}{"fieldErrors": e.fields}
 }
 
-func analysisOptions(mode *string, threshold *float64) (analysis.Options, error) {
+func analysisOptions(mode *string, threshold *float64, defaultThreshold float64) (analysis.Options, error) {
+	if threshold == nil {
+		threshold = &defaultThreshold
+	}
 	normalized, fields := contracts.AnalysisSelection(mode, threshold)
 	if len(fields) > 0 {
 		return analysis.Options{}, analysisSelectionError{fields}

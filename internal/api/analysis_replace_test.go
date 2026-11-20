@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -29,7 +30,7 @@ func (g *replacementAPIGenerator) Compare(ctx context.Context, p analysis.Pair) 
 
 func TestGraphQLReplacementIsScopedValidatedAndDurable(t *testing.T) {
 	g := &replacementAPIGenerator{entered: make(chan struct{}, 1), release: make(chan struct{})}
-	s, e := NewWithProviders(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"}, nil, g)
+	s, e := NewConfigured(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"}, Config{Generator: g, DefaultAnalysisThreshold: 0.78})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -51,23 +52,41 @@ func TestGraphQLReplacementIsScopedValidatedAndDurable(t *testing.T) {
 		}
 		return out
 	}
-	start := request("token-a", `mutation{startProjectAnalysis(projectId:"p",mode:"all"){id}}`)
+	if got := request("token-a", `{analysisDefaultThreshold}`); got["errors"] != nil || got["data"].(map[string]any)["analysisDefaultThreshold"] != 0.78 {
+		t.Fatalf("effective default: %v", got)
+	}
+	start := request("token-a", `mutation{startProjectAnalysis(projectId:"p",mode:"all"){id similarityThreshold}}`)
 	if start["errors"] != nil {
 		t.Fatal(start)
 	}
-	id := start["data"].(map[string]any)["startProjectAnalysis"].(map[string]any)["id"].(string)
+	started := start["data"].(map[string]any)["startProjectAnalysis"].(map[string]any)
+	if started["similarityThreshold"] != 0.78 {
+		t.Fatalf("omitted start threshold: %v", start)
+	}
+	id := started["id"].(string)
 	select {
 	case <-g.entered:
 	case <-time.After(3 * time.Second):
 		t.Fatal("model did not start")
 	}
-	mutation := `mutation{replaceProjectAnalysis(projectId:"p",analysisId:"` + id + `",mode:"all",threshold:0.55,strategy:"wait"){id stage status}}`
+	mutation := `mutation{replaceProjectAnalysis(projectId:"p",analysisId:"` + id + `",mode:"all",strategy:"wait"){id stage status}}`
 	if denied := request("token-b", mutation); denied["errors"] == nil {
 		t.Fatal("foreign replacement accepted")
 	}
 	invalid := request("token-a", `mutation{replaceProjectAnalysis(projectId:"p",analysisId:"`+id+`",mode:"invalid",threshold:2,strategy:"wait"){id}}`)
 	if invalid["errors"] == nil {
 		t.Fatal("invalid options accepted")
+	}
+	// Explicit boundary values must survive even with a nonzero deployment default.
+	for _, threshold := range []float64{0, 1} {
+		out := request("token-a", fmt.Sprintf(`mutation{replaceProjectAnalysis(projectId:"p",analysisId:%q,mode:"all",threshold:%g,strategy:"wait"){id}}`, id, threshold))
+		if out["errors"] != nil {
+			t.Fatal(out)
+		}
+		var queued float64
+		if err := s.db.QueryRow(`SELECT threshold FROM analysis_replacements WHERE run_id=$1`, id).Scan(&queued); err != nil || queued != threshold {
+			t.Fatalf("explicit replacement threshold: got %v, %v; want %v", queued, err, threshold)
+		}
 	}
 	for i := 0; i < 2; i++ {
 		out := request("token-a", mutation)
@@ -80,7 +99,7 @@ func TestGraphQLReplacementIsScopedValidatedAndDurable(t *testing.T) {
 		}
 	}
 	var requests int
-	if e = s.db.QueryRow(`SELECT count(*) FROM analysis_replacements WHERE run_id=$1 AND successor_id IS NULL`, id).Scan(&requests); e != nil || requests != 1 {
+	if e = s.db.QueryRow(`SELECT count(*) FROM analysis_replacements WHERE run_id=$1 AND successor_id IS NULL AND threshold=0.78`, id).Scan(&requests); e != nil || requests != 1 {
 		t.Fatalf("durable request %d %v", requests, e)
 	}
 }

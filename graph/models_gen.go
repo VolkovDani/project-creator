@@ -92,6 +92,12 @@ type ClassificationAlternative struct {
 	Score              *float64
 }
 type RequirementClassification struct {
+	ProjectId          graphql.ID
+	Digest             string
+	Profile            string
+	QuestionVersion    string
+	ErrorCode          string
+	Reason             string
 	RequirementId      graphql.ID
 	TextVersion        int32
 	Revision           int32
@@ -112,6 +118,41 @@ type ConfirmClassificationInput struct {
 	SemanticType       string
 	RepresentationType string
 }
+type ClassificationListItem struct {
+	ProjectId          graphql.ID
+	RequirementId      graphql.ID
+	Text               string
+	TextVersion        int32
+	Revision           int32
+	Status             string
+	SemanticType       string
+	RepresentationType string
+	ErrorCode          string
+}
+type ClassificationProgress struct {
+	ProjectId    graphql.ID
+	Configured   bool
+	Profile      string
+	Total        int32
+	Unclassified int32
+	Queued       int32
+	Classifying  int32
+	Suggested    int32
+	NeedsReview  int32
+	Confirmed    int32
+	Failed       int32
+	Stale        int32
+}
+type ClassificationGroup struct {
+	ProjectId          graphql.ID
+	SemanticType       string
+	RepresentationType string
+	Count              int32
+}
+type ClassificationQueuePayload struct {
+	Queued      int32
+	FieldErrors []*FieldError
+}
 type ClassificationPayload struct {
 	Classification *RequirementClassification
 	FieldErrors    []*FieldError
@@ -127,6 +168,24 @@ type GlossaryMatchesPage struct {
 type GlossaryMentionPage struct {
 	Items    []*Requirement
 	PageInfo *PageInfo
+}
+type ClassificationProgressArgs struct {
+	ProjectId graphql.ID
+}
+type ClassificationListArgs struct {
+	ProjectId          graphql.ID
+	SemanticType       *string
+	RepresentationType *string
+	Status             *string
+	Limit              int32
+	Offset             int32
+}
+type ClassificationListByIdsArgs struct {
+	ProjectId      graphql.ID
+	RequirementIds []graphql.ID
+}
+type ClassificationGroupsArgs struct {
+	ProjectId graphql.ID
 }
 type GlossaryTermsByIdsArgs struct {
 	ProjectId graphql.ID
@@ -265,6 +324,18 @@ type ProjectsArgs struct {
 type ProjectsConnectionArgs struct {
 	First *int32
 	After *string
+}
+type BackfillClassificationsArgs struct {
+	ProjectId graphql.ID
+}
+type RetryFailedClassificationsArgs struct {
+	ProjectId graphql.ID
+}
+type RetryRequirementClassificationArgs struct {
+	ProjectId     graphql.ID
+	RequirementId graphql.ID
+	TextVersion   int32
+	Reanalyze     bool
 }
 type SuggestGlossaryDefinitionArgs struct {
 	Input SuggestGlossaryDefinitionInput

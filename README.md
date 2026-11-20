@@ -44,4 +44,4 @@ cd project-creator
 - [Разработка, тесты и CI](docs/development.ru.md) · [Архитектура](ARCHITECTURE.md)
 - [Возможности и ограничения v0.1.0](docs/release-notes-v0.1.0.ru.md) · [Цели проекта](GOAL.md)
 
-[Смысловые типы, формы и история ручной классификации](docs/requirement-classification.ru.md).
+[Смысловые типы, формы, ручное подтверждение и фоновая проверка с локальной Laya](docs/requirement-classification.ru.md).

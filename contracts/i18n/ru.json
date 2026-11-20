@@ -305,6 +305,7 @@
   "glossary.edit": "Изменить понятие",
   "glossary.duplicate": "Понятие с таким названием уже существует",
   "glossary.invalidVariants": "Проверьте количество, тип и уникальность вариантов",
+  "classification.notConfigured": "Настройте локальный классификатор для автоматической классификации.",
   "classification.invalidType": "Недопустимое значение типа",
   "classification.business_requirement": "Цель бизнеса",
   "classification.stakeholder_requirement": "Потребность участника",

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+
+	"github.com/VolkovDani/project-creator/graph"
 )
 
 type bufferedResponse struct {
@@ -29,13 +31,26 @@ func (b *bufferedResponse) Write(p []byte) (int, error) {
 // Projects is a conservative workspace-scoped dependency for every current
 // operation. Entity tags allow finer subscriptions as the API grows. IDs in
 // tags come only from the authorized result, never from unchecked variables.
-func cacheTags(data any) []string {
+func cacheTags(data any, dependencies ...string) []string {
 	tags := map[string]bool{}
+	for _, tag := range dependencies {
+		tags[tag] = true
+	}
 	var visit func(any)
 	visit = func(v any) {
 		switch x := v.(type) {
 		case map[string]any:
 			if id, ok := x["projectId"].(string); ok {
+				switch x["__typename"] {
+				case "RequirementClassification", "ClassificationListItem":
+					if record, ok := x["requirementId"].(string); ok {
+						tags["project:"+id+":classification:"+record] = true
+						return
+					}
+				case "ClassificationGroup", "ClassificationProgress":
+					tags["project:"+id+":classifications"] = true
+					return
+				}
 				_, hasRevision := x["revision"].(string)
 				_, hasAnalysisMode := x["mode"].(string)
 				_, hasCreatedAt := x["createdAt"].(string)
@@ -84,7 +99,8 @@ func cacheTags(data any) []string {
 
 func serveTaggedGraphQL(h http.Handler, w http.ResponseWriter, r *http.Request) {
 	buffered := &bufferedResponse{header: make(http.Header)}
-	h.ServeHTTP(buffered, r)
+	ctx, dependencies := graph.WithCacheDependencies(r.Context())
+	h.ServeHTTP(buffered, r.WithContext(ctx))
 	for key, values := range buffered.header {
 		w.Header()[key] = values
 	}
@@ -96,7 +112,7 @@ func serveTaggedGraphQL(h http.Handler, w http.ResponseWriter, r *http.Request) 
 		if !ok {
 			ext = map[string]any{}
 		}
-		ext["cacheTags"] = cacheTags(payload["data"])
+		ext["cacheTags"] = cacheTags(payload["data"], dependencies()...)
 		payload["extensions"] = ext
 		if encoded, err := json.Marshal(payload); err == nil {
 			body = encoded

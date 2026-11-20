@@ -318,6 +318,7 @@
   "classification.use_case": "Цель участника и поток с возможными альтернативами",
   "classification.scenario": "Конкретная последовательность в контексте",
   "classification.acceptance_criterion": "Проверяемое условие приёмки",
+  "classification.test_case": "Тест-кейс",
   "classification.other": "Распознаваемое содержание вне категорий",
   "classification.unknown": "Недостаточно оснований для одной метки",
   "classification.unclassified": "Без классификации",

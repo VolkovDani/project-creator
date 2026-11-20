@@ -318,6 +318,7 @@
   "classification.use_case": "Actor goal and flow with possible alternatives",
   "classification.scenario": "Concrete sequence in context",
   "classification.acceptance_criterion": "Verifiable condition for acceptance",
+  "classification.test_case": "Test case",
   "classification.other": "Recognizable content outside the categories",
   "classification.unknown": "Insufficient evidence for one label",
   "classification.unclassified": "Unclassified",

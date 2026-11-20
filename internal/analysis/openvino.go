@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // OpenVINO talks only to an explicitly selected local Unix socket. The runtime
@@ -21,9 +22,21 @@ type OpenVINO struct {
 	client                             *http.Client
 }
 
-const npuAlphabetRetryInstruction = "Explain the decisive point in one short Russian sentence. Paraphrase without quoting either source. Use only Russian letters and ASCII Latin letters for technical terms."
+const npuAlphabetRetryInstruction = "Explain the decisive condition in one short Russian sentence of 8 to 16 words. End with a period. Paraphrase without quoting either source. Use only Russian letters and ASCII Latin letters for technical terms."
 
 var npuProfilePattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+var npuRetryExplanation = regexp.MustCompile(`^[А-Яа-яЁёA-Za-z0-9 .,!?():;%«»/—–-]{1,319}[.!?]$`)
+
+func npuAlphabetRetrySchema() map[string]any {
+	schema := findingSchema()
+	properties := schema["properties"].(map[string]any)
+	properties["leftId"] = map[string]any{"const": "left"}
+	properties["rightId"] = map[string]any{"const": "right"}
+	properties["leftVersion"] = map[string]any{"const": 1}
+	properties["rightVersion"] = map[string]any{"const": 1}
+	properties["explanation"] = map[string]any{"type": "string", "pattern": npuRetryExplanation.String()}
+	return schema
+}
 
 func NewOpenVINO(socket, profile string) (*OpenVINO, error) {
 	if !filepath.IsAbs(socket) || strings.ContainsAny(socket, "\x00\r\n") || !npuProfilePattern.MatchString(profile) {
@@ -32,7 +45,10 @@ func NewOpenVINO(socket, profile string) (*OpenVINO, error) {
 	transport := &http.Transport{Proxy: nil, MaxConnsPerHost: 1, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}
-	provenance, key := encodePairProvenance(generationProvenance{Adapter: "openvino-npu-unix-v1", RuntimeProfile: profile, SystemPrompt: systemPrompt, ResponseSchema: findingSchema(), Normalization: "source-aliases-v2:text-order"}, npuAlphabetRetryInstruction)
+	provenance, key := encodePairProvenance(generationProvenance{
+		Adapter: "openvino-npu-unix-v1", RuntimeProfile: profile, SystemPrompt: systemPrompt,
+		ResponseSchema: findingSchema(), AlphabetRetrySchema: npuAlphabetRetrySchema(), Normalization: "source-aliases-v2:text-order",
+	}, npuAlphabetRetryInstruction)
 	return &OpenVINO{pinnedProfile: profile, profile: key, provenance: provenance, client: &http.Client{Transport: transport, Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirects disabled") }}}, nil
 }
 
@@ -129,8 +145,16 @@ func (o *OpenVINO) Compare(ctx context.Context, pair Pair) (Finding, error) {
 	if aliases.Right.Text < aliases.Left.Text {
 		aliases.Left.Text, aliases.Right.Text = aliases.Right.Text, aliases.Left.Text
 	}
-	finding, err := generatePairFinding(ctx, npuAlphabetRetryInstruction, func(prompt string) (Finding, error) {
-		return o.generateFinding(ctx, aliases, prompt)
+	finding, err := generatePairFinding(ctx, npuAlphabetRetryInstruction, func(prompt string, retry bool) (Finding, error) {
+		schema := findingSchema()
+		if retry {
+			schema = npuAlphabetRetrySchema()
+		}
+		finding, err := o.generateFinding(ctx, aliases, prompt, schema)
+		if err == nil && retry && (!npuRetryExplanation.MatchString(finding.Explanation) || strings.IndexFunc(finding.Explanation, unicode.IsLetter) < 0) {
+			return Finding{}, invalidModelOutput("NPU retry explanation is invalid")
+		}
+		return finding, err
 	})
 	if err != nil {
 		return Finding{}, err
@@ -149,8 +173,8 @@ func (o *OpenVINO) Compare(ctx context.Context, pair Pair) (Finding, error) {
 	return finding, nil
 }
 
-func (o *OpenVINO) generateFinding(ctx context.Context, aliases Pair, prompt string) (Finding, error) {
-	body, err := json.Marshal(map[string]any{"profile": o.pinnedProfile, "system": prompt, "pair": aliases, "schema": findingSchema()})
+func (o *OpenVINO) generateFinding(ctx context.Context, aliases Pair, prompt string, schema map[string]any) (Finding, error) {
+	body, err := json.Marshal(map[string]any{"profile": o.pinnedProfile, "system": prompt, "pair": aliases, "schema": schema})
 	if err != nil {
 		return Finding{}, errors.New("invalid NPU comparison request")
 	}

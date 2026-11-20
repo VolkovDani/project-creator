@@ -259,9 +259,14 @@ no alphabet restriction on the source requirements.
 
 If the explanation contains a disallowed character, the adapter makes one more
 generation attempt with a stricter language instruction and the original pair.
-On OpenVINO NPU, this instruction asks for one short Russian sentence explaining
-the decisive point in the comparison without quoting either source. The retry
-uses the same output limit and validation as the first attempt.
+On OpenVINO NPU, the retry asks for one short Russian sentence explaining
+the decisive condition in the comparison. During generation its JSON schema
+fixes the source aliases and versions, leaves all four verdicts available,
+and bounds the explanation to 320 characters using Russian or ASCII Latin
+letters, digits, spaces and common punctuation. The adapter checks that the
+explanation contains a letter, ends in a period, question mark or exclamation
+mark, and cites the expected source versions in the response fields. The same
+NPU token budget applies to both attempts.
 The rejected response is omitted from the prompt. The retry uses the time left
 within the pair's 120-second limit and stops on cancellation. A second violation
 fails the pair and follows the existing manual retry flow. Other errors do not
@@ -269,10 +274,10 @@ trigger an automatic retry. Rejected output is neither edited nor saved as a
 successful finding. This check enforces an alphabet and cannot determine the
 language or quality of the explanation.
 
-The language and retry rules are part of the generator profile. After updating
-OpenVINO NPU to the concise retry instruction, start a new analysis. Cached model
-findings from the previous NPU profile are ineligible for reuse. Earlier runs
-remain available in history. This update changes only the OpenVINO NPU profile.
+The retry instruction and response schema are part of the generator profile.
+After updating the NPU adapter to use the bounded retry, start a new analysis.
+The new run recomputes model findings from the previous NPU profile. Earlier
+runs remain available in history. This update changes only the OpenVINO NPU profile.
 
 Ordinary CI checks retrieval, workflows, access, and known collision/compatible
 requirements with deterministic providers. A real local generator check runs separately:

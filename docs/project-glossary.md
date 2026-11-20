@@ -24,7 +24,7 @@ Requirements, search, indexing and pair analysis open the glossary dialog from
 a text selection. Use **New concept** on the project glossary page for manual entry. Source selections retain the displayed requirement
 version. Selections from generated previews and explanations prefill only the name.
 
-Inside an analysis pair, highlighted names and variants refer to the current project glossary. Matches use the original text and version saved with the run, even after a requirement is edited.
+In pair analysis, the saved model explanation highlights names and variants from the current project glossary. Hover over a match or focus it to read its definition. Editing the glossary updates the highlights in earlier results without rerunning the analysis. The source requirements in each pair use the text and version saved with the run.
 
 Ready previews use the same inline highlight and dotted underline as the original for matches from the current project glossary. Highlighting works with previously saved previews and requires no generation.
 

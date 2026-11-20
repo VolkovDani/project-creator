@@ -21,7 +21,7 @@ func TestProgressiveAnalysisContract(t *testing.T) {
 		`mutation{startProjectAnalysis(projectId:"p",mode:"related",threshold:0.65){mode similarityThreshold selectionProfile possiblePairs notSelectedPairs duplicatePairs pairs{resultOrigin selectionReasons similarityScore}}}`,
 		`query{projectAnalysis(projectId:"p"){id stage totalPairs processedPairs activePairId pairs{id position status left{id version text} right{id version text} verdict explanation errorCode}}}`,
 		`query{analysisPairs(projectId:"p",analysisId:"r",limit:20,offset:20,status:"completed",verdict:"collision"){id reusedFrom checkedAt generatorProfile}}`,
-		`query{analysisPair(projectId:"p",analysisId:"r",pairId:"pair"){detailsVersion isExactDuplicate left{id version text} right{id version text} selectionReasons similarityScore resultOrigin reusedFrom checkedAt generatorProfile layaStatus layaErrorCode preclassification layaCheckedAt}}`,
+		`query{analysisPair(projectId:"p",analysisId:"r",pairId:"pair"){explanationMatches{start end text terms{id}} detailsVersion isExactDuplicate left{id version text} right{id version text} selectionReasons similarityScore resultOrigin reusedFrom checkedAt generatorProfile layaStatus layaErrorCode preclassification layaCheckedAt}}`,
 		`query{requirementIndexByIds(projectId:"p",requirementIds:["r"]){requirementId projectId version status profile errorCode}}`,
 		`query{analysisHistory(projectId:"p",limit:20,offset:0){id reusedPairs newPairs completedPairs pendingPairs runningPairs failedPairs collisionPairs compatiblePairs insufficientPairs generatorProvenance}}`,
 		`query{projectAnalysis(projectId:"p",analysisId:"r"){id}}`,

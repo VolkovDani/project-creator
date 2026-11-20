@@ -208,10 +208,13 @@ func (r *Resolver) AnalysisPairsConnection(ctx context.Context, args AnalysisPai
 		return nil, errors.New("analysis unavailable")
 	}
 	conn := &AnalysisPairConnection{Edges: []*AnalysisPairEdge{}, PageInfo: &PageInfo{HasNextPage: hasNext}, TotalCount: int32(total)}
+	nodes := make([]*AnalysisPair, 0, len(pairs))
 	for _, pair := range pairs {
 		c := encodeConnectionCursor("analysisPairs", scope, strconv.FormatInt(int64(pair.Position), 10), pair.ID)
-		conn.Edges = append(conn.Edges, &AnalysisPairEdge{Cursor: c, Node: analysisPair(pair)})
+		node := analysisPair(pair)
+		nodes = append(nodes, node)
+		conn.Edges = append(conn.Edges, &AnalysisPairEdge{Cursor: c, Node: node})
 		conn.PageInfo.EndCursor = &c
 	}
-	return conn, nil
+	return conn, r.matchPairExplanations(ctx, string(args.ProjectId), "edges.node.explanationMatches", nodes)
 }

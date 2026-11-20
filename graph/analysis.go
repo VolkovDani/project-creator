@@ -9,6 +9,7 @@ import (
 
 	"github.com/VolkovDani/project-creator/contracts"
 	"github.com/VolkovDani/project-creator/internal/analysis"
+	"github.com/VolkovDani/project-creator/internal/glossary"
 	graphql "github.com/graph-gophers/graphql-go"
 )
 
@@ -40,6 +41,36 @@ func projectAnalysis(value analysis.Run) *ProjectAnalysis {
 	}
 	return out
 }
+
+func (r *Resolver) projectAnalysisWithMatches(ctx context.Context, run analysis.Run) (*ProjectAnalysis, error) {
+	out := projectAnalysis(run)
+	if err := r.matchPairExplanations(ctx, run.ProjectID, "pairs.explanationMatches", out.Pairs); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *Resolver) matchPairExplanations(ctx context.Context, projectID, selection string, pairs []*AnalysisPair) error {
+	if !graphql.HasSelectedField(ctx, selection) {
+		return nil
+	}
+	var match func(string) []glossary.Match
+	for _, pair := range pairs {
+		if pair.Status != "completed" || pair.IsExactDuplicate || pair.Explanation == "" {
+			continue
+		}
+		if match == nil {
+			terms, err := glossary.List(ctx, r.DB, workspace(ctx), projectID)
+			if err != nil {
+				return errors.New("glossary unavailable")
+			}
+			match = glossary.MatchText(terms)
+		}
+		pair.ExplanationMatches = glossaryMatches(match(pair.Explanation))
+	}
+	return nil
+}
+
 func (r *Resolver) ProjectAnalysis(ctx context.Context, args ProjectAnalysisArgs) (*ProjectAnalysis, error) {
 	if err := consume(ctx); err != nil {
 		return nil, err
@@ -57,7 +88,7 @@ func (r *Resolver) ProjectAnalysis(ctx context.Context, args ProjectAnalysisArgs
 	if run == nil {
 		return nil, nil
 	}
-	return projectAnalysis(*run), nil
+	return r.projectAnalysisWithMatches(ctx, *run)
 }
 
 func (r *Resolver) ProjectAnalysisSummary(ctx context.Context, args ProjectAnalysisSummaryArgs) (*ProjectAnalysisSummary, error) {
@@ -109,7 +140,7 @@ func (r *Resolver) StartProjectAnalysis(ctx context.Context, args StartProjectAn
 	if err != nil {
 		return nil, errors.New("analysis unavailable")
 	}
-	return projectAnalysis(run), nil
+	return r.projectAnalysisWithMatches(ctx, run)
 }
 
 // ReplaceProjectAnalysis applies selection changes to the expected active run.
@@ -128,7 +159,7 @@ func (r *Resolver) ReplaceProjectAnalysis(ctx context.Context, args ReplaceProje
 	if err != nil {
 		return nil, errors.New("analysis replacement unavailable")
 	}
-	return projectAnalysis(run), nil
+	return r.projectAnalysisWithMatches(ctx, run)
 }
 
 func (r *Resolver) RetryProjectAnalysis(ctx context.Context, args RetryProjectAnalysisArgs) (*ProjectAnalysis, error) {
@@ -139,7 +170,7 @@ func (r *Resolver) RetryProjectAnalysis(ctx context.Context, args RetryProjectAn
 	if err != nil {
 		return nil, errors.New("analysis retry unavailable")
 	}
-	return projectAnalysis(run), nil
+	return r.projectAnalysisWithMatches(ctx, run)
 }
 
 func analysisPair(pair analysis.PairResult) *AnalysisPair {
@@ -177,7 +208,7 @@ func (r *Resolver) AnalysisPairs(ctx context.Context, args AnalysisPairsArgs) ([
 	for _, pair := range pairs {
 		out = append(out, analysisPair(pair))
 	}
-	return out, nil
+	return out, r.matchPairExplanations(ctx, string(args.ProjectId), "explanationMatches", out)
 }
 
 func (r *Resolver) AnalysisPair(ctx context.Context, args AnalysisPairArgs) (*AnalysisPair, error) {
@@ -188,7 +219,8 @@ func (r *Resolver) AnalysisPair(ctx context.Context, args AnalysisPairArgs) (*An
 	if err != nil {
 		return nil, errors.New("analysis unavailable")
 	}
-	return analysisPair(pair), nil
+	out := analysisPair(pair)
+	return out, r.matchPairExplanations(ctx, string(args.ProjectId), "explanationMatches", []*AnalysisPair{out})
 }
 func (r *Resolver) AnalysisHistory(ctx context.Context, args AnalysisHistoryArgs) ([]*ProjectAnalysis, error) {
 	if err := consume(ctx); err != nil {
@@ -234,5 +266,5 @@ func (r *Resolver) CancelProjectAnalysis(ctx context.Context, args CancelProject
 	if err != nil {
 		return nil, errors.New("analysis cancellation unavailable")
 	}
-	return projectAnalysis(run), nil
+	return r.projectAnalysisWithMatches(ctx, run)
 }

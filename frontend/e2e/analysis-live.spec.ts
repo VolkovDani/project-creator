@@ -95,6 +95,7 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
   await stream(page);
   let current = snapshot();
   const requests: string[] = [];
+  let explanationMatches: { start: number; end: number; terms: { id: string }[] }[] = [];
   let technicalFailures = 0;
   let technicalGate:
     | {
@@ -130,12 +131,13 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
     const { query, variables } = route.request().postDataJSON();
     const operation = query.match(/(?:query|mutation) (\w+)/)?.[1] || 'unknown';
     requests.push(operation);
+    const row = query.includes('explanationMatches') ? { ...pair, explanationMatches } : pair;
     let data: unknown;
     if (query.includes('analysisPairsConnection('))
       data = {
         scope: { projectId: 'demo' },
         analysisPairsConnection: {
-          edges: current.processedPairs ? [{ cursor: 'cursor', node: pair }] : [],
+          edges: current.processedPairs ? [{ cursor: 'cursor', node: row }] : [],
           pageInfo: { endCursor: 'cursor', hasNextPage: false },
           totalCount: current.processedPairs,
         },
@@ -143,7 +145,7 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
     else if (query.includes('analysisPairs('))
       data = {
         scope: { projectId: 'demo' },
-        analysisPairs: current.processedPairs ? [pair] : [],
+        analysisPairs: current.processedPairs ? [row] : [],
       };
     else if (operation === 'RequirementGlossary' && variables.analysisId === 'run-live') {
       const word = variables.requirementId === 'a' ? 'left' : 'right';
@@ -220,6 +222,9 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
     },
     setPair(value: Omit<typeof pair, 'layaErrorCode'> & { layaErrorCode?: string }) {
       pair = { ...value, layaErrorCode: value.layaErrorCode ?? '' };
+    },
+    setExplanationMatches(value: typeof explanationMatches) {
+      explanationMatches = value;
     },
     failNextTechnical() {
       technicalFailures++;
@@ -313,6 +318,32 @@ test('paged results include explanations without loading technical metadata', as
   expect(live.requests).not.toContain('AnalysisPairTechnical');
   expect(live.requests).not.toContain('AnalysisPairSources');
 });
+for (const mode of ['infinite', 'pages']) {
+  test(`saved model explanations reflect glossary edits in ${mode} mode`, async ({ page }) => {
+    const live = await fixture(page);
+    live.set(snapshot('21', 20));
+    live.setExplanationMatches([{ start: 10, end: 21, terms: [{ id: 'concept' }] }]);
+    await page.goto(`/projects/demo/analysis?listMode=${mode}`);
+    const group = page.getByRole('group', { name: 'Возможные противоречия: 20', exact: true });
+    await group.locator(':scope > summary').click();
+    const text = group.locator('p[data-glossary-text]');
+    await expect(text).toHaveText('Confirmed explanation');
+    const term = text.getByRole('button', { name: 'explanation', exact: true });
+    await expect(term).toBeVisible();
+    await term.focus();
+    await expect(page.getByRole('tooltip')).toContainText('concept definition');
+
+    live.setExplanationMatches([]);
+    await page.evaluate(() =>
+      (window as unknown as StreamWindow).analysisPush(
+        'id: glossary-edit\nevent: cache.invalidate\ndata: {"schemaVersion":1,"keys":["project:demo:glossary"]}\n\n',
+      ),
+    );
+    await expect(term).toHaveCount(0);
+    await expect(text).toHaveText('Confirmed explanation');
+    expect(live.requests).not.toContain('AnalysisPairSources');
+  });
+}
 test('technical information can retry after an error and reopen uses the current version', async ({
   page,
 }) => {

@@ -189,10 +189,10 @@ test('summary is primary, original is disclosed, and provenance is visible', asy
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
   await expect(card.getByText(suggestion, { exact: true })).toBeVisible();
-  const originalDetails = card.locator('details').last();
-  const originalDisclosure = originalDetails.getByText('Полный исходный текст требования', {
-    exact: true,
+  const originalDetails = card.locator('details').filter({
+    has: page.getByText('Полный исходный текст требования', { exact: true }),
   });
+  const originalDisclosure = originalDetails.locator('summary');
   await expect(originalDetails).not.toHaveAttribute('open');
   await expect(card.getByText(original, { exact: true })).toBeHidden();
 

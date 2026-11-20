@@ -2,6 +2,8 @@
 
 [Русская версия](requirement-classification.ru.md)
 
+[Reviewing classifications](classification-review.md)
+
 Rule version 2 adds `test_case` to the representation axis. Meaning and form are independent. Mixed or ambiguous records can have an unknown label on one axis and a known label on the other. Keep the full original text.
 
 | Code | Definition | Example | Counterexample |

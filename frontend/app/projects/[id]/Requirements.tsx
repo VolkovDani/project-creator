@@ -19,6 +19,7 @@ import Group from '../../components/Group';
 import { ListModeSelect, LoadMore } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
+import ClassificationCard from './classification/ClassificationCard';
 import RequirementSummary, { useRequirementSummaries } from './RequirementSummary';
 import RetryFailedSummaries from './RetryFailedSummaries';
 import { useRequirementsPage } from './useRequirementsPage';
@@ -370,6 +371,20 @@ export default function Requirements({ projectId, locale }: { projectId: string;
                 loading={summaryLoading}
                 refresh={refreshSummaries}
               />
+              <Group
+                id={`${projectId}:requirement:${row.id}:classification`}
+                title={t(locale, 'nav.classification')}
+                defaultOpen={false}
+                lazy
+              >
+                <ClassificationCard
+                  projectId={projectId}
+                  requirementId={row.id}
+                  original={row.text}
+                  version={row.version}
+                  locale={locale}
+                />
+              </Group>
               <p className="muted">{t(locale, 'requirements.version', { version: row.version })}</p>
               <button
                 type="button"

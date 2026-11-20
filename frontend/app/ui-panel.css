@@ -149,3 +149,46 @@ SOFTWARE.
 .ui-panel textarea {
   min-height: 5.625rem;
 }
+
+.ui-panel .classification-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: 0.65rem 1rem;
+  margin-block: 1rem;
+}
+
+.ui-panel .classification-fields dt {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.ui-panel .classification-fields dd {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.ui-panel .classification-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 1rem;
+}
+
+.ui-panel .classification-groups ul {
+  padding: 0;
+  list-style: none;
+}
+
+.ui-panel .classification-groups button {
+  margin: 0.2rem 0;
+  text-align: start;
+}
+
+.ui-panel .classification-selection {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ui-panel .classification-selection input {
+  width: auto;
+  margin: 0;
+}

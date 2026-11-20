@@ -61,7 +61,7 @@ func (g *OpenAICompatible) Compare(ctx context.Context, pair Pair) (Finding, err
 	if err != nil {
 		return Finding{}, errors.New("invalid comparison input")
 	}
-	return generatePairFinding(ctx, alphabetRetryInstruction, func(prompt string) (Finding, error) {
+	return generatePairFinding(ctx, alphabetRetryInstruction, func(prompt string, _ bool) (Finding, error) {
 		messages := []map[string]string{{"role": "system", "content": prompt}, {"role": "user", "content": string(data)}}
 		content, err := compatibleChat(ctx, g.client, messages, "requirement_finding", g.schema)
 		if err != nil {

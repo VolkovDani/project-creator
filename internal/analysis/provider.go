@@ -60,6 +60,7 @@ type generationProvenance struct {
 	ExplanationAlphabet      string         `json:"explanationAlphabet,omitempty"`
 	AlphabetRetries          int            `json:"alphabetRetries,omitempty"`
 	AlphabetRetryInstruction string         `json:"alphabetRetryInstruction,omitempty"`
+	AlphabetRetrySchema      map[string]any `json:"alphabetRetrySchema,omitempty"`
 	SystemPrompt             string         `json:"systemPrompt"`
 	ResponseSchema           map[string]any `json:"responseSchema"`
 	Parameters               map[string]any `json:"parameters,omitempty"`
@@ -209,7 +210,7 @@ func (o *Ollama) Compare(ctx context.Context, pair Pair) (Finding, error) {
 	if err != nil {
 		return result, errors.New("invalid comparison input")
 	}
-	result, err = generatePairFinding(ctx, alphabetRetryInstruction, func(prompt string) (Finding, error) {
+	result, err = generatePairFinding(ctx, alphabetRetryInstruction, func(prompt string, _ bool) (Finding, error) {
 		return o.generateFinding(ctx, pair, data, prompt)
 	})
 	if err != nil {
@@ -267,15 +268,15 @@ var pairLanguages = func() SummaryLanguagePolicy {
 	return policy
 }()
 
-func generatePairFinding(ctx context.Context, retryInstruction string, generate func(string) (Finding, error)) (Finding, error) {
-	result, err := generate(systemPrompt)
+func generatePairFinding(ctx context.Context, retryInstruction string, generate func(prompt string, retry bool) (Finding, error)) (Finding, error) {
+	result, err := generate(systemPrompt, false)
 	if !errors.Is(err, errExplanationAlphabet) {
 		return result, err
 	}
 	if err := ctx.Err(); err != nil {
 		return Finding{}, err
 	}
-	return generate(systemPrompt + "\n" + retryInstruction)
+	return generate(systemPrompt+"\n"+retryInstruction, true)
 }
 
 func decodeFinding(content string, pair Pair) (Finding, error) {

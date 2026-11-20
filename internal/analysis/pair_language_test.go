@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +77,14 @@ func TestPairAdaptersAlphabetRetry(t *testing.T) {
 			}{
 				{name: "valid first answer", explanations: []string{valid}, success: true},
 				{name: "retry succeeds", explanations: []string{invalid, valid}, success: true},
+				{name: "full length first answer", explanations: []string{strings.Repeat("Я", 321)}, success: true},
+				{name: "numeric first answer", explanations: []string{"42."}, success: true},
+				{name: "compact retry boundary", explanations: []string{invalid, strings.Repeat("ё", 319) + "."}, success: true},
+				{name: "over compact retry boundary", explanations: []string{invalid, strings.Repeat("ё", 320) + "."}, success: adapter != "OpenVINO"},
+				{name: "unfinished retry", explanations: []string{invalid, "Не хватает условия"}, success: adapter != "OpenVINO"},
+				{name: "punctuation-only retry", explanations: []string{invalid, "..."}, success: adapter != "OpenVINO"},
+				{name: "numeric retry", explanations: []string{invalid, "42."}, success: adapter != "OpenVINO"},
+				{name: "symbol outside compact retry alphabet", explanations: []string{invalid, "Сумма ٢ × 3 ✅."}, success: adapter != "OpenVINO"},
 				{name: "second violation fails", explanations: []string{invalid, invalid}},
 				{name: "unknown verdict is terminal", explanations: []string{invalid}, verdict: "unknown"},
 				{name: "cancellation prevents retry", explanations: []string{invalid}, cancel: true},
@@ -160,7 +169,7 @@ func TestPairAdaptersAlphabetRetry(t *testing.T) {
 						t.Errorf("got %d generations, want %d", generations, len(tc.explanations))
 					}
 					if tc.success {
-						if err != nil || result.Explanation != valid || !validFinding(pair, result) {
+						if err != nil || result.Explanation != tc.explanations[len(tc.explanations)-1] || !validFinding(pair, result) {
 							t.Fatalf("expected successful finding for the original pair: %+v, %v", result, err)
 						}
 					} else if err == nil || result != (Finding{}) || strings.Contains(err.Error(), "漢字") {
@@ -169,6 +178,71 @@ func TestPairAdaptersAlphabetRetry(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestOpenVINORetrySchemaMatchesProvenance(t *testing.T) {
+	var schemas []json.RawMessage
+	transport := pairLanguageTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/health" {
+			return pairLanguageResponse(fmt.Sprintf(`{"profile":"%s","device":"NPU"}`, pinnedDigest)), nil
+		}
+		var request struct {
+			Schema json.RawMessage
+			Pair   Pair
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		schemas = append(schemas, request.Schema)
+		explanation := "Не хватает условия."
+		if len(schemas) == 1 {
+			explanation = "漢字"
+		}
+		content := pairLanguageFinding(t, request.Pair, "insufficient", explanation)
+		return pairLanguageResponse(fmt.Sprintf(`{"profile":"%s","device":"NPU","finding":%s}`, pinnedDigest, content)), nil
+	})
+	generator := pairLanguageGenerator(t, "OpenVINO", transport)
+	_, err := generator.Compare(context.Background(), pairFixture())
+	if err != nil || len(schemas) != 2 {
+		t.Fatalf("expected two generations: %d, %v", len(schemas), err)
+	}
+	primary, _ := json.Marshal(findingSchema())
+	if string(schemas[0]) != string(primary) {
+		t.Fatal("primary request schema changed")
+	}
+	var provenance struct{ AlphabetRetrySchema json.RawMessage }
+	if err := json.Unmarshal([]byte(GeneratorProvenance(generator)), &provenance); err != nil || string(provenance.AlphabetRetrySchema) != string(schemas[1]) {
+		t.Error("provenance does not identify the effective retry schema")
+	}
+	var schema struct {
+		Properties map[string]struct {
+			Const   any
+			Enum    []string
+			Pattern string
+		}
+	}
+	if err := json.Unmarshal(schemas[1], &schema); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]any{"leftId": "left", "rightId": "right", "leftVersion": float64(1), "rightVersion": float64(1)} {
+		if schema.Properties[key].Const != value {
+			t.Errorf("retry does not constrain %s to %v", key, value)
+		}
+	}
+	if !reflect.DeepEqual(schema.Properties["verdict"].Enum, []string{"collision", "insufficient", "compatible", "duplicate"}) {
+		t.Error("retry changed verdict choices")
+	}
+	pattern := regexp.MustCompile(schema.Properties["explanation"].Pattern)
+	for _, valid := range []string{"Ёмкость API — 42 МБ/с.", strings.Repeat("Я", 319) + "!", "Когда?"} {
+		if !pattern.MatchString(valid) {
+			t.Errorf("retry schema rejected %q", valid)
+		}
+	}
+	for _, invalid := range []string{"", "Да 漢字.", "Нет точки", strings.Repeat("Я", 320) + "."} {
+		if pattern.MatchString(invalid) {
+			t.Errorf("retry schema accepted %q", invalid)
+		}
 	}
 }
 

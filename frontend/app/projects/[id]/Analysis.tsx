@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type AnalysisGroup,
   type AnalysisPairView,
@@ -44,7 +44,7 @@ import { ListModeSelect, LoadMore } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
 import { GlossaryText } from './GlossaryActions';
-import { SourceText } from './GlossaryOriginal';
+import { MatchedText, SourceText } from './GlossaryOriginal';
 
 const outcomes: Record<string, string> = {
   possible_collision: 'analysis.outcome.collision',
@@ -399,6 +399,14 @@ function PairList({
   onSource?: SourceHandler;
 }) {
   const { mode, setMode } = useListMode();
+  const tags = useMemo(
+    () => [
+      `project:${projectId}:analysis:${run.id}:${group.key}`,
+      `project:${projectId}:requirements`,
+      `project:${projectId}:glossary`,
+    ],
+    [projectId, run.id, group.key],
+  );
   const loader = useCallback(
     async (after: string | null) =>
       (
@@ -411,22 +419,14 @@ function PairList({
             after,
             ...groupFilter(group.key),
           },
-          {
-            tags: [
-              `project:${projectId}:analysis:${run.id}:${group.key}`,
-              `project:${projectId}:requirements`,
-            ],
-          },
+          { tags },
         )
       ).analysisPairsConnection,
-    [projectId, run.id, group.key],
+    [projectId, run.id, group.key, tags],
   );
   const infinite = useInfinite({
     identity: `pairs:${projectId}:${run.id}:${group.key}`,
-    tags: [
-      `project:${projectId}:analysis:${run.id}:${group.key}`,
-      `project:${projectId}:requirements`,
-    ],
+    tags,
     load: loader,
     enabled: mode === 'infinite',
   });
@@ -453,12 +453,7 @@ function PairList({
           offset,
           ...groupFilter(group.key),
         },
-        {
-          tags: [
-            `project:${projectId}:analysis:${run.id}:${group.key}`,
-            `project:${projectId}:requirements`,
-          ],
-        },
+        { tags },
       );
       if (latest.current.isCurrent(generation)) {
         setPairs(data.analysisPairs);
@@ -471,9 +466,9 @@ function PairList({
     } finally {
       if (latest.current.isCurrent(generation)) setLoading(false);
     }
-  }, [projectId, run.id, offset, group.key, mode]);
+  }, [projectId, run.id, offset, group.key, mode, tags]);
   useInvalidation(
-    [`project:${projectId}:analysis:${run.id}:${group.key}`, `project:${projectId}:requirements`],
+    tags,
     () => void load(),
     () => {
       latest.current.invalidate();
@@ -526,7 +521,14 @@ function PairList({
             {pair.status === 'completed' && (
               <>
                 {pair.explanation && !pair.isExactDuplicate ? (
-                  <GlossaryText>{pair.explanation}</GlossaryText>
+                  <GlossaryText className="user-content">
+                    <MatchedText
+                      projectId={projectId}
+                      text={pair.explanation}
+                      matches={pair.explanationMatches ?? []}
+                      locale={locale}
+                    />
+                  </GlossaryText>
                 ) : (
                   <p>
                     {pair.isExactDuplicate

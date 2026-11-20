@@ -361,26 +361,27 @@ type AnalysisFinding struct {
 	Explanation  string
 }
 type AnalysisPair struct {
-	DetailsVersion    string
-	IsExactDuplicate  bool
-	LayaErrorCode     string
-	LayaStatus        string
-	Preclassification *string
-	LayaCheckedAt     *string
-	SelectionReasons  []string
-	SimilarityScore   *float64
-	ResultOrigin      string
-	ReusedFrom        graphql.ID
-	CheckedAt         string
-	GeneratorProfile  string
-	ID                graphql.ID
-	Position          int32
-	Status            string
-	Left              *AnalysisSource
-	Right             *AnalysisSource
-	Verdict           string
-	Explanation       string
-	ErrorCode         string
+	ExplanationMatches []*GlossaryMatch
+	DetailsVersion     string
+	IsExactDuplicate   bool
+	LayaErrorCode      string
+	LayaStatus         string
+	Preclassification  *string
+	LayaCheckedAt      *string
+	SelectionReasons   []string
+	SimilarityScore    *float64
+	ResultOrigin       string
+	ReusedFrom         graphql.ID
+	CheckedAt          string
+	GeneratorProfile   string
+	ID                 graphql.ID
+	Position           int32
+	Status             string
+	Left               *AnalysisSource
+	Right              *AnalysisSource
+	Verdict            string
+	Explanation        string
+	ErrorCode          string
 }
 type ProjectAnalysis struct {
 	ClassifierProfile     string

@@ -14,7 +14,7 @@ import { useListMode } from '../../../../lib/useListMode';
 import { ListModeSelect } from '../../../components/ListControls';
 import GlossaryEditor, { type GlossaryDraft } from '../GlossaryEditor';
 import { useProject } from '../ProjectShell';
-import styles from './CandidateExcerpt.module.css';
+import CandidateExcerpt from './CandidateExcerpt';
 import { GlossaryListView } from './GlossaryListView';
 import GlossaryMentions from './GlossaryMentions';
 export default function GlossaryPage() {
@@ -168,9 +168,7 @@ export default function GlossaryPage() {
               {c.name ? `${c.name} (${c.abbreviation})` : c.abbreviation}
             </button>
             <p className="user-content">
-              <span className={c.beforeTruncated ? styles.fadeStart : undefined}>{c.before}</span>
-              <mark>{c.abbreviation}</mark>
-              <span className={c.afterTruncated ? styles.fadeEnd : undefined}>{c.after}</span>
+              <CandidateExcerpt candidate={c} />
             </p>
             <Link href={requirementURL(projectId, c.sourceId, c)}>
               {t(locale, 'glossary.openMention')}

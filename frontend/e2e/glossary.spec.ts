@@ -264,6 +264,20 @@ for (const theme of ['light', 'dark']) {
           return selection?.toString();
         }),
       ).toBe(c.before + c.abbreviation + c.after);
+      await card.getByRole('button', { name: c.abbreviation, exact: true }).click();
+      const dialog = page.getByRole('dialog');
+      const quote = dialog.locator('blockquote');
+      await expect(quote).toHaveText(c.before + c.abbreviation + c.after);
+      await expect(quote.locator('mark')).toHaveCSS('mask-image', 'none');
+      await expect(quote.locator('span').first()).toHaveCSS(
+        'mask-image',
+        await beforeSpan.evaluate((el) => getComputedStyle(el).maskImage),
+      );
+      await expect(quote.locator('span').last()).toHaveCSS(
+        'mask-image',
+        await afterSpan.evaluate((el) => getComputedStyle(el).maskImage),
+      );
+      await dialog.getByRole('button', { name: 'Отмена' }).click();
     }
   });
 }

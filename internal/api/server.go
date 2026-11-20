@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/VolkovDani/project-creator/contracts"
 	"github.com/VolkovDani/project-creator/graph"
 	"github.com/VolkovDani/project-creator/internal/analysis"
 	"github.com/VolkovDani/project-creator/internal/glossary"
@@ -39,6 +40,23 @@ func NewWithProviders(path string, tokens map[string]string, embedder rag.Embedd
 	return NewWithSummaryProviders(path, tokens, embedder, generator, nil)
 }
 func NewWithSummaryProviders(path string, tokens map[string]string, embedder rag.Embedder, generator analysis.Generator, summarizer summary.Generator) (*Server, error) {
+	return NewConfigured(path, tokens, Config{
+		Embedder: embedder, Generator: generator, Summarizer: summarizer,
+		DefaultAnalysisThreshold: contracts.AnalysisConstraints().DefaultThreshold,
+	})
+}
+
+type Config struct {
+	Embedder                 rag.Embedder
+	Generator                analysis.Generator
+	Summarizer               summary.Generator
+	DefaultAnalysisThreshold float64
+}
+
+func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, error) {
+	if !contracts.AnalysisConstraints().ValidThreshold(cfg.DefaultAnalysisThreshold) {
+		return nil, errors.New("invalid analysis default threshold")
+	}
 	if len(tokens) == 0 {
 		return nil, errors.New("at least one workspace token is required")
 	}
@@ -51,7 +69,7 @@ func NewWithSummaryProviders(path string, tokens map[string]string, embedder rag
 	if err != nil {
 		return nil, err
 	}
-	summaries := summary.New(db, summarizer)
+	summaries := summary.New(db, cfg.Summarizer)
 	workspaces := make([]string, 0, len(tokens))
 	seen := map[string]bool{}
 	for _, w := range tokens {
@@ -65,17 +83,17 @@ func NewWithSummaryProviders(path string, tokens map[string]string, embedder rag
 		db.Close()
 		return nil, errors.New("summary queue startup unavailable")
 	}
-	retriever := rag.New(db, embedder)
+	retriever := rag.New(db, cfg.Embedder)
 	embeddingProfile := ""
-	if embedder != nil {
-		embeddingProfile = embedder.Profile()
+	if cfg.Embedder != nil {
+		embeddingProfile = cfg.Embedder.Profile()
 	}
-	analyzer := analysis.New(db, retriever, generator, embeddingProfile)
+	analyzer := analysis.NewWithDefaultThreshold(db, retriever, cfg.Generator, embeddingProfile, cfg.DefaultAnalysisThreshold)
 	generatorProfile := ""
-	if generator != nil {
+	if cfg.Generator != nil {
 		generatorProfile = analyzer.Profile()
 	}
-	definitions, _ := summarizer.(glossary.DefinitionGenerator)
+	definitions, _ := cfg.Summarizer.(glossary.DefinitionGenerator)
 	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, RAG: retriever, Analysis: analyzer, Summaries: summaries, Definitions: definitions}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
 	if err != nil {
 		analyzer.Close()

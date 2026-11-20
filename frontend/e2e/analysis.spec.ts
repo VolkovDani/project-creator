@@ -201,6 +201,7 @@ async function fixture(
       };
     else
       data = {
+        analysisDefaultThreshold: 0.65,
         project: {
           id: 'demo',
           name: 'Анализ проекта',
@@ -325,6 +326,7 @@ test('a late metadata response cannot replace an explicitly started run', async 
     else if (query.includes('requirements(')) data = { requirements: [] };
     else
       data = {
+        analysisDefaultThreshold: 0.65,
         project: {
           id: 'demo',
           name: 'Metadata race',
@@ -412,6 +414,7 @@ test('invalidation refreshes a completed result to stale without rerunning the m
     else if (query.includes('requirements(')) data = { requirements: [] };
     else
       data = {
+        analysisDefaultThreshold: 0.65,
         project: {
           id: 'demo',
           name: 'Source change',
@@ -557,6 +560,7 @@ async function liveFixture(
       };
     else
       data = {
+        analysisDefaultThreshold: 0.65,
         project: {
           id: 'demo',
           name: 'Потоковый анализ',
@@ -1005,6 +1009,7 @@ test('history preserves the original generator profile and reused comparison pro
       data = { projectAnalysis: selected };
     else
       data = {
+        analysisDefaultThreshold: 0.65,
         project: {
           id: 'demo',
           name: 'History',

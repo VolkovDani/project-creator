@@ -143,10 +143,24 @@ It uses exact search across all current fragments, without an approximate index 
 top-5/top-6 limit. No new structural links are created: the current data model
 does not yet have links for requirements.
 
-The interface lets the user set the threshold from 0 to 1; the initial value of
-0.65 is a selection heuristic, **not a probability of relatedness, collision, or
-confidence**. The threshold and rule version are saved for each run; selection
-reasons and, where applicable, cosine scores are saved for each pair. A fixed RU/EN
+To change the initial threshold for “Related pairs”, set
+`PROJECT_CREATOR_ANALYSIS_DEFAULT_THRESHOLD=0.8` in the repository-root `.env`.
+The backend reads this setting at startup. An empty or missing value selects
+`0.65`. An explicit value must be a finite number from 0 to 1 inclusive, or
+the backend fails to start.
+
+For an installation managed by the launcher, run `./project-creator up` to
+apply the setting using the saved device configuration. To reuse installed
+images with Compose, run `docker compose up -d --no-deps --no-build --wait backend`
+with the same Compose project name and override files used at startup. For a
+host backend, export the variable and restart the server. Reload the analysis
+page to see the configured value for a new run. You can override it for an
+individual run. Saved runs keep their original thresholds.
+
+The threshold is a selection heuristic. A cosine score does not measure the
+probability of relatedness, collision, or a correct verdict. Each run records
+the threshold and rule version. Each pair records the reason for its selection
+and, where applicable, its cosine score. A fixed RU/EN
 test set checks more than five relevant neighbors and exclusion of clearly
 unrelated requirements. These tests use predefined vectors: they check selection
 rules but do not measure the quality of the real embedding model. The threshold

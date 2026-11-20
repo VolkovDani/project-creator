@@ -166,15 +166,20 @@ func TestReplacementLatestChoiceSurvivesBackendRestart(t *testing.T) {
 		t.Fatal(e)
 	}
 	waitSignal(t, entered)
-	for _, threshold := range []float64{.85, .55, .65} {
+	for _, threshold := range []float64{.85, .55, .68} {
 		if _, e = s.Replace(context.Background(), "a", "p", old.ID, Options{Mode: "all", Threshold: threshold}, "wait"); e != nil {
 			t.Fatal(e)
 		}
 	}
 	s.Close()
-	nextService := testService(t, db, retriever, generatorFunc(func(ctx context.Context, p Pair) (Finding, error) { return findingFor(p), nil }), "embed-a")
+	nextService := NewWithDefaultThreshold(db, retriever, generatorFunc(func(ctx context.Context, p Pair) (Finding, error) { return findingFor(p), nil }), "embed-a", .91)
+	t.Cleanup(nextService.Close)
+	prior, err := nextService.Get(context.Background(), "a", "p", old.ID)
+	if err != nil || prior.SimilarityThreshold != old.SimilarityThreshold {
+		t.Fatalf("original threshold changed across restart: %+v %v", prior, err)
+	}
 	next := waitForReplacement(t, nextService, old.ID)
-	if next.Status != "completed" || next.SimilarityThreshold != .65 {
+	if next.Status != "completed" || next.SimilarityThreshold != .68 {
 		t.Fatalf("last choice not restored: %+v", next)
 	}
 }

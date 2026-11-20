@@ -16,6 +16,7 @@ func TestProgressiveAnalysisContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, query := range []string{
+		`{analysisDefaultThreshold}`,
 		`mutation{replaceProjectAnalysis(projectId:"p",analysisId:"run",mode:"related",threshold:0.55,strategy:"wait"){id stage status}}`,
 		`mutation{cancelProjectAnalysis(projectId:"p",analysisId:"run"){id status errorCode completedPairs pendingPairs runningPairs}}`,
 		`mutation{startProjectAnalysis(projectId:"p",mode:"related",threshold:0.65){mode similarityThreshold selectionProfile possiblePairs notSelectedPairs duplicatePairs pairs{resultOrigin selectionReasons similarityScore}}}`,
@@ -63,29 +64,29 @@ func TestAnalysisPairCarriesExactDuplicateAndOpaqueDetailsVersion(t *testing.T) 
 }
 
 func TestAnalysisOptionsDefaultAndValidation(t *testing.T) {
-	options, err := analysisOptions(nil, nil)
-	if err != nil || options.Mode != "related" || options.Threshold != .65 {
+	options, err := analysisOptions(nil, nil, .78)
+	if err != nil || options.Mode != "related" || options.Threshold != .78 {
 		t.Fatalf("defaults: %+v %v", options, err)
 	}
 	mode := "all"
 	zero := 0.0
-	options, err = analysisOptions(&mode, &zero)
+	options, err = analysisOptions(&mode, &zero, .78)
 	if err != nil || options.Mode != "all" || options.Threshold != 0 {
 		t.Fatalf("explicit zero: %+v %v", options, err)
 	}
 	invalid := "unknown"
-	if _, err = analysisOptions(&invalid, nil); err == nil {
+	if _, err = analysisOptions(&invalid, nil, .78); err == nil {
 		t.Fatal("unknown mode accepted")
 	}
 	for _, threshold := range []float64{-0.1, 1.1} {
-		if _, err = analysisOptions(nil, &threshold); err == nil {
+		if _, err = analysisOptions(nil, &threshold, .78); err == nil {
 			t.Fatal("invalid threshold accepted")
 		}
 	}
 }
 
 func TestAnalysisSelectionValidationHasStableFieldMetadata(t *testing.T) {
-	schema, err := graphql.ParseSchema(Schema, &Resolver{}, graphql.UseFieldResolvers())
+	schema, err := graphql.ParseSchema(Schema, &Resolver{Analysis: &analysis.Service{}}, graphql.UseFieldResolvers())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +115,7 @@ func TestAnalysisSelectionValidationHasStableFieldMetadata(t *testing.T) {
 }
 
 func TestReplacementStrategyValidationHasFieldMetadata(t *testing.T) {
-	schema, err := graphql.ParseSchema(Schema, &Resolver{}, graphql.UseFieldResolvers())
+	schema, err := graphql.ParseSchema(Schema, &Resolver{Analysis: &analysis.Service{}}, graphql.UseFieldResolvers())
 	if err != nil {
 		t.Fatal(err)
 	}

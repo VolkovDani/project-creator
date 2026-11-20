@@ -50,7 +50,14 @@ func main() {
 	if err != nil {
 		log.Fatal("invalid summary configuration: ", err)
 	}
-	s, err := api.NewWithSummaryProviders(path, map[string]string{token: "default"}, embedder, generator, summarizer)
+	threshold, err := configuredAnalysisDefaultThreshold(os.Getenv)
+	if err != nil {
+		log.Fatal(err)
+	}
+	s, err := api.NewConfigured(path, map[string]string{token: "default"}, api.Config{
+		Embedder: embedder, Generator: generator, Summarizer: summarizer,
+		DefaultAnalysisThreshold: threshold,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}

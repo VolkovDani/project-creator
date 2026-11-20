@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/VolkovDani/project-creator/contracts"
 	"github.com/VolkovDani/project-creator/internal/rag"
 )
 
@@ -77,6 +78,7 @@ type Run struct {
 }
 
 type Service struct {
+	defaultThreshold float64
 	db               *sql.DB
 	retriever        *rag.Service
 	generator        Generator
@@ -96,8 +98,12 @@ type Service struct {
 }
 
 func New(db *sql.DB, retriever *rag.Service, generator Generator, embeddingProfile string, classifiers ...Classifier) *Service {
+	return NewWithDefaultThreshold(db, retriever, generator, embeddingProfile, contracts.AnalysisConstraints().DefaultThreshold, classifiers...)
+}
+
+func NewWithDefaultThreshold(db *sql.DB, retriever *rag.Service, generator Generator, embeddingProfile string, defaultThreshold float64, classifiers ...Classifier) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{db: db, retriever: retriever, generator: generator, embeddingProfile: embeddingProfile,
+	s := &Service{defaultThreshold: defaultThreshold, db: db, retriever: retriever, generator: generator, embeddingProfile: embeddingProfile,
 		timeout: 120 * time.Second, preparationTimeout: 180 * time.Second, heartbeatInterval: 5 * time.Second, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), workers: make(map[string]context.CancelFunc)}
 	if len(classifiers) > 0 {
 		s.classifier = classifiers[0]
@@ -105,6 +111,8 @@ func New(db *sql.DB, retriever *rag.Service, generator Generator, embeddingProfi
 	go s.work()
 	return s
 }
+func (s *Service) DefaultThreshold() float64 { return s.defaultThreshold }
+
 func (s *Service) Close() { s.closeOnce.Do(func() { s.cancel(); <-s.done }) }
 func (s *Service) notify() {
 	select {

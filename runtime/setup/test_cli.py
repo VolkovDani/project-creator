@@ -121,6 +121,18 @@ class InstallerTestCase(unittest.TestCase):
 
 
 class InstallTests(InstallerTestCase):
+    @unittest.skipUnless(cli.shutil.which('docker'), 'Docker Compose is required')
+    def test_compose_passes_analysis_threshold_from_dotenv_to_backend(self):
+        key = 'PROJECT_CREATOR_ANALYSIS_DEFAULT_THRESHOLD'
+        self.app.config.update_env({key: '0.8'})
+        repo = Path(cli.__file__).resolve().parents[2]
+        result = subprocess.run(
+            ['docker', 'compose', '--env-file', str(self.root/'.env'), '-f', str(repo/'compose.yml'),
+             'config', '--format', 'json'],
+            capture_output=True, text=True, check=True, env=self.app.environment())
+        services = json.loads(result.stdout)['services']
+        self.assertEqual(services['backend']['environment'].get(key), '0.8')
+
     def test_compose_is_explicit_preserves_project_and_drops_inherited_override(self):
         with patch.dict(os.environ, {'COMPOSE_FILE': 'evil.yml', 'PROJECT_CREATOR_TOKEN': 'do-not-inherit'}):
             self.app.compose('version')

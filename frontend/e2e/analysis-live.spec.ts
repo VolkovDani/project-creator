@@ -204,6 +204,7 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
     } else if (query.includes('analysisHistory(')) data = { analysisHistory: [current] };
     else
       data = {
+        analysisDefaultThreshold: 0.65,
         project: {
           id: 'demo',
           name: 'Live',

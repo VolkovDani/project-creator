@@ -330,7 +330,7 @@ async function fixture(
         },
       };
     else if (query.includes('projects(')) data = { projects: [projectValue] };
-    else data = { project: projectValue };
+    else data = { project: projectValue, analysisDefaultThreshold: 0.65 };
     await route.fulfill({ json: { data } }).catch(() => {});
   });
   return {

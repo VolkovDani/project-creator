@@ -24,6 +24,7 @@ export function useProject() {
 export const sections = [
   'overview',
   'requirements',
+  'classification',
   'indexing',
   'search',
   'analysis',

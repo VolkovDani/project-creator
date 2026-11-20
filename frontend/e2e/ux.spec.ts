@@ -972,13 +972,16 @@ for (const { width, zoom } of layoutCases) {
         await expect(page.locator('main h2').first()).toBeVisible();
         if (path === 'requirements') {
           const card = page.locator('#requirement-r0');
-          const original = card.locator('details').last().locator('summary');
-          await original.focus();
+          const original = card.locator('details').filter({
+            has: page.getByText(
+              locale === 'ru' ? 'Полный исходный текст требования' : 'Full original requirement',
+              { exact: true },
+            ),
+          });
+          await original.locator('summary').focus();
           await page.keyboard.press('Enter');
-          await expect(card.locator('details').last()).toHaveAttribute('open', '');
-          await expect(card.locator('details').last().locator('p')).toHaveText(
-            `Требование 0${longText}`,
-          );
+          await expect(original).toHaveAttribute('open', '');
+          await expect(original.locator('p')).toHaveText(`Требование 0${longText}`);
           const edit = card.getByRole('button', {
             name: locale === 'ru' ? 'Изменить' : 'Edit',
             exact: true,

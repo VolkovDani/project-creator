@@ -7,6 +7,7 @@ export default defineConfig({
     'ux.spec.ts',
     'analysis.spec.ts',
     'analysis-live.spec.ts',
+    'classification.spec.ts',
     'rag.spec.ts',
     'summaries.spec.ts',
     'glossary.spec.ts',

@@ -306,6 +306,10 @@ agreed. #33 was completed independently of #31; references to #31 do not put it
 back in the plan. The historical limit of 20 pairs from #48 does not replace
 the current modes, duplicate handling, and cache in #35.
 
+### Record classification on 20 November
+
+Taxonomy version 2 includes a test case representation. None of the six Laya schemes qualified for automatic labels in the experiment with 28 reviewed Russian records. On the 13 holdout records, the hierarchical scheme found the correct meaning four times and the correct representation three times. Users classify records manually by default. An explicitly enabled local background worker provides option scores for review. The interface supports filters, decision provenance and history, and manual confirmation or correction of both axes. [Measurements](docs/classification-evaluator.md), [classification review](docs/classification-review.md).
+
 ## Open Decisions
 
 - Detailed role permissions and whether end users need access.

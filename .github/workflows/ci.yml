@@ -67,6 +67,7 @@ jobs:
       - name: Verify offline classification metrics and taxonomy fixtures
         run: |
           python3 -B scripts/classification-evaluator_test.py
+          python3 -B scripts/classification_benchmark_test.py
           python3 -B scripts/classification-evaluator.py --contract contracts/classification.json --examples testdata/classification/synthetic.json --self-check > /dev/null
       - name: Deterministic installer and download integrity tests (no weights or device)
         run: |

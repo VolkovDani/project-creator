@@ -1,6 +1,9 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import json
+import subprocess
+import sys
 
 SPEC = importlib.util.spec_from_file_location("evaluator", Path(__file__).with_name("classification-evaluator.py"))
 evaluator = importlib.util.module_from_spec(SPEC)
@@ -28,6 +31,18 @@ class MetricsTest(unittest.TestCase):
             evaluator.evaluate(rows, {"missing": rows[:1]}, contract)
         with self.assertRaises(ValueError):
             evaluator.evaluate(rows, {"duplicate": [rows[0], rows[0]]}, contract)
+
+    def test_replay_frozen_public_run(self):
+        root = Path(__file__).resolve().parents[1]
+        output = subprocess.check_output([
+            sys.executable, "-B", "scripts/classification-evaluator.py",
+            "--contract", "contracts/classification.json",
+            "--examples", "testdata/classification/public-ru-reviewed.json",
+            "--predictions", "testdata/classification/laya-benchmark-predictions.json",
+        ], cwd=root)
+        report = json.loads(output)
+        self.assertEqual(report["examples"], 28)
+        self.assertAlmostEqual(report["results"]["flat"]["semantic"]["accuracy"], 6/28)
 
     def test_bad_predictions_rejected(self):
         with self.assertRaises(ValueError):

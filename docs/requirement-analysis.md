@@ -136,11 +136,19 @@ guarantee finding every semantic contradiction. Confidence percentages are not
 calculated. Model output never changes requirements.
 
 Analysis starts explicitly from a button and quickly returns an attempt ID. Work
-continues on the server after the tab is closed. The primary “Related pairs” mode
-selects the union of exact matches of normalized text and pairs with cosine
-similarity at or above the threshold. Shared words do not bypass the threshold.
-It uses exact search across all current fragments, without an approximate index or
-top-5/top-6 limit. No new structural links are created: the current data model
+continues on the server after the tab is closed. In **“Related pairs”** mode,
+a threshold closer to **0** admits more pairs, while a threshold closer to **1**
+is stricter. Each indexed fragment of one requirement is compared with every
+fragment of the other. The highest cosine similarity determines whether the
+pair qualifies. For example, if the best match is between the final paragraphs
+and scores `0.72`, the pair qualifies at `0.65` or `0.72` and falls below
+a threshold of `0.80`. When the model checks a pair, it receives the full text
+of both requirements.
+
+Exact matches of normalized text qualify at any threshold. Choose **“All pairs”**
+to check every combination of requirements regardless of similarity. Shared words
+do not bypass the threshold. The search across current fragments is exact, without
+an approximate index or a top-5/top-6 limit. No new structural links are created: the current data model
 does not yet have links for requirements.
 
 To change the initial threshold for “Related pairs”, set

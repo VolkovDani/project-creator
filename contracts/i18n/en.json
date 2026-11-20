@@ -305,6 +305,7 @@
   "glossary.edit": "Edit concept",
   "glossary.duplicate": "A concept with that name already exists",
   "glossary.invalidVariants": "Check the number, type and uniqueness of variants",
+  "classification.notConfigured": "Configure the local classifier to run automatic classification.",
   "classification.invalidType": "Invalid classification type",
   "classification.business_requirement": "Business objective",
   "classification.stakeholder_requirement": "Stakeholder need",

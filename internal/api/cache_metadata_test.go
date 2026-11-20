@@ -96,3 +96,19 @@ func TestSummaryResultsHaveSummaryInvalidationTag(t *testing.T) {
 	}
 	t.Fatalf("missing summary tag %v", tags)
 }
+
+func TestClassificationTagsTrackProjectAndIndividualResults(t *testing.T) {
+	for _, tc := range []struct {
+		typename string
+		want     []string
+	}{
+		{"RequirementClassification", []string{"project:p:classification:r"}},
+		{"ClassificationListItem", []string{"project:p:classification:r"}},
+		{"ClassificationProgress", []string{"project:p:classifications"}},
+	} {
+		got := cacheTags(map[string]any{"alias": map[string]any{"__typename": tc.typename, "projectId": "p", "requirementId": "r"}})
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("%s: %v", tc.typename, got)
+		}
+	}
+}

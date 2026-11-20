@@ -62,7 +62,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&version); err != nil {
 		return err
 	}
-	if version > 15 {
+	if version > 16 {
 		return errors.New("database schema version is newer than supported")
 	}
 	// Install only if absent: runtime users can use an extension installed by an administrator.
@@ -82,7 +82,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if !vectorType {
 		return errors.New("pgvector extension has no vector type")
 	}
-	for i, name := range []string{"001_initial.sql", "002_cache_events.sql", "003_rag.sql", "004_analysis.sql", "005_analysis_diagnostics.sql", "006_progressive_analysis.sql", "007_full_analysis.sql", "008_index_queue.sql", "009_analysis_live.sql", "010_analysis_replacement.sql", "011_laya_pipeline.sql", "012_requirement_summaries.sql", "013_laya_optional.sql", "014_glossary.sql", "015_classification.sql"} {
+	for i, name := range []string{"001_initial.sql", "002_cache_events.sql", "003_rag.sql", "004_analysis.sql", "005_analysis_diagnostics.sql", "006_progressive_analysis.sql", "007_full_analysis.sql", "008_index_queue.sql", "009_analysis_live.sql", "010_analysis_replacement.sql", "011_laya_pipeline.sql", "012_requirement_summaries.sql", "013_laya_optional.sql", "014_glossary.sql", "015_classification.sql", "016_classification_queue.sql"} {
 		next := i + 1
 		if version >= next {
 			continue

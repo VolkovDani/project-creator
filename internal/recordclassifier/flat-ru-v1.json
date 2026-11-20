@@ -1,0 +1,56 @@
+{
+  "semantic": {
+    "wire": {
+      "type": "choice",
+      "instructions": "Тип по смыслу?",
+      "criteria": {
+        "a": "Цель бизнеса",
+        "b": "Нужда роли",
+        "c": "Функция",
+        "d": "Качество",
+        "e": "Переход",
+        "f": "Правило",
+        "g": "Ограничение",
+        "h": "Другое",
+        "i": "Неясно"
+      }
+    },
+    "labels": {
+      "a": "business_requirement",
+      "b": "stakeholder_requirement",
+      "c": "functional_requirement",
+      "d": "non_functional_requirement",
+      "e": "transition_requirement",
+      "f": "business_rule",
+      "g": "constraint",
+      "h": "other",
+      "i": "unknown"
+    }
+  },
+  "representation": {
+    "wire": {
+      "type": "choice",
+      "instructions": "Форма?",
+      "criteria": {
+        "a": "Утверждение",
+        "b": "Роль, нужда, цель",
+        "c": "Цель и потоки",
+        "d": "Ход событий",
+        "e": "Условие приёмки",
+        "f": "Шаги и ожидание",
+        "g": "Другое",
+        "h": "Неясно"
+      }
+    },
+    "labels": {
+      "a": "statement",
+      "b": "user_story",
+      "c": "use_case",
+      "d": "scenario",
+      "e": "acceptance_criterion",
+      "f": "test_case",
+      "g": "other",
+      "h": "unknown"
+    }
+  }
+}

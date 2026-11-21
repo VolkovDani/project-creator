@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import { openProjectMenu } from './layout-assertions';
 
 const candidate = {
   abbreviation: 'ЭЦП',
@@ -243,7 +244,10 @@ for (const theme of ['light', 'dark']) {
       };
     });
     await visitGlossary(page, [], candidates);
-    if (theme === 'light') await page.getByRole('button', { name: 'Тёмная тема' }).click();
+    if (theme === 'light') {
+      await openProjectMenu(page);
+      await page.getByRole('button', { name: 'Тёмная тема' }).click();
+    }
     await expect(page.locator('html')).toHaveCSS('color-scheme', theme);
     for (const c of candidates) {
       const card = page

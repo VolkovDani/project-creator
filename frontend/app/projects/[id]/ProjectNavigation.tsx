@@ -3,6 +3,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { type Locale, t } from '../../../lib/i18n';
+import { DesignIcon } from '../../components/DesignIcon';
 import { InterfacePreferences } from '../../components/LocaleProvider';
 import styles from './ProjectShell.module.css';
 
@@ -89,7 +90,10 @@ export function ProjectNavigation({
           </button>
         )}
         <div className={styles.breadcrumb}>
-          <Link href="/">{t(locale, 'app.back')}</Link>
+          <Link href="/">
+            <DesignIcon name="projects" />
+            {t(locale, 'app.back')}
+          </Link>
           {name && pathname !== base && (
             <>
               <span aria-hidden="true">/</span>
@@ -107,7 +111,7 @@ export function ProjectNavigation({
             </>
           )}
         </div>
-        <InterfacePreferences />
+        {!name && <InterfacePreferences />}
       </div>
       {name && (
         <aside id="project-sidebar" ref={sidebar} hidden={!expanded} className={styles.sidebar}>
@@ -127,7 +131,9 @@ export function ProjectNavigation({
                       aria-current={pathname === href ? 'page' : undefined}
                       onNavigate={closeMobileMenu}
                     >
+                      <DesignIcon name={section} />
                       {sectionLabel(locale, section)}
+                      {mobile && <DesignIcon name="next" />}
                     </Link>
                   </li>
                 );
@@ -138,7 +144,9 @@ export function ProjectNavigation({
                   aria-current={technical ? 'page' : indexing ? 'location' : undefined}
                   onNavigate={closeMobileMenu}
                 >
+                  <DesignIcon name="technical" />
                   {t(locale, 'nav.technical')}
+                  {mobile && <DesignIcon name="next" />}
                 </Link>
                 {(technical || indexing) && (
                   <ul>
@@ -148,7 +156,9 @@ export function ProjectNavigation({
                         aria-current={indexing ? 'page' : undefined}
                         onNavigate={closeMobileMenu}
                       >
+                        <DesignIcon name="indexing" />
                         {t(locale, 'nav.indexing')}
+                        {mobile && <DesignIcon name="next" />}
                       </Link>
                     </li>
                   </ul>
@@ -156,6 +166,7 @@ export function ProjectNavigation({
               </li>
             </ul>
           </nav>
+          <InterfacePreferences />
         </aside>
       )}
       <main className={styles.document}>{children}</main>

@@ -65,6 +65,10 @@
   border-right: var(--line) solid var(--border);
   background: var(--surface);
 }
+.sidebar:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
 .brand {
   display: flex;
   align-items: center;
@@ -91,11 +95,16 @@
   border-inline-start: var(--line) solid var(--border);
 }
 .navigation a {
-  display: block;
+  display: flex;
+  align-items: center;
   padding: var(--space-control) var(--space-3);
   color: var(--text);
   border-inline-start: 3px solid transparent;
   border-radius: var(--radius-control);
+}
+.navigation a > svg:first-child {
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
 }
 .navigation a:hover { background: var(--nav-surface); }
 .navigation a[aria-current] {
@@ -117,6 +126,10 @@
   padding: clamp(var(--space-4), 3vw, 2.5rem);
 }
 .cards > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+.destination {
+  display: flex;
+  align-items: center;
+}
 .indexingCard {
   margin-top: var(--space-5);
   padding: 0 var(--space-4);

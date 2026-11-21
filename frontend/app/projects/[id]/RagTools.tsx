@@ -10,7 +10,9 @@ import { type Locale, t } from '../../../lib/i18n';
 import { Latest } from '../../../lib/latest';
 import { useInvalidation } from '../../../lib/live';
 import { indexStatus, requirementURL } from '../../../lib/rag';
+import { DesignIcon } from '../../components/DesignIcon';
 import Group from '../../components/Group';
+import rowStyles from '../../components/RecordIcons.module.css';
 import ResourceState from '../../components/ResourceState';
 import { GlossaryText } from './GlossaryActions';
 
@@ -160,7 +162,10 @@ export default function ProjectSearch({
                 {t(locale, 'rag.source')}
               </a>
               <details>
-                <summary>{t(locale, 'rag.sourceText')}</summary>
+                <summary>
+                  <DesignIcon name="requirements" className={rowStyles.desktopIcon} />
+                  {t(locale, 'rag.sourceText')}
+                </summary>
                 <GlossaryText sourceId={hit.requirementId} version={hit.version}>
                   {hit.sourceText}
                 </GlossaryText>

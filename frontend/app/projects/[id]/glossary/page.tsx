@@ -10,6 +10,8 @@ import {
 } from '../../../../lib/generated';
 import { t } from '../../../../lib/i18n';
 import { requirementURL } from '../../../../lib/rag';
+import { DesignIcon } from '../../../components/DesignIcon';
+import rowStyles from '../../../components/RecordIcons.module.css';
 import GlossaryEditor, { type GlossaryDraft } from '../GlossaryEditor';
 import { useProject } from '../ProjectShell';
 import styles from './CandidateExcerpt.module.css';
@@ -60,13 +62,16 @@ export default function GlossaryPage() {
       )}
       <label>
         {t(locale, 'glossary.search')}
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-          }}
-        />
+        <span className={rowStyles.searchField}>
+          <DesignIcon name="search" className={rowStyles.searchIcon} />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+            }}
+          />
+        </span>
       </label>
       <button type="button" onClick={() => setDraft({ name: '' })}>
         {t(locale, 'glossary.new')}
@@ -91,6 +96,7 @@ export default function GlossaryPage() {
           <article className="card" key={term.id}>
             <h3>
               <button type="button" onClick={() => setDraft({ name: term.name, term })}>
+                <DesignIcon name="glossary" className={rowStyles.desktopIcon} />
                 {term.name}
               </button>
             </h3>

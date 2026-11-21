@@ -6,7 +6,9 @@ import type {
 } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
 import { indexStatus, requirementURL } from '../../../lib/rag';
+import { DesignIcon } from '../../components/DesignIcon';
 import Group from '../../components/Group';
+import rowStyles from '../../components/RecordIcons.module.css';
 import { VirtualList } from '../../components/VirtualList';
 import { GlossaryText } from './GlossaryActions';
 import { RequirementIndexAction } from './RagTools';
@@ -33,7 +35,7 @@ export default function IndexGroups({
   return statuses.map((status) => {
     const grouped = rows.filter((row) => indexStatus(row.entry, row.version) === status);
     const renderItem = (row: IndexRow) => (
-      <article className="card" id={`indexing-${row.id}`} key={row.id}>
+      <article className={`card ${rowStyles.documentCard}`} id={`indexing-${row.id}`} key={row.id}>
         <GlossaryText sourceId={row.id} version={row.version}>
           {row.text}
         </GlossaryText>
@@ -47,6 +49,7 @@ export default function IndexGroups({
           busy={busy}
           index={index}
         />
+        <DesignIcon name="requirements" className={rowStyles.documentIcon} />
       </article>
     );
     return (

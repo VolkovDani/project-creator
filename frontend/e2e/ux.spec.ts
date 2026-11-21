@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
-import { expectLayout, layoutCases, setLayout } from './layout-assertions';
+import { expectLayout, layoutCases, openProjectMenu, setLayout } from './layout-assertions';
 
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status === 'passed') await expectLayout(page);
@@ -36,6 +36,13 @@ test('project menu groups sections and keeps diagnostics accessible on a direct 
     'Технический раздел',
     'Индексация',
   ]);
+  for (const link of await nav.getByRole('link').all()) {
+    await expect(link.locator(':scope > svg:first-child[aria-hidden="true"]')).toHaveCount(1);
+  }
+  const firstGlyph = nav.locator('svg use').first();
+  await expect
+    .poll(() => firstGlyph.evaluate((use: SVGUseElement) => use.getBBox().width))
+    .toBeGreaterThan(0);
   await expect(nav.getByRole('link', { name: 'Обзор' })).toHaveCSS(
     'text-decoration-line',
     'underline',
@@ -57,6 +64,13 @@ test('project menu groups sections and keeps diagnostics accessible on a direct 
     'Словарь',
     'Анализ',
   ]);
+  for (const link of await page.locator('.overview-links a').all()) {
+    await expect(link.locator('svg[aria-hidden="true"]')).toHaveCount(2);
+    await expect(link.locator('svg use').last()).toHaveAttribute(
+      'href',
+      '/design-icons.svg#chevron-right',
+    );
+  }
   await expect(page.locator('.overview-links strong').first()).toHaveCSS(
     'text-decoration-line',
     'underline',
@@ -72,11 +86,19 @@ test('section metadata follows navigation and the saved language', async ({ page
   await expect(page).toHaveTitle('Классификация — Project Creator');
   await expect(description).toHaveAttribute('content', /классификацию/);
   await expect(page.getByRole('heading', { name: project.name })).toBeVisible();
-  await page.getByLabel('Язык').selectOption('en');
+  const toggle = page.locator('button[aria-controls="project-sidebar"]');
+  if ((await toggle.getAttribute('aria-expanded')) === 'false') {
+    await expect(page.getByRole('button', { name: 'Тёмная тема' })).toBeHidden();
+    await toggle.click();
+  }
+  const sidebar = page.getByRole('complementary');
+  const theme = sidebar.getByRole('button', { name: 'Тёмная тема' });
+  await expect(theme).toBeVisible();
+  await expect(theme.locator('svg[aria-hidden="true"]')).toHaveCount(1);
+  await expect(sidebar.locator('.language svg[aria-hidden="true"]')).toHaveCount(1);
+  await sidebar.getByRole('combobox', { name: 'Язык' }).selectOption('en');
   await expect(page).toHaveTitle('Classification — Project Creator');
   await expect(description).toHaveAttribute('content', /classifications/);
-  const toggle = page.locator('button[aria-controls="project-sidebar"]');
-  if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
   await page
     .getByRole('navigation', { name: 'Project sections' })
     .getByRole('link', { name: 'Technical section' })
@@ -793,8 +815,8 @@ test('project pages share navigation, locale and browser history without overflo
   await page.goto('/projects/demo');
   await expect(page.getByRole('heading', { name: project.name, exact: true })).toBeVisible();
   await expect(page.getByLabel('Текст требования')).toHaveCount(0);
+  await openProjectMenu(page);
   await page.getByLabel('Язык').selectOption('en');
-  const toggle = page.locator('button[aria-controls="project-sidebar"]');
   const nav = page.getByRole('navigation', { name: 'Project sections' });
   for (const [name, path] of [
     ['Requirements', 'requirements'],
@@ -803,11 +825,10 @@ test('project pages share navigation, locale and browser history without overflo
     ['Search', 'search'],
     ['Analysis', 'analysis'],
   ] as const) {
-    if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
     const link = nav.getByRole('link', { name, exact: true });
     await link.click();
     await expect(page).toHaveURL(new RegExp(`/${path}$`));
-    if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+    await openProjectMenu(page);
     await expect(link).toHaveAttribute('aria-current', 'page');
     await expect(page.getByLabel('Language')).toHaveValue('en');
   }
@@ -816,6 +837,7 @@ test('project pages share navigation, locale and browser history without overflo
   await page.goForward();
   await expect(page).toHaveURL(/\/analysis$/);
   await page.reload();
+  await openProjectMenu(page);
   await expect(page.getByLabel('Language')).toHaveValue('en');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
@@ -865,8 +887,6 @@ test('indexing group state is restored across a Russian to English navigation', 
 }) => {
   await fixture(page, 2);
   await page.goto('/projects/demo/indexing');
-  const language = page.locator('.language select');
-  await language.selectOption('ru');
   let ready = page.locator('.data-group').last();
   await expect(ready).toHaveAttribute('data-restored', 'true');
   if ((await ready.getAttribute('open')) === null) await ready.locator('summary').click();
@@ -875,7 +895,8 @@ test('indexing group state is restored across a Russian to English navigation', 
     .poll(() => page.evaluate(() => sessionStorage.getItem('group:demo:indexing:ready')))
     .toBe('true');
 
-  await language.selectOption('en');
+  await openProjectMenu(page);
+  await page.getByRole('combobox', { name: 'Язык' }).selectOption('en');
   await page.goto('/projects/demo/requirements');
   await page.goto('/projects/demo/indexing');
   ready = page.locator('.data-group').last();
@@ -1089,6 +1110,7 @@ for (const { width, zoom } of layoutCases) {
     await expect(description).toHaveText(longText);
     expect(await description.evaluate((el) => getComputedStyle(el).whiteSpace)).toMatch(/pre/);
     for (const locale of ['ru', 'en']) {
+      await openProjectMenu(page);
       await page.locator('.language select').selectOption(locale);
       for (const path of ['requirements', 'indexing', 'search', 'analysis']) {
         await page.goto(`/projects/demo/${path}`);

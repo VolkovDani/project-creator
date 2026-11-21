@@ -13,8 +13,10 @@ import { type Locale, t } from '../../../lib/i18n';
 import { useInvalidation } from '../../../lib/live';
 import { validateRequirement } from '../../../lib/requirementValidation';
 import { useInfinite } from '../../../lib/useInfinite';
+import { DesignIcon } from '../../components/DesignIcon';
 import Group from '../../components/Group';
 import { LoadMore } from '../../components/ListControls';
+import rowStyles from '../../components/RecordIcons.module.css';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
 import ClassificationCard from './classification/ClassificationCard';
@@ -305,7 +307,12 @@ export default function Requirements({ projectId, locale }: { projectId: string;
           scrollToId={sourceTarget}
           onEndReached={more}
           renderItem={(row) => (
-            <article className="card" id={`requirement-${row.id}`} key={row.id} tabIndex={-1}>
+            <article
+              className={`card ${rowStyles.documentCard}`}
+              id={`requirement-${row.id}`}
+              key={row.id}
+              tabIndex={-1}
+            >
               {source === row.id && mention && mentionVersion !== row.version && (
                 <p role="status">{t(locale, 'glossary.mentionChanged')}</p>
               )}
@@ -360,6 +367,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
               >
                 {t(locale, 'requirements.delete')}
               </button>
+              <DesignIcon name="requirements" className={rowStyles.documentIcon} />
             </article>
           )}
         />

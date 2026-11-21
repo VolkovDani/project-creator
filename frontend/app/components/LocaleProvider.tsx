@@ -2,6 +2,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { type Locale, t } from '../../lib/i18n';
 import { themeStorageKey } from '../../lib/theme';
+import { DesignIcon } from './DesignIcon';
 
 const Context = createContext<{ locale: Locale; setLocale: (locale: Locale) => void }>({
   locale: 'ru',
@@ -46,14 +47,17 @@ export function InterfacePreferences() {
   return (
     <div className="interface-preferences">
       <label className="language">
-        {t(locale, 'app.language')}{' '}
+        <DesignIcon name="language" />
+        <span>{t(locale, 'app.language')}</span>
         <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>
           <option value="ru">Русский</option>
           <option value="en">English</option>
         </select>
       </label>
       <button type="button" className="theme-toggle" aria-pressed={dark} onClick={toggleTheme}>
-        {t(locale, 'app.darkTheme')}
+        <DesignIcon name="theme" />
+        <span>{t(locale, 'app.darkTheme')}</span>
+        <span aria-hidden="true" className="theme-switch" />
       </button>
     </div>
   );

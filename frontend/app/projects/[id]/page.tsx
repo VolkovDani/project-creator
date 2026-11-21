@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { t } from '../../../lib/i18n';
+import { DesignIcon } from '../../components/DesignIcon';
 import { sectionLabel, sections } from './ProjectNavigation';
 import { useProject } from './ProjectShell';
 import styles from './ProjectShell.module.css';
@@ -22,7 +23,11 @@ export default function ProjectPage() {
               key={key}
               href={`/projects/${encodeURIComponent(project.id)}/${key}`}
             >
-              <strong>{sectionLabel(locale, key)}</strong>
+              <div className={styles.destination}>
+                <DesignIcon name={key} />
+                <strong>{sectionLabel(locale, key)}</strong>
+                <DesignIcon name="next" />
+              </div>
               <p>{t(locale, `ui.${key}Help`)}</p>
             </Link>
           ))}

@@ -5,9 +5,11 @@ import { query } from '../lib/client';
 import { ProjectConnectionDocument, type ProjectConnectionQuery } from '../lib/generated';
 import { t } from '../lib/i18n';
 import { useInfinite } from '../lib/useInfinite';
+import { DesignIcon } from './components/DesignIcon';
 import { LoadMore } from './components/ListControls';
 import { InterfacePreferences, useLocale } from './components/LocaleProvider';
 import PageMetadata from './components/PageMetadata';
+import styles from './components/RecordIcons.module.css';
 import ResourceState from './components/ResourceState';
 import { VirtualList } from './components/VirtualList';
 export default function Home() {
@@ -34,7 +36,11 @@ function ProjectCard({
   return (
     <article className="card">
       <h2>
-        <Link href={`/projects/${encodeURIComponent(project.id)}`}>{project.name}</Link>
+        <Link className={styles.projectLink} href={`/projects/${encodeURIComponent(project.id)}`}>
+          <DesignIcon name="projects" />
+          <span>{project.name}</span>
+          <DesignIcon name="next" />
+        </Link>
       </h2>
       <p>{project.goal}</p>
     </article>

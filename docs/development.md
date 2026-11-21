@@ -483,6 +483,8 @@ The workspace opens in dark mode on the first visit and restores an explicitly s
 
 The project menu follows the working order Overview, Requirements, Search, Classification, Glossary and Analysis. Expand **Technical section** to check automatic indexing or retry a failed record. The existing indexing URL still opens directly. The menu can be collapsed on desktop and opened when needed on mobile.
 
+The language selector and dark-theme switch are at the bottom of the project menu. On the project list and creation pages they are in the header. Section links use the same Feather icons as the FigCraft design. Their text labels provide the accessible names.
+
 Browser tabs show the current section and the Project Creator name. Titles and page descriptions follow the selected interface language and use only interface strings.
 
 Next.js serves the multi-size browser icon from `frontend/app/favicon.ico`. The standalone image also ships the supplied PNG variants from `frontend/public/`, including the 180 px Apple touch icon.

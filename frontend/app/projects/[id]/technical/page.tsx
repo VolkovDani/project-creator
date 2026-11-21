@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { t } from '../../../../lib/i18n';
+import { DesignIcon } from '../../../components/DesignIcon';
 import { useProject } from '../ProjectShell';
 import styles from '../ProjectShell.module.css';
 
@@ -12,8 +13,13 @@ export default function TechnicalPage() {
       <p>{t(locale, 'ui.technicalHelp')}</p>
       <div className={styles.indexingCard}>
         <h3>
-          <Link href={`/projects/${encodeURIComponent(project.id)}/indexing`}>
+          <Link
+            className={styles.destination}
+            href={`/projects/${encodeURIComponent(project.id)}/indexing`}
+          >
+            <DesignIcon name="indexing" />
             {t(locale, 'nav.indexing')}
+            <DesignIcon name="next" />
           </Link>
         </h3>
         <p>{t(locale, 'ui.indexingBackground')}</p>

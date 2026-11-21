@@ -14,7 +14,21 @@ const candidate = {
 };
 const proposed = 'Подпись для подтверждения документа.\nСохраняет  исходный текст.';
 
-async function visitGlossary(page: Page, results: string[], candidates = [candidate]) {
+const term = {
+  id: 'term',
+  name: 'ЭЦП',
+  definition: '',
+  context: '',
+  variants: [],
+  version: 1,
+};
+
+async function visitGlossary(
+  page: Page,
+  results: string[],
+  candidates = [candidate],
+  terms: (typeof term)[] = [],
+) {
   const requests: unknown[] = [];
   const saves: unknown[] = [];
   const pageInfo = { hasNextPage: false, endCursor: null };
@@ -30,7 +44,7 @@ async function visitGlossary(page: Page, results: string[], candidates = [candid
         data = { project: { id: 'demo', name: 'Проект', goal: '', description: '' } };
         break;
       case 'GlossaryTermPages':
-        data = { glossaryTermsConnection: { items: [], pageInfo } };
+        data = { glossaryTermsConnection: { items: terms, pageInfo } };
         break;
       case 'GlossaryCandidatePages':
         data = { glossaryCandidatesConnection: { items: candidates, pageInfo } };
@@ -268,34 +282,33 @@ for (const theme of ['light', 'dark']) {
   });
 }
 
+test('glossary deletion and its confirmation share a destructive treatment', async ({ page }) => {
+  await visitGlossary(page, [], [], [term]);
+  const remove = page.getByRole('button', { name: 'Удалить', exact: true });
+  const mentions = page.getByRole('button', { name: 'Где упоминается' });
+  const neutralColor = await mentions.evaluate((el) => getComputedStyle(el).color);
+  await expect(remove).not.toHaveCSS('color', neutralColor);
+  await remove.click();
+  const confirm = page.getByRole('button', { name: 'Подтвердить удаление' });
+  await expect(confirm).toHaveCSS(
+    'color',
+    await remove.evaluate((el) => getComputedStyle(el).color),
+  );
+  const cancel = page.getByRole('button', { name: 'Отмена' });
+  await expect(cancel).toHaveCSS('color', neutralColor);
+  await cancel.click();
+  await expect(confirm).toHaveCount(0);
+});
+
 test('scrolling inside the mentions dialog loads the next cursor without moving the page', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 900, height: 480 });
-  await visitGlossary(page, []);
+  await visitGlossary(page, [], [], [term]);
   const cursors: Array<string | null> = [];
   await page.route('**/api/graphql', async (route) => {
     const { operationName, variables } = route.request().postDataJSON();
-    if (operationName === 'GlossaryTermPages') {
-      const term = {
-        id: 'term',
-        name: 'ЭЦП',
-        definition: '',
-        context: '',
-        variants: [],
-        version: 1,
-      };
-      await route.fulfill({
-        json: {
-          data: {
-            glossaryTermsConnection: {
-              items: [term],
-              pageInfo: { endCursor: null, hasNextPage: false },
-            },
-          },
-        },
-      });
-    } else if (operationName === 'GlossaryMentions') {
+    if (operationName === 'GlossaryMentions') {
       cursors.push(variables.after);
       const start = variables.after ? 20 : 0;
       const items = Array.from({ length: start === 0 ? 20 : 1 }, (_, i) => ({

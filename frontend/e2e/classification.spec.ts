@@ -216,6 +216,22 @@ test('classification updates one visible card in a 205-record project while reta
   await expect(first).toContainText('Подтверждено пользователем');
 });
 
+test('group filters visibly mark the pressed choice after focus leaves', async ({ page }) => {
+  await fixture(page);
+  await page.goto('/projects/demo/classification');
+  await page.getByText('Группы и количество записей', { exact: true }).click();
+  const filters = page.locator('.classification-groups button');
+  const first = filters.first();
+  await first.click();
+  await page.keyboard.press('Tab');
+  await page.mouse.move(0, 0);
+  await expect(first).toHaveAttribute('aria-pressed', 'true');
+  await expect(first).not.toHaveCSS(
+    'font-weight',
+    await filters.nth(1).evaluate((el) => getComputedStyle(el).fontWeight),
+  );
+});
+
 test('manual review remains available when automatic classification is disabled', async ({
   page,
 }) => {

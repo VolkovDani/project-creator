@@ -56,6 +56,7 @@ main p,
 }
 a {
   color: var(--action);
+  text-decoration-line: underline;
   text-underline-offset: 0.16em;
 }
 a:hover {
@@ -344,6 +345,9 @@ details[open] > summary {
   display: block;
   text-decoration: none;
   margin: 0;
+}
+.overview-links .card strong {
+  text-decoration-line: underline;
 }
 .overview-links .card:hover {
   border-color: var(--action);

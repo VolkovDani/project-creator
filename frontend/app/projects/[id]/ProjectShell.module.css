@@ -94,7 +94,6 @@
   display: block;
   padding: var(--space-control) var(--space-3);
   color: var(--text);
-  text-decoration: none;
   border-inline-start: 3px solid transparent;
   border-radius: var(--radius-control);
 }

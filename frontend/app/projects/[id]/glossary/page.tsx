@@ -105,6 +105,7 @@ export default function GlossaryPage() {
               </div>
             ))}
             <button
+              className="destructive-action"
               type="button"
               onClick={() => {
                 setRemove(term);
@@ -116,6 +117,7 @@ export default function GlossaryPage() {
             {remove?.id === term.id && (
               <div>
                 <button
+                  className="destructive-action"
                   type="button"
                   disabled={busy}
                   onClick={async () => {

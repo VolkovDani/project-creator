@@ -60,6 +60,12 @@ SOFTWARE.
   margin: var(--space-1) 0;
   text-align: start;
 }
+.ui-panel .classification-groups button[aria-pressed="true"]:enabled {
+  font-weight: 750;
+  color: var(--action);
+  background: var(--action-tint);
+  border-color: var(--action);
+}
 .ui-panel .classification-selection {
   display: flex;
   align-items: center;

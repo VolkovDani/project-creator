@@ -513,6 +513,14 @@ cd frontend
 bun run e2e
 ```
 
+### Controls, links and text
+
+- Use a native button for actions such as **Copy code** or **Save**. Give it a visible boundary or fill so the action is recognizable before hover.
+- Use a link with an `href` for navigation. Underline links within text by default, including links in rendered Markdown. Keep the underline visible on touch screens.
+- A navigation group such as the project menu can use a consistent row or tab treatment in place of underlines. Make each destination recognizable before hover and mark the current page with a visible indicator and `aria-current="page"`.
+- Keep headings, labels and metadata such as a requirement version or indexing status visually distinct from controls. Reserve the button treatment and pointer cursor for interactive elements.
+- Give keyboard focus a visible outline in both themes. A focused navigation link must remain distinguishable from the current page.
+
 ## Business requirements
 
 Requirements render Markdown headings, paragraphs, lists, tables, quotations, links and fenced code. Known fence languages receive syntax highlighting. Use **Copy code** for the contents of a block. Select visible document text to add a glossary entry. **Markdown source** shows the stored text with glossary matches. Links to a specific glossary occurrence open the exact text at its saved offsets. Editing always uses the stored source.

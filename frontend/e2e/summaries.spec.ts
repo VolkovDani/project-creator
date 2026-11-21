@@ -418,10 +418,9 @@ test('renders requirement Markdown and retains the exact source, including Unico
   await expect(card.getByRole('cell', { name: 'Черновик' })).toBeVisible();
   await expect(card.locator('blockquote')).toHaveText('Условия');
   await expect(card.locator('li').filter({ hasText: 'Получить согласование' })).toBeVisible();
-  await expect(card.getByRole('link', { name: 'Документ' })).toHaveAttribute(
-    'href',
-    'https://example.org/docs',
-  );
+  const documentLink = card.getByRole('link', { name: 'Документ' });
+  await expect(documentLink).toHaveAttribute('href', 'https://example.org/docs');
+  await expect(documentLink).toHaveCSS('text-decoration-line', 'underline');
   await expect(card.getByRole('link', { name: 'Некорректная ссылка' })).toHaveCount(0);
   await expect(card.locator('img')).toHaveCount(0);
   await expect(card.getByText('<b>Исходный HTML</b>', { exact: true })).toBeVisible();

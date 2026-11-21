@@ -36,6 +36,10 @@ test('project menu groups sections and keeps diagnostics accessible on a direct 
     'Технический раздел',
     'Индексация',
   ]);
+  await expect(nav.getByRole('link', { name: 'Обзор' })).toHaveCSS(
+    'text-decoration-line',
+    'underline',
+  );
   const indexing = nav.getByRole('list').getByRole('link', { name: 'Индексация' });
   await expect(indexing).toHaveAttribute('aria-current', 'page');
   const technical = nav.getByRole('link', { name: 'Технический раздел' });
@@ -53,6 +57,11 @@ test('project menu groups sections and keeps diagnostics accessible on a direct 
     'Словарь',
     'Анализ',
   ]);
+  await expect(page.locator('.overview-links strong').first()).toHaveCSS(
+    'text-decoration-line',
+    'underline',
+  );
+  await expect(page.locator('.overview-links p').first()).toHaveCSS('text-decoration-line', 'none');
   await expect(nav.getByRole('link', { name: 'Индексация' })).toHaveCount(0);
 });
 

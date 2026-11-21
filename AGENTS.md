@@ -85,6 +85,7 @@
   access scope. Check duplicate events, reconnect/reset, lists, and races between
   a query and an event. Permission changes must clear inaccessible data.
 - Always use infinite scrolling for user-facing lists that load in batches. Provide a keyboard-accessible **Load more** button.
+- Follow the [UI guidelines for controls, links and text](docs/development.md#controls-links-and-text).
 - Put all user-facing strings through i18n. Validate the shared Go/TypeScript
   dictionaries and translation parameters automatically. Do not translate user
   content.

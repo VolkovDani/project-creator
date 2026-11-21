@@ -5,6 +5,24 @@ export type Connection<T extends { id: string }> = {
   pageInfo: { endCursor?: string | null; hasNextPage: boolean };
   totalCount?: number;
 };
+
+// Offset-based queries request one extra row to detect the next batch.
+export function offsetConnection<T extends { id: string }>(
+  rows: readonly T[],
+  after: string | null,
+  size: number,
+): Connection<T> {
+  const offset = Number(after);
+  const edges = rows.slice(0, size).map((node, index) => ({
+    node,
+    cursor: String(offset + index + 1),
+  }));
+  return {
+    edges,
+    pageInfo: { endCursor: edges.at(-1)?.cursor ?? null, hasNextPage: rows.length > size },
+  };
+}
+
 export type InfiniteSnapshot<T> = {
   rows: T[];
   totalCount: number;

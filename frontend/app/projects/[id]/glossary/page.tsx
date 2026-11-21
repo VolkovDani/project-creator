@@ -10,8 +10,6 @@ import {
 } from '../../../../lib/generated';
 import { t } from '../../../../lib/i18n';
 import { requirementURL } from '../../../../lib/rag';
-import { useListMode } from '../../../../lib/useListMode';
-import { ListModeSelect } from '../../../components/ListControls';
 import GlossaryEditor, { type GlossaryDraft } from '../GlossaryEditor';
 import { useProject } from '../ProjectShell';
 import styles from './CandidateExcerpt.module.css';
@@ -24,7 +22,6 @@ export default function GlossaryPage() {
   const tag = `project:${projectId}:glossary`,
     reqTag = `project:${projectId}:requirements`;
   const [search, setSearch] = useState('');
-  const { mode, setMode } = useListMode();
   const [draft, setDraft] = useState<GlossaryDraft>(),
     [remove, setRemove] = useState<Term>(),
     [busy, setBusy] = useState(false),
@@ -61,7 +58,6 @@ export default function GlossaryPage() {
           onClose={() => setMentions(undefined)}
         />
       )}
-      <ListModeSelect locale={locale} mode={mode} onChange={setMode} />
       <label>
         {t(locale, 'glossary.search')}
         <input
@@ -86,7 +82,6 @@ export default function GlossaryPage() {
       )}
       <GlossaryListView
         key={search}
-        mode={mode}
         locale={locale}
         load={load}
         identity={JSON.stringify(['glossary', projectId, search])}
@@ -153,7 +148,6 @@ export default function GlossaryPage() {
       />
       <h3>{t(locale, 'glossary.candidates')}</h3>
       <GlossaryListView
-        mode={mode}
         locale={locale}
         load={scan}
         identity={JSON.stringify(['glossaryCandidates', projectId])}

@@ -1,7 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 
 type PushWindow = Window & { pushClassification: (keys: string[]) => void };
-async function fixture(page: Page, configured = true) {
+async function fixture(page: Page, configured = true, olderDecisions = 0) {
   await page.addInitScript(() => {
     const fetch = window.fetch;
     let serial = 0;
@@ -129,7 +129,7 @@ async function fixture(page: Page, configured = true) {
           ? [
               {
                 ...r,
-                revision: 3,
+                revision: olderDecisions + 2,
                 source: 'model',
                 status: 'needs_review',
                 model: 'new-run',
@@ -137,13 +137,17 @@ async function fixture(page: Page, configured = true) {
               },
               {
                 ...r,
-                revision: 2,
+                revision: olderDecisions + 1,
                 source: 'user',
                 status: 'confirmed',
                 model: '',
                 semanticType: 'business_rule',
               },
-            ]
+              ...Array.from({ length: olderDecisions }, (_, i) => ({
+                ...r,
+                revision: olderDecisions - i,
+              })),
+            ].slice(v.offset, v.offset + v.limit)
           : [],
       };
     } else if (name === 'RetryClassification') {
@@ -345,4 +349,54 @@ test('confirms only explicitly selected current model suggestions and reports a 
       representationType: 'statement',
     },
   ]);
+});
+
+test('scrolling appends classification records and preserves selections across batches', async ({
+  page,
+}) => {
+  const { records, saves } = await fixture(page);
+  records.splice(25);
+  for (const index of [0, 24]) {
+    const record = records[index];
+    if (!record) throw Error('missing fixture');
+    Object.assign(record, {
+      status: 'suggested',
+      reason: '',
+      semanticType: 'business_rule',
+      representationType: 'statement',
+    });
+  }
+  await page.goto('/projects/demo/classification');
+  const cards = page.locator('[data-classification-id]');
+  await expect(cards).toHaveCount(20);
+  await cards.first().getByRole('checkbox').check();
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect(cards).toHaveCount(25);
+  await expect(cards.first().getByRole('checkbox')).toBeChecked();
+  await cards.last().getByRole('checkbox').check();
+  await page.getByRole('button', { name: 'Подтвердить выбранные (2)' }).click();
+  await expect.poll(() => saves.length).toBe(2);
+  expect(saves).toMatchObject([{ requirementId: '1' }, { requirementId: '25' }]);
+  await expect(page.getByRole('button', { name: 'Загрузить ещё' })).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'Статус', exact: true }).selectOption('failed');
+  await expect(cards).toHaveCount(1);
+  await expect(cards.first()).toHaveAttribute('data-classification-id', '2');
+});
+
+test('scrolling inside an open decision history appends the remaining revisions', async ({
+  page,
+}) => {
+  await fixture(page, true, 11);
+  await page.goto('/projects/demo/classification');
+  const card = page.locator('[data-classification-id="1"]');
+  await card.getByText('История решений', { exact: true }).click();
+  const revisions = card.locator('details[aria-label="История решений"] > ol > li');
+  await expect(revisions).toHaveCount(10);
+  await card
+    .getByRole('button', { name: 'Загрузить ещё' })
+    .scrollIntoViewIfNeeded({ timeout: 1500 });
+  await expect(revisions).toHaveCount(13);
+  await expect(revisions.first()).toContainText('ревизия решения 13');
+  await expect(revisions.last()).toContainText('ревизия решения 1');
+  await expect(card.getByRole('button', { name: 'Загрузить ещё' })).toHaveCount(0);
 });

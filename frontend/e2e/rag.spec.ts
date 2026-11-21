@@ -138,8 +138,8 @@ test('index retry and search are explicit and retain versioned sources', async (
   await page.getByRole('link', { name: 'Перейти к требованию' }).click();
   await expect(page).toHaveURL(/#requirement-source-1$/);
 });
-test('search source opens the requirement on another list page', async ({ page }) => {
-  const requirements = Array.from({ length: 21 }, (_, index) => ({
+test('search links focus a requirement from the next cursor batch', async ({ page }) => {
+  const requirements = Array.from({ length: 41 }, (_, index) => ({
     id: `source-${index}`,
     projectId: 'demo',
     text: `Требование ${index}`,
@@ -158,10 +158,10 @@ test('search source opens the requirement on another list page', async ({ page }
       data = {
         searchRequirements: [
           {
-            requirementId: 'source-20',
+            requirementId: 'source-40',
             projectId: 'demo',
-            text: 'Требование 20',
-            sourceText: 'Требование 20',
+            text: 'Требование 40',
+            sourceText: 'Требование 40',
             version: 1,
             start: 0,
             end: 13,
@@ -171,15 +171,11 @@ test('search source opens the requirement on another list page', async ({ page }
       };
     else if (query.includes('requirementsConnection('))
       data = { requirementsConnection: connection(requirements, variables) };
-    else if (query.includes('requirements('))
-      data = {
-        requirements: requirements.slice(variables.offset, variables.offset + variables.limit),
-      };
     else
       data = {
         project: {
           id: 'demo',
-          name: 'Пагинация источников',
+          name: 'Источники требований',
           goal: 'G',
           description: '',
           createdAt: 'now',
@@ -189,15 +185,16 @@ test('search source opens the requirement on another list page', async ({ page }
     await route.fulfill({ json: { data } });
   });
   await page.goto('/projects/demo/search');
-  await page.getByLabel('Поисковый запрос').fill('20');
+  await page.getByLabel('Поисковый запрос').fill('40');
   await page.getByRole('button', { name: 'Найти требования' }).click();
   await page.getByRole('link', { name: 'Перейти к требованию' }).click();
-  await expect(page.locator('#requirement-source-20')).toBeVisible();
-  await expect(page).toHaveURL(/#requirement-source-20$/);
+  await expect(page.locator('#requirement-source-40')).toBeInViewport();
+  await expect(page.locator('#requirement-source-40')).toBeFocused();
+  await expect(page).toHaveURL(/#requirement-source-40$/);
 });
 
 test('navigation away cancels a delayed source scan', async ({ page }) => {
-  const requirements = Array.from({ length: 21 }, (_, index) => ({
+  const requirements = Array.from({ length: 41 }, (_, index) => ({
     id: `source-${index}`,
     projectId: 'demo',
     text: `Требование ${index}`,
@@ -221,19 +218,11 @@ test('navigation away cancels a delayed source scan', async ({ page }) => {
     let data: unknown;
     if (query.includes('requirementIndex(')) data = { requirementIndex: [] };
     else if (query.includes('requirementsConnection(')) {
-      if (variables.first === 100) {
+      if (variables.after === 'cursor-40') {
         started();
         await pending;
       }
       data = { requirementsConnection: connection(requirements, variables) };
-    } else if (query.includes('requirements(')) {
-      if (variables.limit === 100) {
-        started();
-        await pending;
-      }
-      data = {
-        requirements: requirements.slice(variables.offset, variables.offset + variables.limit),
-      };
     } else
       data = {
         project: {
@@ -247,14 +236,14 @@ test('navigation away cancels a delayed source scan', async ({ page }) => {
       };
     await route.fulfill({ json: { data } }).catch(() => {});
   });
-  await page.goto('/projects/demo/requirements?requirement=source-20#requirement-source-20');
+  await page.goto('/projects/demo/requirements?requirement=source-40#requirement-source-40');
   await scanStarted;
   await page.getByRole('link', { name: 'Поиск', exact: true }).click();
   await expect(page).toHaveURL(/\/search$/);
   release();
   await expect(page.getByRole('heading', { name: 'Поиск по смыслу' })).toBeVisible();
   await expect(page).toHaveURL(/\/search$/);
-  await expect(page.locator('#requirement-source-20')).toHaveCount(0);
+  await expect(page.locator('#requirement-source-40')).toHaveCount(0);
 });
 
 test('requirement draft is locked until its save response completes', async ({ page }) => {

@@ -84,6 +84,7 @@
 - Publish invalidation events after a successful data commit and check the
   access scope. Check duplicate events, reconnect/reset, lists, and races between
   a query and an event. Permission changes must clear inaccessible data.
+- Always use infinite scrolling for user-facing lists that load in batches. Provide a keyboard-accessible **Load more** button.
 - Put all user-facing strings through i18n. Validate the shared Go/TypeScript
   dictionaries and translation parameters automatically. Do not translate user
   content.

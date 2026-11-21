@@ -260,16 +260,6 @@ select {
 .record-list {
   min-height: 180px;
 }
-.pagination {
-  min-height: 58px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.pagination button {
-  margin: 0;
-}
 .data-group {
   margin: 16px 0;
   border: 1px solid var(--border);

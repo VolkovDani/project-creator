@@ -61,7 +61,7 @@ jobs:
             ${{ runner.os }}-bun-
       - name: Prepare isolated E2E database
         run: psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE project_creator_e2e'
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Verify offline classification metrics and taxonomy fixtures

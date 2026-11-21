@@ -481,6 +481,8 @@ without separate authentication and access control.
 
 Browser tabs show the current section and the Project Creator name. Titles and page descriptions follow the selected interface language and use only interface strings.
 
+Next.js serves the multi-size browser icon from `frontend/app/favicon.ico`. The standalone image also ships the supplied PNG variants from `frontend/public/`, including the 180 px Apple touch icon.
+
 After changing the GraphQL schema and operations, run:
 
 The generator reads the local SDL and `operations/*.graphql` with GraphQL Code Generator Core and the two pinned TypeScript plugins. CI validates the operations and compares the generated file with Git.

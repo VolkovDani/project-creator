@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/VolkovDani/project-creator/9d04799dc35617490cdd4e4ddc8642d9fa8e8433/frontend/public/icon-192.png" width="80" height="80" alt="">
+
 # Project Creator
 
 [English version](README.en.md)

@@ -1,13 +1,12 @@
 'use client';
 import Link from 'next/link';
-import { useParams, usePathname, useSelectedLayoutSegment } from 'next/navigation';
+import { useParams, usePathname } from 'next/navigation';
 import { createContext, useCallback, useContext } from 'react';
 import { query } from '../../../lib/client';
 import { ProjectDetailDocument, type ProjectDetailQuery } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
 import { useResource } from '../../../lib/useResource';
 import { InterfacePreferences, useLocale } from '../../components/LocaleProvider';
-import PageMetadata from '../../components/PageMetadata';
 import ResourceState from '../../components/ResourceState';
 import { GlossaryActions } from './GlossaryActions';
 
@@ -42,17 +41,12 @@ export default function ProjectShell({ children }: { children: React.ReactNode }
 function ProjectContent({ id, children }: { id: string; children: React.ReactNode }) {
   const { locale } = useLocale();
   const pathname = usePathname();
-  const section = useSelectedLayoutSegment() ?? 'overview';
   const loader = useCallback(() => query(ProjectDetailDocument, { id }), [id]);
   const { data, loading, error, reload } = useResource(loader, [`project:${id}`]);
   const project = data?.project;
   const base = `/projects/${encodeURIComponent(id)}`;
   return (
     <main>
-      <PageMetadata
-        titleKey={`nav.${section}`}
-        descriptionKey={section === 'overview' ? undefined : `ui.${section}Help`}
-      />
       <div className="top">
         <Link href="/">{t(locale, 'app.back')}</Link>
         <InterfacePreferences />

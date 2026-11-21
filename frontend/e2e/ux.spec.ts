@@ -22,11 +22,47 @@ test('section metadata follows navigation and the saved language', async ({ page
   await expect(page.locator('head title')).toHaveCount(1);
 });
 
-test('favicon is served as an icon', async ({ request }) => {
+test('pages advertise the browser and Apple icons and serve the supplied sizes', async ({
+  page,
+  request,
+}) => {
+  await fixture(page, 1);
+  await page.goto('/projects/demo/indexing');
+  const tabIcons = page.locator('head link[rel="icon"]');
+  await expect(tabIcons).toHaveCount(3);
+  for (const size of [16, 32]) {
+    await expect(page.locator(`head link[rel="icon"][sizes="${size}x${size}"]`)).toHaveAttribute(
+      'href',
+      `/favicon-${size}x${size}.png`,
+    );
+  }
+  await expect(page.locator('head link[rel="icon"][href^="/favicon.ico"]')).toHaveCount(1);
+  await expect(page.locator('head link[rel="apple-touch-icon"][sizes="180x180"]')).toHaveAttribute(
+    'href',
+    '/apple-touch-icon.png',
+  );
   const icon = await request.get('/favicon.ico');
   expect(icon.status()).toBe(200);
   expect(icon.headers()['content-type']).toMatch(/image\/(x-icon|vnd.microsoft.icon)/);
-  expect([...(await icon.body()).subarray(0, 4)]).toEqual([0, 0, 1, 0]);
+  const ico = await icon.body();
+  expect([...ico.subarray(0, 6)]).toEqual([0, 0, 1, 0, 3, 0]);
+  expect([ico[6], ico[22], ico[38]]).toEqual([16, 32, 48]);
+  for (const [file, size] of [
+    ['favicon-16x16', 16],
+    ['favicon-32x32', 32],
+    ['favicon-48x48', 48],
+    ['favicon-64x64', 64],
+    ['apple-touch-icon', 180],
+    ['icon-192', 192],
+    ['icon-512', 512],
+    ['icon-maskable-512', 512],
+  ] as const) {
+    const image = await request.get(`/${file}.png`);
+    expect(image.status()).toBe(200);
+    expect(image.headers()['content-type']).toContain('image/png');
+    const png = await image.body();
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([size, size]);
+  }
 });
 
 test('dark theme follows the user across navigation, language changes and reloads', async ({

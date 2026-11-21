@@ -65,6 +65,24 @@ test('ranks are comparable only inside their axis and joint legacy scores stay p
   });
 });
 
+test('each group shows its top three scores, keeping tied entries in source order', () => {
+  const scores = [null, 0.2, 0.8, 0.2, 0.1, 0.9];
+  const alternatives = scores.flatMap((score, i) => [
+    { semanticType: String(i), representationType: '', score },
+    { semanticType: '', representationType: String(i), score },
+    { semanticType: String(i), representationType: String(i), score },
+  ]);
+  const original = structuredClone(alternatives);
+  const groups = groupAlternatives(alternatives);
+  for (const group of Object.values(groups)) {
+    assert.deepEqual(
+      group.map((item) => item.semanticType || item.representationType),
+      ['5', '2', '1'],
+    );
+  }
+  assert.deepEqual(alternatives, original);
+});
+
 test('bulk-eligible labels must both be known current model suggestions', async () => {
   const { eligibleSuggestion } = await import('../lib/classificationReview.ts');
   const entry = {

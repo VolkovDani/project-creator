@@ -8,21 +8,18 @@ import {
   EditRequirementDocument,
   RemoveRequirementDocument,
   RequirementConnectionDocument,
-  RequirementsDocument,
 } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
-import { findRequirementPage } from '../../../lib/requirementsView';
+import { useInvalidation } from '../../../lib/live';
 import { validateRequirement } from '../../../lib/requirementValidation';
 import { useInfinite } from '../../../lib/useInfinite';
-import { useListMode } from '../../../lib/useListMode';
 import Group from '../../components/Group';
-import { ListModeSelect, LoadMore } from '../../components/ListControls';
+import { LoadMore } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
 import ClassificationCard from './classification/ClassificationCard';
 import RequirementSummary, { useRequirementSummaries } from './RequirementSummary';
 import RetryFailedSummaries from './RetryFailedSummaries';
-import { useRequirementsPage } from './useRequirementsPage';
 
 export default function Requirements({ projectId, locale }: { projectId: string; locale: Locale }) {
   const [busy, setBusy] = useState(false);
@@ -35,8 +32,6 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     key: string;
     params: Record<string, number>;
   } | null>(null);
-  const [sourceError, setSourceError] = useState<'missing' | 'failed' | null>(null);
-  const [sourceAttempt, setSourceAttempt] = useState(0);
   const [sourceTarget, setSourceTarget] = useState<string>();
   const operation = useRef(0);
   const active = useRef(true);
@@ -49,7 +44,6 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     setFailure(false);
     setBusy(false);
     setSourceTarget(undefined);
-    setSourceError(null);
   }, []);
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -57,13 +51,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     if (!editing && dialog?.open) dialog.close();
     if (!editing) editTrigger.current?.focus({ preventScroll: true });
   }, [editing]);
-  const location = useListMode();
-  const { mode, setMode, setPage, replacePage } = location;
-  const paged = useRequirementsPage(projectId, clear, {
-    enabled: mode === 'pages',
-    page: location.page,
-    setPage,
-  });
+  useInvalidation([`project:${projectId}`, `project:${projectId}:requirements`], () => {}, clear);
   const connectionLoader = useCallback(
     async (after: string | null) =>
       (await query(RequirementConnectionDocument, { projectId, first: 40, after }))
@@ -74,10 +62,9 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     identity: `requirements:${projectId}`,
     tags: [`project:${projectId}`, `project:${projectId}:requirements`],
     load: connectionLoader,
-    enabled: mode === 'infinite',
   });
   const [mutationFailure, setFailure] = useState(false);
-  const rows = mode === 'pages' ? paged.rows : infinite.rows;
+  const { rows, loading, loaded } = infinite;
   const {
     summaries,
     failure: summaryFailure,
@@ -87,11 +74,6 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     projectId,
     rows.map((row) => ({ id: row.id, version: row.version })),
   );
-  const page = mode === 'pages' ? paged.page : 0;
-  const loading = mode === 'pages' ? paged.loading : infinite.loading;
-  const loaded = mode === 'pages' ? paged.loaded : infinite.loaded;
-  const failure = mutationFailure || (mode === 'pages' ? paged.failure : infinite.error);
-  const load = mode === 'pages' ? paged.load : infinite.refresh;
   const more = useCallback(() => {
     if (!infinite.loading && !infinite.error && infinite.hasNextPage)
       void infinite.loadMore().catch(() => {});
@@ -120,42 +102,24 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     };
   }, [projectId]);
   useEffect(() => {
-    void sourceAttempt;
-    if (!source) return;
-    let current = true;
-    const epoch = operation.current;
-    setSourceError(null);
-    void findRequirementPage(
-      source,
-      async (offset) =>
-        (await query(RequirementsDocument, { projectId, limit: 100, offset })).requirements,
-      () => current && epoch === operation.current,
-    )
-      .then((target) => {
-        if (!current || target === undefined) return;
-        if (target === null) {
-          setSourceError('missing');
-          return;
-        }
-        setSourceTarget(source);
-        replacePage(target);
-      })
-      .catch(() => {
-        if (current && epoch === operation.current) setSourceError('failed');
-      });
-    return () => {
-      current = false;
-    };
-  }, [projectId, source, sourceAttempt, replacePage]);
+    setSourceTarget(params.get('requirement') ?? undefined);
+  }, [params]);
+  const seeking = !!sourceTarget && sourceTarget === source;
+  const found = seeking && rows.some((row) => row.id === sourceTarget);
   useEffect(() => {
-    if (!sourceTarget || loading || !rows.some((row) => row.id === sourceTarget)) return;
+    if (!seeking || !loaded || loading || infinite.error) return;
+    if (!found) {
+      more();
+      return;
+    }
     const card = document.getElementById(`requirement-${sourceTarget}`);
-    const group = card?.closest('details');
+    if (!card) return;
+    const group = card.closest('details');
     if (group) group.open = true;
-    (card?.querySelector('mark[data-candidate]') ?? card)?.scrollIntoView({ block: 'center' });
-    card?.focus({ preventScroll: true });
+    (card.querySelector('mark[data-candidate]') ?? card).scrollIntoView({ block: 'center' });
+    card.focus({ preventScroll: true });
     setSourceTarget(undefined);
-  }, [rows, loading, sourceTarget]);
+  }, [seeking, found, loaded, loading, infinite.error, more, sourceTarget]);
   const current = (epoch: number) => active.current && operation.current === epoch;
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -186,7 +150,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
           key: first.messageKey,
           params: Object.fromEntries(first.params.map((p) => [p.key, p.value])),
         });
-        if (first.code === 'CONFLICT') await load();
+        if (first.code === 'CONFLICT') await infinite.refresh();
         return;
       }
       if (!result.requirement) throw Error('missing requirement');
@@ -194,8 +158,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
         setEditing(null);
         setEditText('');
       } else setText('');
-      if (!editing && page !== 0) setPage(0);
-      else await load();
+      await infinite.refresh();
     } catch {
       if (current(epoch)) setFailure(true);
     } finally {
@@ -211,12 +174,10 @@ export default function Requirements({ projectId, locale }: { projectId: string;
       if (!current(epoch)) return;
       if (!result.deleteRequirement.deleted) {
         setValidation({ key: 'validation.conflict', params: {} });
-        await load();
+        await infinite.refresh();
         return;
       }
-      // Stay on a populated page after deleting its last row.
-      if (rows.length === 1 && page > 0) setPage(page - 1);
-      else await load();
+      await infinite.refresh();
     } catch {
       if (current(epoch)) setFailure(true);
     } finally {
@@ -315,42 +276,33 @@ export default function Requirements({ projectId, locale }: { projectId: string;
       <ResourceState
         locale={locale}
         loading={loading}
-        error={failure || sourceError === 'failed'}
+        error={mutationFailure || infinite.error}
         hasData={loaded}
         retry={() => {
           setFailure(false);
-          if (mode === 'pages') void paged.load();
-          else void infinite.retry().catch(() => {});
-          setSourceAttempt((value) => value + 1);
+          void infinite.retry().catch(() => {});
         }}
       />
-      {sourceError === 'missing' && (
+      {seeking && loaded && !loading && !infinite.error && !found && !infinite.hasNextPage && (
         <p role="alert" className="error">
           {t(locale, 'ui.sourceNotFound')}
         </p>
       )}
       <RetryFailedSummaries projectId={projectId} locale={locale} />
-      <ListModeSelect locale={locale} mode={mode} onChange={setMode} />
       <Group
         id={`${projectId}:requirements`}
         title={t(locale, 'ui.requirementsGroup')}
-        summary={
-          mode === 'pages'
-            ? `${t(locale, 'ui.currentPage')} · ${rows.length}`
-            : t(locale, 'list.total', { total: infinite.totalCount })
-        }
+        summary={t(locale, 'list.total', { total: infinite.totalCount })}
         defaultOpen
       >
         {loaded && rows.length === 0 && <p>{t(locale, 'requirements.empty')}</p>}
         <VirtualList
-          identity={`requirements:${projectId}:${mode}:${page}`}
-          restoreScroll={mode === 'infinite'}
-          overscan={mode === 'pages' ? 20 : 4}
+          identity={`requirements:${projectId}`}
           items={rows}
           keyOf={(row) => row.id}
           focusedId={editing?.id}
           scrollToId={sourceTarget}
-          onEndReached={mode === 'infinite' ? more : undefined}
+          onEndReached={more}
           renderItem={(row) => (
             <article className="card" id={`requirement-${row.id}`} key={row.id} tabIndex={-1}>
               {source === row.id && mention && mentionVersion !== row.version && (
@@ -388,7 +340,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
               <p className="muted">{t(locale, 'requirements.version', { version: row.version })}</p>
               <button
                 type="button"
-                disabled={busy || (mode === 'pages' && paged.requestedPage !== page)}
+                disabled={busy}
                 onClick={(event) => {
                   editTrigger.current = event.currentTarget;
                   setEditing({ id: row.id, version: row.version });
@@ -401,7 +353,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
               </button>
               <button
                 type="button"
-                disabled={busy || (mode === 'pages' && paged.requestedPage !== page)}
+                disabled={busy}
                 className="destructive-action"
                 onClick={() => void remove(row.id, row.version)}
               >
@@ -410,27 +362,8 @@ export default function Requirements({ projectId, locale }: { projectId: string;
             </article>
           )}
         />
-        {mode === 'infinite' && <LoadMore locale={locale} {...infinite} loadMore={more} />}
+        <LoadMore locale={locale} {...infinite} loadMore={more} />
       </Group>
-      {mode === 'pages' && (
-        <div className="pagination">
-          <button
-            type="button"
-            disabled={page === 0 || loading || busy}
-            onClick={() => setPage(page - 1)}
-          >
-            {t(locale, 'app.previous')}
-          </button>
-          <span>{t(locale, 'app.page', { page: page + 1 })}</span>
-          <button
-            type="button"
-            disabled={rows.length < 20 || loading || busy}
-            onClick={() => setPage(page + 1)}
-          >
-            {t(locale, 'app.next')}
-          </button>
-        </div>
-      )}
     </section>
   );
 }

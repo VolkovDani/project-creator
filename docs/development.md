@@ -510,7 +510,7 @@ bun run e2e
 Requirements can be added, edited, and deleted on a project card. Text is checked
 against the shared contract `contracts/requirement.json`, identically in Go and
 TypeScript; shared examples are in `contracts/requirement.fixtures.json`.
-Requirements belong to a workspace and project, and the list is paginated.
+Requirements belong to a workspace and project. The interface appends a batch of up to 40 requirements when the reader reaches the end of the loaded list or presses **Load more**.
 
 Each change increments the version. Updates and deletion check the expected
 version and do not overwrite a newer edit. On conflict, the interface reloads the

@@ -84,10 +84,13 @@ export function VirtualList<T>({
     }
   }, []);
   useBrowserLayoutEffect(() => {
+    const dialog = host.current?.closest('dialog');
+    const scroller = dialog ?? window;
     const update = () => {
-      setScrollY(window.scrollY);
-      setViewportHeight(window.innerHeight);
-      savedOffsets.set(identity, window.scrollY);
+      const offset = dialog?.scrollTop ?? window.scrollY;
+      setScrollY(offset);
+      setViewportHeight(dialog?.clientHeight ?? window.innerHeight);
+      savedOffsets.set(identity, offset);
     };
     const unsubscribe = clientCache.subscribe([], (reset) => {
       if (!reset) return;
@@ -97,14 +100,17 @@ export function VirtualList<T>({
       setActualFocusedId(undefined);
       setRevision((n) => n + 1);
     });
-    window.addEventListener('scroll', update, { passive: true });
+    scroller.addEventListener('scroll', update, { passive: true });
+    const resize = dialog ? new ResizeObserver(update) : undefined;
+    if (dialog) resize?.observe(dialog);
     window.addEventListener('resize', update);
     const restore = savedOffsets.get(identity);
-    if (restoreScroll && restore !== undefined) window.scrollTo({ top: restore });
+    if (restoreScroll && restore !== undefined) scroller.scrollTo({ top: restore });
     update();
     return () => {
       unsubscribe();
-      window.removeEventListener('scroll', update);
+      resize?.disconnect();
+      scroller.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
     };
   }, [identity, restoreScroll]);
@@ -115,8 +121,11 @@ export function VirtualList<T>({
     offsets.push(total);
     total += heights.current.get(keyOf(item)) ?? estimatedRowHeight;
   }
-  const currentScrollY = typeof window === 'undefined' ? scrollY : window.scrollY;
-  const hostTop = (host.current?.getBoundingClientRect().top ?? 0) + currentScrollY;
+  const dialog = host.current?.closest('dialog');
+  const currentScrollY =
+    dialog?.scrollTop ?? (typeof window === 'undefined' ? scrollY : window.scrollY);
+  const viewportTop = dialog ? dialog.getBoundingClientRect().top + dialog.clientTop : 0;
+  const hostTop = (host.current?.getBoundingClientRect().top ?? 0) - viewportTop + currentScrollY;
   const localStart = Math.max(0, currentScrollY - hostTop);
   let first = offsets.findIndex((offset, index) => {
     const item = items[index];

@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import rules from '../../../../../contracts/classification.json';
 import { classificationCounts } from '../../../../lib/classificationReview';
 import { query } from '../../../../lib/client';
@@ -12,8 +12,11 @@ import {
   RetryFailedClassificationsDocument,
 } from '../../../../lib/generated';
 import { fieldErrorMessage, t } from '../../../../lib/i18n';
+import { offsetConnection } from '../../../../lib/infinite';
+import { useInfinite } from '../../../../lib/useInfinite';
 import { useResource } from '../../../../lib/useResource';
 import Group from '../../../components/Group';
+import { LoadMore } from '../../../components/ListControls';
 import ResourceState from '../../../components/ResourceState';
 import { useProject } from '../ProjectShell';
 import ClassificationCard from './ClassificationCard';
@@ -69,7 +72,6 @@ export default function ClassificationPage() {
   const requirementsTag = `project:${projectId}:requirements`;
   const batch = useSelectedSuggestions(projectId);
   const [filters, setFilters] = useState(initialFilters);
-  const [page, setPage] = useState(0);
   const [frozenIds, setFrozenIds] = useState<string[]>();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
@@ -89,30 +91,38 @@ export default function ClassificationPage() {
   );
   const progress = useResource(progressLoader, [tag, requirementsTag]);
   const groups = useResource(groupsLoader, [tag, requirementsTag]);
-  const idsLoader = useCallback(async () => {
-    const response = await query(
-      ClassificationPageIdsDocument,
-      {
-        projectId,
-        semanticType: filters.semanticType || null,
-        representationType: filters.representationType || null,
-        status: filters.status || null,
-        limit: pageSize + 1,
-        offset: page * pageSize,
-      },
-      { tags: hasFilters ? [tag, requirementsTag] : [requirementsTag] },
-    );
-    return { page, filters, ids: response.classificationList.map((r) => r.requirementId) };
-  }, [projectId, filters, page, hasFilters, tag, requirementsTag]);
-  const list = useResource(idsLoader, hasFilters ? [tag, requirementsTag] : [requirementsTag]);
-  const snapshot =
-    list.data?.page === page && list.data?.filters === filters ? list.data : undefined;
-  const ids = frozenIds ?? batch.pageIds ?? snapshot?.ids.slice(0, pageSize) ?? [];
+  const idsLoader = useCallback(
+    async (after: string | null) => {
+      const response = await query(
+        ClassificationPageIdsDocument,
+        {
+          projectId,
+          semanticType: filters.semanticType || null,
+          representationType: filters.representationType || null,
+          status: filters.status || null,
+          limit: pageSize + 1,
+          offset: Number(after),
+        },
+        { tags: hasFilters ? [tag, requirementsTag] : [requirementsTag] },
+      );
+      return offsetConnection(
+        response.classificationList.map(({ requirementId }) => ({ id: requirementId })),
+        after,
+        pageSize,
+      );
+    },
+    [projectId, filters, hasFilters, tag, requirementsTag],
+  );
+  const list = useInfinite({
+    identity: JSON.stringify(['classification', projectId, filters]),
+    tags: hasFilters ? [tag, requirementsTag] : [requirementsTag],
+    load: idsLoader,
+  });
+  const loadMore = useCallback(() => void list.loadMore().catch(() => {}), [list.loadMore]);
+  const loadedIds = list.rows.map((row) => row.id);
+  const ids =
+    frozenIds ?? (batch.pinnedIds ? [...new Set([...batch.pinnedIds, ...loadedIds])] : loadedIds);
   const info = progress.data;
-  useEffect(() => {
-    if (!frozenIds && !batch.pageIds && page > 0 && snapshot?.ids.length === 0)
-      setPage((p) => Math.max(0, p - 1));
-  }, [page, frozenIds, batch.pageIds, snapshot]);
   const counts = classificationCounts(groups.data ?? []);
   function count(axis: Axis, code: string) {
     if (axis === 'status') {
@@ -125,7 +135,6 @@ export default function ClassificationPage() {
   function filter(axis: Axis, value: string) {
     if (batch.busy) return;
     batch.clear();
-    setPage(0);
     setFilters({ ...filters, [axis]: value });
   }
   async function enqueue(failed: boolean) {
@@ -194,7 +203,6 @@ export default function ClassificationPage() {
               type="button"
               disabled={batch.busy}
               onClick={() => {
-                setPage(0);
                 batch.clear();
                 setFilters({ ...initialFilters, status: 'needs_review' });
               }}
@@ -259,7 +267,6 @@ export default function ClassificationPage() {
           <button
             type="button"
             onClick={() => {
-              setPage(0);
               batch.clear();
               setFilters(initialFilters);
             }}
@@ -271,12 +278,12 @@ export default function ClassificationPage() {
       <Group id={projectId + ':classification:records'} title={t(locale, 'review.records')}>
         <ResourceState
           locale={locale}
-          loading={list.loading && !snapshot}
+          loading={list.loading}
           error={list.error}
-          hasData={!!snapshot}
-          retry={list.reload}
+          hasData={list.loaded}
+          retry={() => void list.retry().catch(() => {})}
         />
-        {snapshot && !ids.length && <p>{t(locale, 'review.empty')}</p>}
+        {list.loaded && !ids.length && <p>{t(locale, 'review.empty')}</p>}
         <button
           type="button"
           disabled={!batch.selected.size || batch.busy || !!frozenIds}
@@ -318,30 +325,10 @@ export default function ClassificationPage() {
             onEditing={(editing) => setFrozenIds(editing ? ids : undefined)}
           />
         ))}
+        {!frozenIds && !batch.busy && (
+          <LoadMore locale={locale} {...list} observe loadMore={loadMore} />
+        )}
       </Group>
-      <div className="pagination">
-        <button
-          type="button"
-          disabled={batch.busy || page === 0 || !snapshot}
-          onClick={() => {
-            batch.clear();
-            setPage(page - 1);
-          }}
-        >
-          {t(locale, 'review.previous')}
-        </button>
-        <span>{t(locale, 'app.page', { page: page + 1 })}</span>
-        <button
-          type="button"
-          disabled={batch.busy || !snapshot || snapshot.ids.length <= pageSize}
-          onClick={() => {
-            batch.clear();
-            setPage(page + 1);
-          }}
-        >
-          {t(locale, 'review.next')}
-        </button>
-      </div>
     </section>
   );
 }

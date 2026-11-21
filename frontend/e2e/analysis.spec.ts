@@ -863,7 +863,7 @@ test('failed pair retry preserves completed cards and targets the same analysis'
   ).toHaveCount(0);
 });
 
-test('large groups use global coverage and fetch bounded pair pages', async ({ page }) => {
+test('large groups use global coverage and append bounded cursor batches', async ({ page }) => {
   const pairs = Array.from({ length: 45 }, (_, index) =>
     candidate(`compatible-${index}`, index, 'completed', 'compatible'),
   );
@@ -884,10 +884,10 @@ test('large groups use global coverage and fetch bounded pair pages', async ({ p
   page.on('request', (request) => {
     if (request.url().endsWith('/api/graphql')) {
       const payload = request.postDataJSON();
-      if (payload.query.includes('analysisPairs(')) requests.push(payload.variables);
+      if (payload.query.includes('analysisPairsConnection(')) requests.push(payload.variables);
     }
   });
-  await page.goto('/projects/demo/analysis');
+  await page.goto('/projects/demo/analysis?listMode=pages&page=2');
   const area = analysisRegion(page);
   await expect(area.getByText('Обработано 45 из 4950', { exact: true })).toBeVisible();
   await expect(area.getByText('Противоречий не обнаружено: 45', { exact: true })).toBeVisible();
@@ -900,16 +900,20 @@ test('large groups use global coverage and fetch bounded pair pages', async ({ p
   ).toBeVisible();
   const group = area.getByRole('group', { name: 'Противоречий не обнаружено: 45', exact: true });
   await expandGroup(group);
-  await group.getByLabel('Режим списка').selectOption('pages');
-  await expect(group.getByText('1–20 из 45', { exact: true })).toBeVisible();
-  await group.getByRole('button', { name: 'Далее', exact: true }).click();
-  await expect(group.getByText('21–40 из 45', { exact: true })).toBeVisible();
-  await group.getByRole('button', { name: 'Далее', exact: true }).click();
-  await expect(group.getByRole('button', { name: 'Далее', exact: true })).toBeDisabled();
-  expect(requests.every((variables) => variables.limit === 20)).toBe(true);
-  expect(
-    requests.some((variables) => variables.offset === 40 && variables.verdict === 'compatible'),
-  ).toBe(true);
+  await expect(group.getByRole('article', { name: 'Пара 1', exact: true })).toBeVisible();
+  await expect(group.getByLabel('Режим списка')).toHaveCount(0);
+  await expect
+    .poll(async () => {
+      await group.evaluate((el) =>
+        window.scrollBy(0, el.getBoundingClientRect().bottom - window.innerHeight),
+      );
+      return requests
+        .filter((variables) => variables.verdict === 'compatible')
+        .map((variables) => variables.after);
+    })
+    .toEqual([null, 'cursor-40']);
+  await expect(group.getByRole('button', { name: 'Загрузить ещё', exact: true })).toHaveCount(0);
+  expect(requests.every((variables) => variables.first === 40)).toBe(true);
 });
 
 test('closed analysis groups load independently only when expanded', async ({ page }) => {
@@ -1236,29 +1240,36 @@ test('revoked access clears saved pair texts and history after invalidation', as
   await expect(page.getByRole('combobox', { name: 'История запусков' })).toHaveCount(0);
 });
 
-test('an empty final history page keeps navigation back to earlier runs', async ({ page }) => {
+test('scrolling through analysis history appends runs and stops at the final batch', async ({
+  page,
+}) => {
   await fixture(page, complete());
+  const runs = Array.from({ length: 42 }, (_, index) => ({
+    ...complete(),
+    id: `history-${index}`,
+  }));
+  const offsets: number[] = [];
   await page.route('**/api/graphql', async (route) => {
     const { query, variables } = route.request().postDataJSON();
-    if (!query.includes('analysisHistory(')) {
-      await route.fallback();
-      return;
-    }
-    const history =
-      variables.offset === 0
-        ? Array.from({ length: 20 }, (_, index) => ({ ...complete(), id: `history-${index}` }))
-        : [];
+    if (!query.includes('analysisHistory(')) return route.fallback();
+    offsets.push(variables.offset);
+    const history = runs.slice(variables.offset, variables.offset + variables.limit);
     await route.fulfill({ json: { data: { analysisHistory: history } } });
   });
   await page.goto('/projects/demo/analysis');
-  const area = analysisRegion(page);
-  await area.getByRole('button', { name: 'Далее', exact: true }).click();
-  await expect(area.getByRole('button', { name: 'Далее', exact: true })).toBeDisabled();
-  await expect(area.getByRole('button', { name: 'Назад', exact: true })).toBeEnabled();
-  await area.getByRole('button', { name: 'Назад', exact: true }).click();
+  const history = analysisRegion(page).getByLabel('История запусков');
+  await expect(history.locator('option')).toHaveCount(21);
+  await expect(history).toBeVisible();
+  await history.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await expect(history.locator('option')).toHaveCount(41);
+  await expect(history.locator('option[value="history-0"]')).toHaveCount(1);
+  await history.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await expect(history.locator('option')).toHaveCount(43);
+  expect(offsets).toEqual([0, 20, 40]);
   await expect(
-    area.getByRole('combobox', { name: 'История запусков' }).getByRole('option'),
-  ).toHaveCount(21);
+    analysisRegion(page).getByRole('button', { name: 'Загрузить ещё', exact: true }),
+  ).toHaveCount(0);
+  await expect(history.locator('option[value="history-41"]')).toHaveCount(1);
 });
 
 test('historical failures cannot retry work after a newer run exists', async ({ page }) => {

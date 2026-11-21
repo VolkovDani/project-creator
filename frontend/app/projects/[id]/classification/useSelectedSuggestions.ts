@@ -9,7 +9,7 @@ import {
 type Outcome = 'confirmed' | 'changed' | 'failed';
 export default function useSelectedSuggestions(projectId: string) {
   const [selected, setSelected] = useState(new Map<string, SavedSuggestion>());
-  const [pageIds, setPageIds] = useState<string[]>();
+  const [pinnedIds, setPinnedIds] = useState<string[]>();
   const [busy, setBusy] = useState(false);
   const running = useRef(false);
   const mounted = useRef(false);
@@ -22,7 +22,7 @@ export default function useSelectedSuggestions(projectId: string) {
   }, []);
   function clear() {
     setSelected(new Map());
-    setPageIds(undefined);
+    setPinnedIds(undefined);
     setOutcomes(new Map());
   }
   function select(id: string, proposal: SavedSuggestion | undefined, ids: string[]) {
@@ -31,7 +31,7 @@ export default function useSelectedSuggestions(projectId: string) {
     if (proposal) next.set(id, proposal);
     else next.delete(id);
     setSelected(next);
-    setPageIds(next.size ? ids : undefined);
+    setPinnedIds(next.size ? ids : undefined);
     setOutcomes(new Map());
   }
   async function confirm() {
@@ -85,7 +85,7 @@ export default function useSelectedSuggestions(projectId: string) {
       }
       if (current()) {
         setSelected(new Map());
-        setPageIds(undefined);
+        setPinnedIds(undefined);
         setOutcomes(results);
         clientCache.invalidate(tags);
       }
@@ -94,5 +94,5 @@ export default function useSelectedSuggestions(projectId: string) {
       if (current()) setBusy(false);
     }
   }
-  return { selected, pageIds, busy, outcomes, select, clear, confirm };
+  return { selected, pinnedIds, busy, outcomes, select, clear, confirm };
 }

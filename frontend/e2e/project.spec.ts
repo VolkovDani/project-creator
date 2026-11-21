@@ -170,10 +170,7 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
   await page.getByRole('button', { name: 'Новое понятие', exact: true }).click();
   await expect(page.getByRole('dialog').getByLabel('Название понятия')).toHaveValue('');
   await page.keyboard.press('Escape');
-  await expect(page.getByLabel('Режим списка')).toHaveValue('infinite');
-  await page.getByLabel('Режим списка').selectOption('pages');
-  await expect(page.getByText('Страница 1', { exact: true })).toHaveCount(2);
-  await page.getByLabel('Режим списка').selectOption('infinite');
+  await expect(page.getByLabel('Режим списка')).toHaveCount(0);
   const standalone = page
     .locator('article')
     .filter({ has: page.getByRole('button', { name: 'ЭЦП', exact: true }) });

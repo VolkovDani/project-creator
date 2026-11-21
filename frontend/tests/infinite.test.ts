@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { InfiniteStore } from '../lib/infinite.ts';
+import { InfiniteStore, offsetConnection } from '../lib/infinite.ts';
 
 type Row = { id: string };
 const page = (ids: string[], after: string | null, more = false) => ({
@@ -139,4 +139,19 @@ test('LRU keeps a newly created store when all older stores are active', async (
   const newest = getInfiniteStore<Row>('newest', ['newest']);
   assert.equal(getInfiniteStore<Row>('newest', ['newest']), newest);
   for (const unsubscribe of active) unsubscribe();
+});
+
+test('offset lists use the extra row as lookahead and keep it for the next request', () => {
+  const rows = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  assert.deepEqual(offsetConnection(rows, null, 2), {
+    edges: [
+      { node: rows[0], cursor: '1' },
+      { node: rows[1], cursor: '2' },
+    ],
+    pageInfo: { endCursor: '2', hasNextPage: true },
+  });
+  assert.deepEqual(offsetConnection(rows.slice(2), '2', 2), {
+    edges: [{ node: rows[2], cursor: '3' }],
+    pageInfo: { endCursor: '3', hasNextPage: false },
+  });
 });

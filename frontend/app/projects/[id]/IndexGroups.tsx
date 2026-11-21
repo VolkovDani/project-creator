@@ -1,6 +1,9 @@
 'use client';
 import Link from 'next/link';
-import type { RequirementIndexListQuery, RequirementsQuery } from '../../../lib/generated';
+import type {
+  RequirementConnectionQuery,
+  RequirementIndexByIdsQuery,
+} from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
 import { indexStatus, requirementURL } from '../../../lib/rag';
 import Group from '../../components/Group';
@@ -8,29 +11,28 @@ import { VirtualList } from '../../components/VirtualList';
 import { GlossaryText } from './GlossaryActions';
 import { RequirementIndexAction } from './RagTools';
 
+type IndexRow = RequirementConnectionQuery['requirementsConnection']['edges'][number]['node'] & {
+  entry?: RequirementIndexByIdsQuery['requirementIndexByIds'][number];
+};
+
 const statuses = ['failed', 'running', 'pending', 'ready'] as const;
 
 export default function IndexGroups({
   projectId,
   locale,
   rows,
-  entries,
   busy,
   index,
-  virtual = false,
 }: {
   projectId: string;
   locale: Locale;
-  rows: RequirementsQuery['requirements'];
-  entries: RequirementIndexListQuery['requirementIndex'];
+  rows: IndexRow[];
   busy?: string;
   index: (id: string) => Promise<void>;
-  virtual?: boolean;
 }) {
-  const byId = new Map(entries.map((entry) => [entry.requirementId, entry]));
   return statuses.map((status) => {
-    const grouped = rows.filter((row) => indexStatus(byId.get(row.id), row.version) === status);
-    const renderItem = (row: RequirementsQuery['requirements'][number]) => (
+    const grouped = rows.filter((row) => indexStatus(row.entry, row.version) === status);
+    const renderItem = (row: IndexRow) => (
       <article className="card" id={`indexing-${row.id}`} key={row.id}>
         <GlossaryText sourceId={row.id} version={row.version}>
           {row.text}
@@ -38,7 +40,7 @@ export default function IndexGroups({
         <p className="muted">{t(locale, 'requirements.version', { version: row.version })}</p>
         <Link href={requirementURL(projectId, row.id)}>{t(locale, 'rag.source')}</Link>
         <RequirementIndexAction
-          entry={byId.get(row.id)}
+          entry={row.entry}
           requirementId={row.id}
           version={row.version}
           locale={locale}
@@ -56,16 +58,12 @@ export default function IndexGroups({
         defaultOpen={status !== 'ready'}
       >
         {grouped.length === 0 && <p className="muted">{t(locale, 'ui.groupEmpty')}</p>}
-        {virtual ? (
-          <VirtualList
-            identity={`indexing:${projectId}:${status}`}
-            items={grouped}
-            keyOf={(row) => row.id}
-            renderItem={renderItem}
-          />
-        ) : (
-          grouped.map(renderItem)
-        )}
+        <VirtualList
+          identity={`indexing:${projectId}:${status}`}
+          items={grouped}
+          keyOf={(row) => row.id}
+          renderItem={renderItem}
+        />
       </Group>
     );
   });

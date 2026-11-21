@@ -4,7 +4,7 @@
 
 Open **Project glossary** to create, search, change or delete confirmed concepts for the current project. A concept has a canonical name, definition, usage context and variants (abbreviations, synonyms and alternative spellings). Select text in an expanded original requirement to start a new entry or attach the selection to an existing concept. The editor records the source requirement and its version. Edits use the concept version to detect conflicts.
 
-The glossary scans requirements for a full name followed by its capital-letter abbreviation in parentheses. The final words must spell the initials in order. Select a candidate to review its text and explicitly save it. Browse terms and suggestions independently in batches of 20 matches, with infinite scrolling or numbered pages. A suggestion alone never changes the dictionary.
+The glossary scans requirements for a full name followed by its capital-letter abbreviation in parentheses. The final words must spell the initials in order. Select a candidate to review its text and explicitly save it. Terms and suggestions each load 20 matches at a time. Scroll to the end of either list or press **Load more** to see its next matches. A suggestion alone never changes the dictionary.
 
 Standalone words of 2–8 uppercase letters, such as GP, are also suggested unless the glossary already contains that name or variant. Each requirement contributes its own excerpt, with up to 60 characters on each side of the marked abbreviation. The outer letters fade wherever the source text continues beyond the excerpt. Choose **Open in text** to highlight the mention in the original. If the requirement has changed, the link opens the current version with a notice. Select the candidate to enter a full name or attach the abbreviation to an existing concept. Selections from generated summaries also offer the existing-concept search.
 
@@ -18,7 +18,7 @@ The local summary worker receives matching confirmed definitions with term IDs a
 
 Choose **View mentions** on a term to see current project requirements that
 match its name or variants using the same rules as source highlighting. Select
-a requirement to open its card. Each matching requirement appears once.
+a requirement to open its card. Each matching requirement appears once. Scroll within the mentions dialog or press **Load more** to see additional matches.
 
 Requirements, search, indexing and pair analysis open the glossary dialog from
 a text selection. Use **New concept** on the project glossary page for manual entry. Source selections retain the displayed requirement

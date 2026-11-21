@@ -42,7 +42,6 @@ export default function GlossaryMentions({
       </h2>
       <GlossaryListView
         locale={locale}
-        mode="pages"
         identity={JSON.stringify(['mentions', projectId, term.id])}
         tags={[`project:${projectId}:requirements`, `project:${projectId}:glossary`]}
         load={load}

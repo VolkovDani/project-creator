@@ -38,10 +38,13 @@ test('requirement editing opens a native dialog and Escape discards the draft', 
   page,
 }) => {
   await fixture(page, 21);
-  await page.goto('/projects/demo/requirements?listMode=pages&page=2');
+  await page.goto('/projects/demo/requirements');
   const addDraft = page.getByLabel('Текст требования');
   await addDraft.fill('Черновик добавления');
-  await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
+  const edit = page
+    .locator('#requirement-r0')
+    .getByRole('button', { name: 'Изменить', exact: true });
+  await edit.click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   const editor = dialog.getByLabel('Текст требования');
@@ -52,10 +55,10 @@ test('requirement editing opens a native dialog and Escape discards the draft', 
   await page.keyboard.press('Escape');
   await expect(dialog).not.toBeVisible();
   await expect(addDraft).toHaveValue('Черновик добавления');
-  await expect(page.getByRole('button', { name: 'Изменить', exact: true }).first()).toBeFocused();
+  await expect(edit).toBeFocused();
   expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore);
   await expect(
-    page.locator('#requirement-r20').getByText('Требование 20', { exact: true }).first(),
+    page.locator('#requirement-r0').getByText('Требование 0', { exact: true }).first(),
   ).toBeVisible();
 });
 
@@ -261,11 +264,11 @@ async function fixture(
     } else if (query.includes('requirementsConnection(')) {
       reads++;
       connectionReads.push({ first: Number(variables.first), after: variables.after ?? null });
+      if (delay && (!delayAfterFirst || variables.after)) await delay;
       if (failure) {
         await route.fulfill({ status: failure, json: { error: 'fixture failure' } });
         return;
       }
-      if (delay && delayAfterFirst && variables.after) await delay;
       const start = Number(variables.after ? String(variables.after).replace('cursor-', '') : 0);
       const batch = rows.slice(start, start + Math.min(Number(variables.first), maxBatchSize));
       data = {
@@ -278,14 +281,6 @@ async function fixture(
           totalCount: rows.length,
         },
       };
-    } else if (query.includes('requirements(')) {
-      reads++;
-      if (delay && !delayAfterFirst) await delay;
-      if (failure) {
-        await route.fulfill({ status: failure, json: { error: 'fixture failure' } });
-        return;
-      }
-      data = { requirements: rows.slice(variables.offset, variables.offset + variables.limit) };
     } else if (query.includes('requirementIndexByIds(')) {
       indexReads.push(variables.requirementIds);
       if (failure || indexFailure) {
@@ -393,7 +388,7 @@ test('index queue shows project-wide progress and running state after SSE and re
   const api = await fixture(page, 45);
   api.setProgress({ total: 200, ready: 120, queued: 78, running: 1, failed: 1 });
   api.setRunning();
-  await page.goto('/projects/demo/indexing?listMode=pages&page=1');
+  await page.goto('/projects/demo/indexing');
   const summary = page.getByRole('region', { name: 'Прогресс индексации проекта', exact: true });
   await expect(summary).toContainText('Готово: 120 из 200');
   await expect(summary).toContainText('В работе: 1');
@@ -407,8 +402,6 @@ test('index queue shows project-wide progress and running state after SSE and re
   await api.event();
   await expect(summary).toContainText('Готово: 200 из 200');
   await api.event(true);
-  await expect(summary).toContainText('Готово: 200 из 200');
-  await page.getByLabel('Режим списка').selectOption('infinite');
   await expect(summary).toContainText('Готово: 200 из 200');
 });
 
@@ -531,27 +524,24 @@ test('infinite requirements restore loaded rows and scroll after leaving the rou
   expect(api.connectionReads()).toHaveLength(savedReads);
 });
 
-test('list mode and page changes participate in browser history', async ({ page }) => {
-  await fixture(page, 45);
-  await page.goto('/projects/demo/requirements');
+test('legacy list URLs open the first cursor batch without pagination controls', async ({
+  page,
+}) => {
+  const api = await fixture(page, 45);
+  await page.goto('/projects/demo/requirements?listMode=pages&page=2&source=bookmark');
+  await expect(page.getByRole('heading', { name: 'Бизнес-требования', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Режим списка')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Назад', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Далее', exact: true })).toHaveCount(0);
   await expect(page.locator('#requirement-r0')).toBeVisible();
-  await page.getByLabel('Режим списка').selectOption('pages');
-  await expect(page).toHaveURL(/listMode=pages&page=1/);
-  await page.getByRole('button', { name: 'Далее', exact: true }).click();
-  await expect(page).toHaveURL(/listMode=pages&page=2/);
-  await page.goBack();
-  await expect(page).toHaveURL(/listMode=pages&page=1/);
-  await page.goBack();
-  await expect(page).not.toHaveURL(/listMode=pages/);
-  await expect(page.getByLabel('Режим списка')).toHaveValue('infinite');
-  await page.goForward();
-  await expect(page.getByLabel('Режим списка')).toHaveValue('pages');
+  expect(api.connectionReads()).toEqual([{ first: 40, after: null }]);
+  expect(new URL(page.url()).searchParams.get('source')).toBe('bookmark');
 });
 
 test('first load reserves space and a failed first request has a local retry', async ({ page }) => {
   const api = await fixture(page);
   const release = api.delay();
-  await page.goto('/projects/demo/requirements?listMode=pages&page=1');
+  await page.goto('/projects/demo/requirements');
   await expect.poll(api.reads).toBeGreaterThan(0);
   await expect(page.getByText('Загрузка…', { exact: true })).toBeVisible();
   await expect(page.locator('.skeleton')).toBeVisible();
@@ -565,11 +555,11 @@ test('first load reserves space and a failed first request has a local retry', a
   await expect(page.locator('#requirement-r0')).toBeVisible();
 });
 
-test('slow SSE refetch and reconnect reset preserve cards, draft, focus and pagination', async ({
+test('slow SSE refetch and reconnect reset preserve cards, draft, focus and continuation', async ({
   page,
 }) => {
-  const api = await fixture(page);
-  await page.goto('/projects/demo/requirements?listMode=pages&page=1');
+  const api = await fixture(page, 41);
+  await page.goto('/projects/demo/requirements');
   const card = page.locator('#requirement-r0');
   await expect(card).toBeVisible();
   const draft = page.getByLabel('Текст требования');
@@ -601,18 +591,20 @@ test('slow SSE refetch and reconnect reset preserve cards, draft, focus and pagi
   await expect(card).toBeVisible();
   await expect(draft).toHaveValue('Несохранённый черновик');
   releaseReset();
-  await page.getByRole('button', { name: 'Далее', exact: true }).click();
-  await expect(page.locator('#requirement-r20')).toBeVisible();
-  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Назад', exact: true }).click();
+  await expect(draft).toBeFocused();
+  await page.getByRole('button', { name: 'Загрузить ещё', exact: true }).click();
+  await expect.poll(() => api.connectionReads().at(-1)?.after).toBe('cursor-40');
+  await expect(page.getByRole('button', { name: 'Загрузить ещё', exact: true })).toHaveCount(0);
+  await page.evaluate(() => window.scrollTo(0, 0));
   await expect(card).toBeVisible();
+  await expect(draft).toHaveValue('Несохранённый черновик');
 });
 
 test('failed background request keeps stale data and local retry restores freshness', async ({
   page,
 }) => {
   const api = await fixture(page);
-  await page.goto('/projects/demo/requirements?listMode=pages&page=1');
+  await page.goto('/projects/demo/requirements');
   await expect(page.locator('#requirement-r0')).toBeVisible();
   api.fail(503);
   await api.event();
@@ -641,7 +633,7 @@ test('failed background request keeps stale data and local retry restores freshn
 
 test('revoked access clears previously rendered data', async ({ page }) => {
   const api = await fixture(page);
-  await page.goto('/projects/demo/requirements?listMode=pages&page=1');
+  await page.goto('/projects/demo/requirements');
   await expect(page.locator('#requirement-r0')).toBeVisible();
   await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
   await page.getByRole('dialog').getByLabel('Текст требования').fill('Закрытый черновик');
@@ -657,7 +649,7 @@ test('project pages share navigation, locale and browser history without overflo
   page,
 }) => {
   await fixture(page);
-  await page.goto('/?listMode=pages&page=1');
+  await page.goto('/');
   await expect(page.getByRole('link', { name: project.name, exact: true })).toBeVisible();
   await expect(page.getByLabel('Название', { exact: true })).toHaveCount(0);
   await page.getByRole('link', { name: 'Создать проект', exact: true }).click();
@@ -695,13 +687,14 @@ test('project pages share navigation, locale and browser history without overflo
 test('requirement source links select the correct card and survive direct opening', async ({
   page,
 }) => {
-  await fixture(page);
-  await page.goto('/projects/demo/search?listMode=pages&page=1');
+  const api = await fixture(page, 21, '', project, undefined, 10);
+  await page.goto('/projects/demo/search');
   await page.getByLabel('Поисковый запрос').fill('20');
   await page.getByRole('button', { name: 'Найти требования', exact: true }).click();
   await page.getByRole('link', { name: 'Перейти к требованию', exact: true }).click();
   await expect(page).toHaveURL(/\/requirements\?requirement=r20(?:&[^#]*)?#requirement-r20$/);
   await expect(page.locator('#requirement-r20')).toBeVisible();
+  expect(api.connectionReads().map((read) => read.after)).toEqual([null, 'cursor-10', 'cursor-20']);
   await page.reload();
   await expect(page.locator('#requirement-r20')).toBeVisible();
   await page.goBack();
@@ -711,7 +704,7 @@ test('requirement source links select the correct card and survive direct openin
 test('indexing appends on scroll with matching statuses and stops at the end', async ({ page }) => {
   const api = await fixture(page, 85);
   await page.goto('/projects/demo/indexing');
-  await expect(page.getByLabel('Режим списка')).toHaveValue('infinite');
+  await expect(page.getByLabel('Режим списка')).toHaveCount(0);
   await expect(page.getByText('Требование 2', { exact: true })).toBeVisible();
   await expect.poll(() => api.indexReads().length).toBe(1);
   expect(api.indexReads()[0]).toHaveLength(40);
@@ -785,86 +778,79 @@ test('infinite indexing refreshes statuses after SSE and clears cards on access 
   await expect(page.locator('[id^="indexing-r"]')).toHaveCount(0);
 });
 
-test('indexing pagination survives reload and browser history', async ({ page }) => {
-  await fixture(page, 41);
-  await page.goto('/projects/demo/indexing?listMode=pages&page=1');
-  const previous = page.getByRole('button', { name: 'Назад', exact: true });
-  const next = page.getByRole('button', { name: 'Далее', exact: true });
-  await expect(previous).toBeDisabled();
-  await next.click();
-  await expect(page).toHaveURL(/\/indexing\?listMode=pages&page=2$/);
-  await expect(page.getByText('Требование 20', { exact: true })).toBeVisible();
-  await expect(page.getByText('Требование 2', { exact: true })).toHaveCount(0);
-  await page.reload();
-  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
-  await expect(page.getByText('Требование 20', { exact: true })).toBeVisible();
-  await next.click();
-  await expect(page.getByText('Страница 3', { exact: true })).toBeVisible();
-  await expect(page.getByText('Требование 40', { exact: true })).toBeVisible();
-  await expect(next).toBeDisabled();
-  await page.goBack();
-  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
-  await expect(page.getByText('Требование 20', { exact: true })).toBeVisible();
-  await page.goForward();
-  await expect(page.getByText('Страница 3', { exact: true })).toBeVisible();
-  await previous.click();
-  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
-});
-
-test('index group summaries are scoped to current page and update while collapsed', async ({
-  page,
-}) => {
-  const api = await fixture(page);
-  await page.goto('/projects/demo/indexing?listMode=pages&page=1');
-  await expect(page.getByText(/На этой странице/).first()).toBeVisible();
-  const summaries = page.locator('details summary');
-  await expect(summaries.first()).toBeVisible();
-  const initial = await summaries.allTextContents();
-  expect(initial.join(' ')).toMatch(/20/);
-  await summaries.first().focus();
+test('index group summaries reflect loaded rows and update while collapsed', async ({ page }) => {
+  const api = await fixture(page, 85);
+  await page.goto('/projects/demo/indexing?listMode=pages&page=3');
+  const failed = page.getByRole('group', { name: 'ошибка', exact: true });
+  const pending = page.getByRole('group', { name: 'ожидает индексации', exact: true });
+  const ready = page.getByRole('group', { name: 'готов', exact: true });
+  await expect(page.getByText('Загружено: 40 из 85', { exact: true })).toBeVisible();
+  await expect(failed.locator('summary')).toContainText('1');
+  await expect(pending.locator('summary')).toContainText('38');
+  await failed.locator('summary').focus();
   await page.keyboard.press('Enter');
-  await expect(page.locator('details').first()).not.toHaveAttribute('open', '');
+  await expect(failed).not.toHaveAttribute('open', '');
   api.setReady();
   await api.event();
+  await expect(failed.locator('summary')).toContainText('0');
+  await expect(failed).not.toHaveAttribute('open', '');
+  await expect(ready.locator('summary')).toContainText(/(?:40|80|85)/);
   await expect
-    .poll(async () => (await summaries.allTextContents()).join(' '))
-    .not.toBe(initial.join(' '));
-  await expect(page.locator('details').first()).not.toHaveAttribute('open', '');
-  await page.getByRole('button', { name: 'Далее', exact: true }).click();
-  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
-  await expect.poll(async () => (await summaries.allTextContents()).join(' ')).not.toMatch(/20/);
+    .poll(async () => {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      return ready.locator('summary').textContent();
+    })
+    .toContain('85');
 });
 
-test('a failed project page transition keeps its rows and page number coherent until retry', async ({
+test('a failed project continuation retries the same cursor and preserves earlier projects', async ({
   page,
 }) => {
   let failed = true;
+  const reads: Array<string | null> = [];
   await page.route('**/api/events', (route) =>
     route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': heartbeat\n\n' }),
   );
   await page.route('**/api/graphql', async (route) => {
     const { variables } = route.request().postDataJSON();
-    if (variables.offset === 20 && failed) {
+    reads.push(variables.after);
+    if (variables.after && failed) {
       await route.fulfill({ status: 503, json: { error: 'unavailable' } });
       return;
     }
-    const projects = Array.from({ length: variables.offset === 20 ? 1 : 20 }, (_, i) => ({
-      ...project,
-      id: `p${variables.offset + i}`,
-      name: `Проект ${variables.offset + i}`,
+    const start = variables.after ? 40 : 0;
+    const edges = Array.from({ length: start === 40 ? 1 : 40 }, (_, i) => ({
+      node: { ...project, id: `p${start + i}`, name: `Проект ${start + i}` },
+      cursor: `cursor-${start + i + 1}`,
     }));
-    await route.fulfill({ json: { data: { projects } } });
+    await route.fulfill({
+      json: {
+        data: {
+          projectsConnection: {
+            edges,
+            totalCount: 41,
+            pageInfo: { endCursor: edges.at(-1)?.cursor, hasNextPage: !start },
+          },
+        },
+      },
+    });
   });
-  await page.goto('/?listMode=pages&page=1');
-  await expect(page.getByRole('link', { name: 'Проект 0', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Далее', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Повторить', exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Проект 0', exact: true })).toBeVisible();
-  await expect(page.getByText('Страница 1', { exact: true })).toBeVisible();
+  await page.goto('/?listMode=pages&page=3');
+  const first = page.getByRole('link', { name: 'Проект 0', exact: true });
+  await expect(first).toBeVisible();
+  const more = page.getByRole('button', { name: 'Загрузить ещё', exact: true });
+  await more.focus();
+  await page.keyboard.press('Enter');
+  const retry = page.getByRole('button', { name: 'Повторить', exact: true });
+  await expect(retry).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(first).toBeVisible();
   failed = false;
-  await page.getByRole('button', { name: 'Повторить', exact: true }).click();
-  await expect(page.getByRole('link', { name: 'Проект 20', exact: true })).toBeVisible();
-  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
+  await retry.click();
+  await expect(more).toHaveCount(0);
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect(page.getByRole('link', { name: 'Проект 40', exact: true })).toBeVisible();
+  expect(reads).toEqual([null, 'cursor-40', 'cursor-40']);
 });
 
 test('a late create response does not redirect after the user has left the form', async ({
@@ -954,7 +940,7 @@ for (const { width, zoom } of layoutCases) {
       running: 1,
       failed: 1,
     });
-    await page.goto('/?listMode=pages');
+    await page.goto('/');
     await expect(page.getByRole('article')).toHaveCount(1);
     await expectLayout(page);
     await page.getByRole('article').getByRole('link').click();
@@ -967,7 +953,7 @@ for (const { width, zoom } of layoutCases) {
     for (const locale of ['ru', 'en']) {
       await page.locator('.language select').selectOption(locale);
       for (const path of ['requirements', 'indexing', 'search', 'analysis']) {
-        await page.goto(`/projects/demo/${path}?listMode=pages`);
+        await page.goto(`/projects/demo/${path}`);
         await expect(page.locator('.project-nav a[aria-current="page"]')).toBeVisible();
         await expect(page.locator('main h2').first()).toBeVisible();
         if (path === 'requirements') {
@@ -1024,7 +1010,7 @@ for (const route of ['requirements', 'analysis']) {
       }
     });
     await fixture(page, 3);
-    await page.goto(`/projects/demo/${route}?listMode=pages`);
+    await page.goto(`/projects/demo/${route}`);
     const section = page.locator('main section[aria-labelledby]').last();
     const button = section.locator('button:enabled').first();
     await expect(button).toBeVisible();

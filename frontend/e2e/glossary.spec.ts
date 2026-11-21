@@ -267,3 +267,70 @@ for (const theme of ['light', 'dark']) {
     }
   });
 }
+
+test('scrolling inside the mentions dialog loads the next cursor without moving the page', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 480 });
+  await visitGlossary(page, []);
+  const cursors: Array<string | null> = [];
+  await page.route('**/api/graphql', async (route) => {
+    const { operationName, variables } = route.request().postDataJSON();
+    if (operationName === 'GlossaryTermPages') {
+      const term = {
+        id: 'term',
+        name: 'ЭЦП',
+        definition: '',
+        context: '',
+        variants: [],
+        version: 1,
+      };
+      await route.fulfill({
+        json: {
+          data: {
+            glossaryTermsConnection: {
+              items: [term],
+              pageInfo: { endCursor: null, hasNextPage: false },
+            },
+          },
+        },
+      });
+    } else if (operationName === 'GlossaryMentions') {
+      cursors.push(variables.after);
+      const start = variables.after ? 20 : 0;
+      const items = Array.from({ length: start === 0 ? 20 : 1 }, (_, i) => ({
+        id: `r${start + i}`,
+        text: `Упоминание ${start + i}`,
+        version: 1,
+      }));
+      await route.fulfill({
+        json: {
+          data: {
+            glossaryMentions: {
+              items,
+              pageInfo: { endCursor: start === 0 ? 'after-20' : null, hasNextPage: start === 0 },
+            },
+          },
+        },
+      });
+    } else await route.fallback();
+  });
+  await page.goto('/projects/demo/glossary?listMode=pages&page=2');
+  await page.getByRole('button', { name: 'Где упоминается' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('link', { name: 'Упоминание 0', exact: true })).toBeVisible();
+  expect(cursors).toEqual([null]);
+  const pageOffset = await page.evaluate(() => window.scrollY);
+  await expect
+    .poll(async () => {
+      await dialog.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      return cursors;
+    })
+    .toEqual([null, 'after-20']);
+  await expect(dialog.getByRole('link', { name: 'Упоминание 20' })).toHaveAttribute(
+    'href',
+    /requirement=r20/,
+  );
+  await expect(dialog.getByRole('button', { name: 'Загрузить ещё' })).toHaveCount(0);
+  expect(await page.evaluate(() => window.scrollY)).toBe(pageOffset);
+});

@@ -32,11 +32,20 @@ Existing records start as `unclassified`. The `confirmRequirementClassification`
 
 ## Local model evidence and background work
 
-With the default configuration, records can be classified and confirmed manually. To schedule local inference on new and edited records and backfill existing records, enable one review profile.
+With the default configuration, users classify and confirm records manually. Set `PROJECT_CREATOR_RECORD_CLASSIFIER=systemone-review` to process new, edited and existing records with a local System One model.
 
-- `PROJECT_CREATOR_RECORD_CLASSIFIER=laya-review` uses Ollama 0.40.16, its GGUF llama.cpp decision runner and the exact multilingual BF16 manifest from the reviewed experiment. Two flat questions score every option, one question per axis. None of the evaluated Laya schemes qualified for automatic labels. [Laya benchmark results](classification-evaluator.md#measured-result-on-20-november-2026)
-- `PROJECT_CREATOR_RECORD_CLASSIFIER=d3-review` uses the local `d3:4b` model with a 4,096-token context and requires manifest digest `2c571f91caf64c47b6ca6bd3adc1daa07dbb84ead8e9489758498cc7e11e533d`.
+A new local model is compatible when Ollama 0.40.16 reports the `decision` capability and a positive `num_ctx` in its model parameters. To select it, supply only its exact tag and full SHA-256 manifest digest from the local `/api/tags` response. For the known Laya and D3 manifests, the adapter also verifies the GGUF format, llama.cpp runner and model-specific metadata. The example below selects `d3:4b`, whose model parameters specify `num_ctx 4096`.
 
-Both profiles submit the original text in full and leave the semantic and representation types `unknown` for human review (`needs_review`). The adapter uses `PROJECT_CREATOR_RECORD_CLASSIFIER_URL`, then the configured local Ollama URL, then loopback on port 11434. It accepts loopback HTTP and the Compose service name `ollama`. Restart the backend after changing configuration. Unsupported input or token counts are recorded separately. Runtime and pin failures have a failed/retry path. No source text is sent to another provider on error.
+```dotenv
+PROJECT_CREATOR_RECORD_CLASSIFIER=systemone-review
+PROJECT_CREATOR_RECORD_CLASSIFIER_MODEL=d3:4b
+PROJECT_CREATOR_RECORD_CLASSIFIER_DIGEST=2c571f91caf64c47b6ca6bd3adc1daa07dbb84ead8e9489758498cc7e11e533d
+```
+
+Existing installations can keep `PROJECT_CREATOR_RECORD_CLASSIFIER=laya-review` as shorthand for the pinned multilingual BF16 Laya model. None of the evaluated Laya schemes qualified for automatic labels. [Laya benchmark results](classification-evaluator.md#measured-result-on-20-november-2026)
+
+The adapter sends the original text in full and asks a separate question for each axis. Reviewers can inspect the model’s uncalibrated scores for the alternatives. Both the semantic and representation types stay `unknown` with status `needs_review` until a person confirms them.
+
+The adapter uses `PROJECT_CREATOR_RECORD_CLASSIFIER_URL`, then the configured local Ollama URL, then loopback on port 11434. It accepts loopback HTTP and the Compose service name `ollama`. Restart the backend after changing configuration. Unsupported input or token counts are recorded separately. Runtime and pin failures have a failed/retry path. No source text is sent to another provider on error.
 
 PostgreSQL records the source version, effective classifier profile and each job's lease. A worker processes one record at a time independently of pair analysis and search. Repeated requests and delayed responses are checked against the current source and lease. A confirmed choice remains effective across explicit reanalysis of the same version. Model evidence from that reanalysis is available in history. Editing the text makes its earlier decision stale. Use project-scoped progress and failed-only retry to inspect the backlog.

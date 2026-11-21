@@ -8,7 +8,7 @@ Select **Review classification**, choose a value for each axis, then **Save clas
 
 ## Model evidence and manual decisions
 
-The card displays the effective decision, its state, its source and the model name when recorded. Expand the alternatives to inspect the ranked labels and their uncalibrated model scores. Expand decision details for recorded model and prompt provenance. The review-only model can leave both axes undetermined and still provide alternatives. A record can also need review without alternatives, for example when its input exceeds the model limit.
+The card displays the effective decision, its state, its source and the model name when recorded. Expand the alternatives to inspect the three highest-ranked alternatives per group and their uncalibrated model scores. Expand decision details for recorded model and prompt provenance. The review-only model can leave both axes undetermined and still provide alternatives. A record can also need review without alternatives, for example when its input exceeds the model limit.
 
 An explicit rerun on a confirmed record keeps the user's decision. Open **Decision history** to compare later model evidence, earlier decisions, the source text version and the decision revision. With automatic classification disabled, manual review and history remain available.
 

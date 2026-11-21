@@ -28,6 +28,8 @@ export default function DecisionEvidence({
     ['review.digest', entry.digest],
   ].filter((pair) => pair[1]);
   const alternatives = groupAlternatives(entry.alternatives);
+  const visibleCount =
+    alternatives.meaning.length + alternatives.form.length + alternatives.joint.length;
   return (
     <>
       <dl className="classification-fields">
@@ -82,10 +84,10 @@ export default function DecisionEvidence({
           )}
         </p>
       )}
-      {entry.alternatives.length > 0 && (
+      {visibleCount > 0 && (
         <details>
           <summary>
-            {t(locale, 'review.alternatives')} ({entry.alternatives.length})
+            {t(locale, 'review.alternatives')} ({visibleCount})
           </summary>
           {(['meaning', 'form', 'joint'] as const).map(
             (axis) =>

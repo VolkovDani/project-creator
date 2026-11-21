@@ -45,13 +45,14 @@ export function classificationCounts(
   return { semantic, representation };
 }
 
-export function groupAlternatives<T extends { semanticType: string; representationType: string }>(
-  alternatives: readonly T[],
-) {
+export function groupAlternatives<
+  T extends { semanticType: string; representationType: string; score: number | null },
+>(alternatives: readonly T[]) {
+  const ranked = [...alternatives].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
   return {
-    meaning: alternatives.filter((item) => item.semanticType && !item.representationType),
-    form: alternatives.filter((item) => item.representationType && !item.semanticType),
-    joint: alternatives.filter((item) => item.semanticType && item.representationType),
+    meaning: ranked.filter((item) => item.semanticType && !item.representationType).slice(0, 3),
+    form: ranked.filter((item) => item.representationType && !item.semanticType).slice(0, 3),
+    joint: ranked.filter((item) => item.semanticType && item.representationType).slice(0, 3),
   };
 }
 

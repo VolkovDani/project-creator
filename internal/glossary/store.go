@@ -137,7 +137,7 @@ func Change(ctx context.Context, db *sql.DB, w, p string, t Term, remove bool) (
 		return Term{}, conflict, nil
 	}
 	if !remove && t.SourceID != "" && (old == nil || old.SourceID != t.SourceID || old.SourceVersion != t.SourceVersion) {
-		if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 AND version=$4)`, w, p, t.SourceID, t.SourceVersion).Scan(&ok); e != nil || !ok {
+		if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM active_requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 AND version=$4)`, w, p, t.SourceID, t.SourceVersion).Scan(&ok); e != nil || !ok {
 			return Term{}, conflict, e
 		}
 	}
@@ -186,7 +186,7 @@ func Change(ctx context.Context, db *sql.DB, w, p string, t Term, remove bool) (
 	return t, nil, tx.Commit()
 }
 func requeue(ctx context.Context, tx *sql.Tx, w, p string, changed []Term) error {
-	rows, e := tx.QueryContext(ctx, `SELECT r.id,r.text FROM requirements r WHERE r.workspace=$1 AND r.project_id=$2 AND EXISTS (SELECT FROM requirement_summaries s WHERE s.workspace=r.workspace AND s.project_id=r.project_id AND s.requirement_id=r.id AND s.version=r.version)`, w, p)
+	rows, e := tx.QueryContext(ctx, `SELECT r.id,r.text FROM active_requirements r WHERE r.workspace=$1 AND r.project_id=$2 AND EXISTS (SELECT FROM requirement_summaries s WHERE s.workspace=r.workspace AND s.project_id=r.project_id AND s.requirement_id=r.id AND s.version=r.version)`, w, p)
 	if e != nil {
 		return e
 	}
@@ -205,6 +205,6 @@ func requeue(ctx context.Context, tx *sql.Tx, w, p string, changed []Term) error
 	if e = errors.Join(rows.Err(), rows.Close()); e != nil || len(ids) == 0 {
 		return e
 	}
-	_, e = tx.ExecContext(ctx, `UPDATE requirement_summaries s SET status=CASE WHEN s.profile=(SELECT sp.profile FROM summary_profiles sp WHERE sp.workspace=s.workspace) THEN 'queued' ELSE 'stale' END,text='',attempt='',error_code='' FROM requirements r WHERE r.workspace=$1 AND r.project_id=$2 AND r.id=ANY($3) AND s.workspace=r.workspace AND s.project_id=r.project_id AND s.requirement_id=r.id AND s.version=r.version AND s.status<>'cancelled' `, w, p, ids)
+	_, e = tx.ExecContext(ctx, `UPDATE requirement_summaries s SET status=CASE WHEN s.profile=(SELECT sp.profile FROM summary_profiles sp WHERE sp.workspace=s.workspace) THEN 'queued' ELSE 'stale' END,text='',attempt='',error_code='' FROM active_requirements r WHERE r.workspace=$1 AND r.project_id=$2 AND r.id=ANY($3) AND s.workspace=r.workspace AND s.project_id=r.project_id AND s.requirement_id=r.id AND s.version=r.version AND s.status<>'cancelled' `, w, p, ids)
 	return e
 }

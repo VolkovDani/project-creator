@@ -80,8 +80,58 @@ func TestRequirementLifecycleAndWorkspaceIsolation(t *testing.T) {
 		t.Fatal(found)
 	}
 	deleted := run("token-a", fmt.Sprintf(`mutation { deleteRequirement(id:"%s",projectId:"%s",version:2) { deleted } }`, id, project))
-	if deleted["deleteRequirement"].(map[string]any)["deleted"] != true {
-		t.Fatal(deleted)
+	if deleted["deleteRequirement"].(map[string]any)["deleted"] != false {
+		t.Fatal("active requirement was permanently deleted", deleted)
+	}
+	confirmClass := fmt.Sprintf(`mutation {confirmRequirementClassification(input:{projectId:%q,requirementId:%q,textVersion:2,revision:0,semanticType:"functional_requirement",representationType:"statement"}){classification{status}}}`, project, id)
+	if run("token-a", confirmClass)["confirmRequirementClassification"].(map[string]any)["classification"].(map[string]any)["status"] != "confirmed" {
+		t.Fatal("classification not saved")
+	}
+	classification := fmt.Sprintf(`{requirementClassification(projectId:%q,requirementId:%q){status}}`, project, id)
+	move := fmt.Sprintf(`mutation { archiveRequirement(id:%q,projectId:%q,version:2) }`, id, project)
+	if run("token-b", move)["archiveRequirement"] != false || run("token-a", move)["archiveRequirement"] != true {
+		t.Fatal("archive transition or authorization failed")
+	}
+	list := fmt.Sprintf(`{ requirementsConnection(projectId:%q,archived:true){totalCount edges{node{id text version archivedAt}}} }`, project)
+	stamp := func() string {
+		archive := run("token-a", list)["requirementsConnection"].(map[string]any)
+		items := archive["edges"].([]any)
+		if len(items) != 1 {
+			t.Fatal(archive)
+		}
+		node := items[0].(map[string]any)["node"].(map[string]any)
+		if node["id"] != id || node["version"] != float64(2) || node["text"] != "Вторая версия" {
+			t.Fatal(node)
+		}
+		return node["archivedAt"].(string)
+	}
+	if run("token-b", list)["requirementsConnection"].(map[string]any)["totalCount"] != float64(0) {
+		t.Fatal("cross-workspace archive")
+	}
+	if run("token-a", classification)["requirementClassification"] != nil {
+		t.Fatal("archived requirement in active classification")
+	}
+	firstStamp := stamp()
+	unconfirmed := fmt.Sprintf(`mutation { deleteRequirement(id:%q,projectId:%q,version:2,archivedAt:%q){deleted} }`, id, project, firstStamp)
+	if run("token-a", unconfirmed)["deleteRequirement"].(map[string]any)["deleted"] != false {
+		t.Fatal("archive entry deleted without explicit confirmation")
+	}
+	if run("token-a", fmt.Sprintf(`{requirementsConnection(projectId:%q){totalCount}}`, project))["requirementsConnection"].(map[string]any)["totalCount"] != float64(0) {
+		t.Fatal("archived requirement still active")
+	}
+	restore := fmt.Sprintf(`mutation { restoreRequirement(id:%q,projectId:%q,version:2,archivedAt:%q) }`, id, project, firstStamp)
+	if run("token-a", restore)["restoreRequirement"] != true || run("token-a", classification)["requirementClassification"].(map[string]any)["status"] != "confirmed" || run("token-a", move)["archiveRequirement"] != true {
+		t.Fatal("restore/rearchive failed")
+	}
+	purge := func(token, when string) bool {
+		q := fmt.Sprintf(`mutation { deleteRequirement(id:%q,projectId:%q,version:2,archivedAt:%q,confirmed:true){deleted} }`, id, project, when)
+		return run(token, q)["deleteRequirement"].(map[string]any)["deleted"].(bool)
+	}
+	if purge("token-a", firstStamp) || purge("token-b", stamp()) || !purge("token-a", stamp()) {
+		t.Fatal("invalid purge guard")
+	}
+	if run("token-a", list)["requirementsConnection"].(map[string]any)["totalCount"] != float64(0) {
+		t.Fatal("purge did not remove archive entry")
 	}
 	found = run("token-a", fmt.Sprintf(`{ requirements(projectId:"%s",limit:20,offset:0) { id } }`, project))
 	if len(found["requirements"].([]any)) != 0 {

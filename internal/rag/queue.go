@@ -57,7 +57,7 @@ func (s *Service) StartQueue(workspaces []string) error {
 				return errStorage
 			}
 			if _, err = tx.Exec(`INSERT INTO requirement_index(workspace,project_id,requirement_id,profile,version,status,attempt,lease_until,error_code,attempts,available_at)
-			 SELECT r.workspace,r.project_id,r.id,$2,r.version,'queued','',clock_timestamp(),'',0,clock_timestamp() FROM requirements r
+			 SELECT r.workspace,r.project_id,r.id,$2,r.version,'queued','',clock_timestamp(),'',0,clock_timestamp() FROM active_requirements r
 			 LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.profile=$2 AND i.version=r.version
 			 WHERE r.workspace=$1 AND (i.requirement_id IS NULL OR (i.status='failed' AND i.error_code IN ('PROFILE_CHANGED','NOT_CONFIGURED')))
 			 ON CONFLICT(workspace,project_id,requirement_id,profile) DO UPDATE SET version=excluded.version,status='queued',attempt='',lease_until=clock_timestamp(),error_code='',attempts=0,available_at=clock_timestamp()`, workspace, profile); err != nil {
@@ -111,7 +111,7 @@ func (s *Service) Summary(ctx context.Context, workspace, project string) (Progr
 		out.Profile = ""
 	}
 	err = s.db.QueryRowContext(ctx, `SELECT count(*),count(*) FILTER(WHERE i.requirement_id IS NULL OR i.status='queued' OR (i.status='pending' AND i.attempt='')),count(*) FILTER(WHERE i.status='running' OR (i.status='pending' AND i.attempt<>'')),count(*) FILTER(WHERE i.status='ready'),count(*) FILTER(WHERE i.status='failed')
-	 FROM requirements r LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.version=r.version AND i.profile=$3
+	 FROM active_requirements r LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.version=r.version AND i.profile=$3
 	 WHERE r.workspace=$1 AND r.project_id=$2`, workspace, project, out.Profile).Scan(&out.Total, &out.Queued, &out.Running, &out.Ready, &out.Failed)
 	if err != nil {
 		return Progress{}, errStorage
@@ -183,7 +183,7 @@ func (s *Service) claimQueue(ctx context.Context, workspace, profile string) (*q
 	}
 	var item queueItem
 	err = tx.QueryRowContext(ctx, `SELECT i.workspace,i.project_id,i.requirement_id,i.profile,r.version,r.text,i.attempts
-	 FROM requirement_index i JOIN requirements r ON r.workspace=i.workspace AND r.project_id=i.project_id AND r.id=i.requirement_id
+	 FROM requirement_index i JOIN active_requirements r ON r.workspace=i.workspace AND r.project_id=i.project_id AND r.id=i.requirement_id
 	 JOIN embedding_profiles c ON c.workspace=i.workspace AND c.profile=i.profile
 	 WHERE i.workspace=$1 AND i.profile=$2 AND r.version=i.version AND
 	 ((i.status='queued' AND i.available_at<=clock_timestamp()) OR (i.status='failed' AND i.attempts<3 AND i.error_code='EMBEDDING_FAILED' AND i.available_at<=clock_timestamp()) OR (i.status IN ('running','pending') AND i.attempts<3 AND i.lease_until<=clock_timestamp()))
@@ -260,7 +260,7 @@ func lockIndexWrites(ctx context.Context, tx *sql.Tx) error {
 
 func (s *Service) currentAttempt(ctx context.Context, item queueItem) (bool, error) {
 	var current bool
-	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM requirements r JOIN requirement_index i
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM active_requirements r JOIN requirement_index i
  ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.version=r.version
  WHERE r.workspace=$1 AND r.project_id=$2 AND r.id=$3 AND r.version=$4 AND r.text=$5 AND i.profile=$6 AND i.attempt=$7
  AND i.status IN ('running','pending') AND i.lease_until>clock_timestamp()

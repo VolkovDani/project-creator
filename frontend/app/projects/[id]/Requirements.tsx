@@ -5,8 +5,8 @@ import contract from '../../../../contracts/requirement.json';
 import { query } from '../../../lib/client';
 import {
   AddRequirementDocument,
+  ArchiveRequirementDocument,
   EditRequirementDocument,
-  RemoveRequirementDocument,
   RequirementConnectionDocument,
 } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
@@ -20,6 +20,8 @@ import rowStyles from '../../components/RecordIcons.module.css';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
 import ClassificationCard from './classification/ClassificationCard';
+import RequirementArchive from './RequirementArchive';
+import RequirementConfirmation from './RequirementConfirmation';
 import RequirementSummary, { useRequirementSummaries } from './RequirementSummary';
 import RetryFailedSummaries from './RetryFailedSummaries';
 
@@ -28,6 +30,11 @@ export default function Requirements({ projectId, locale }: { projectId: string;
   const [text, setText] = useState('');
   const [editText, setEditText] = useState('');
   const [editing, setEditing] = useState<{ id: string; version: number } | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<{
+    id: string;
+    version: number;
+    text: string;
+  } | null>(null);
   const editTrigger = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [validation, setValidation] = useState<{
@@ -42,6 +49,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     setText('');
     setEditText('');
     setEditing(null);
+    setArchiveTarget(null);
     setValidation(null);
     setFailure(false);
     setBusy(false);
@@ -167,14 +175,16 @@ export default function Requirements({ projectId, locale }: { projectId: string;
       if (current(epoch)) setBusy(false);
     }
   }
-  async function remove(id: string, version: number) {
+  async function archive(id: string, version: number) {
+    setArchiveTarget(null);
+    setValidation(null);
     const epoch = ++operation.current;
     setBusy(true);
     setFailure(false);
     try {
-      const result = await query(RemoveRequirementDocument, { id, projectId, version });
+      const result = await query(ArchiveRequirementDocument, { id, projectId, version });
       if (!current(epoch)) return;
-      if (!result.deleteRequirement.deleted) {
+      if (!result.archiveRequirement) {
         setValidation({ key: 'validation.conflict', params: {} });
         await infinite.refresh();
         return;
@@ -208,6 +218,15 @@ export default function Requirements({ projectId, locale }: { projectId: string;
           {t(locale, 'requirements.add')}
         </button>
       </form>
+      {archiveTarget && (
+        <RequirementConfirmation
+          action="archive"
+          text={archiveTarget.text}
+          locale={locale}
+          onCancel={() => setArchiveTarget(null)}
+          onConfirm={() => void archive(archiveTarget.id, archiveTarget.version)}
+        />
+      )}
       {editing && (
         <dialog
           ref={dialogRef}
@@ -303,7 +322,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
           identity={`requirements:${projectId}`}
           items={rows}
           keyOf={(row) => row.id}
-          focusedId={editing?.id}
+          focusedId={editing?.id ?? archiveTarget?.id}
           scrollToId={sourceTarget}
           onEndReached={more}
           renderItem={(row) => (
@@ -359,19 +378,23 @@ export default function Requirements({ projectId, locale }: { projectId: string;
               >
                 {t(locale, 'requirements.edit')}
               </button>
-              <button
-                type="button"
-                disabled={busy}
-                className="destructive-action"
-                onClick={() => void remove(row.id, row.version)}
-              >
-                {t(locale, 'requirements.delete')}
+              <button type="button" disabled={busy} onClick={() => setArchiveTarget(row)}>
+                {t(locale, 'requirements.archive')}
               </button>
               <DesignIcon name="requirements" className={rowStyles.documentIcon} />
             </article>
           )}
         />
         <LoadMore locale={locale} {...infinite} loadMore={more} />
+      </Group>
+      <Group
+        id={`${projectId}:archive`}
+        anchorId="requirements-archive"
+        title={t(locale, 'requirements.archiveTitle')}
+        defaultOpen={false}
+        lazy
+      >
+        <RequirementArchive projectId={projectId} locale={locale} />
       </Group>
     </section>
   );

@@ -317,7 +317,7 @@ go test ./internal/analysis -run TestRealAnalysisSmoke -v -count=1
 | `/` | Список проектов |
 | `/projects/new` | Создание проекта |
 | `/projects/:id` | Обзор проекта |
-| `/projects/:id/requirements` | Создание, изменение и удаление требований |
+| `/projects/:id/requirements` | Создание, изменение и архивация требований. Восстановление или окончательное удаление записи из архива |
 | `/projects/:id/indexing` | Общий прогресс фоновой очереди, статусы и повтор индексации |
 | `/projects/:id/search` | Семантический поиск |
 | `/projects/:id/analysis` | Потоковый анализ пар и результаты |

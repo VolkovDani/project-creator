@@ -4,7 +4,11 @@ mutation CreateProject($input: ProjectInput!) { createProject(input: $input) { p
 query Requirements($projectId: ID!, $limit: Int!, $offset: Int!) { requirements(projectId: $projectId, limit: $limit, offset: $offset) { id projectId text version createdAt updatedAt } }
 mutation AddRequirement($input: CreateRequirementInput!) { createRequirement(input:$input) { requirement { id text version } fieldErrors { path code messageKey params { key value } } } }
 mutation EditRequirement($input: UpdateRequirementInput!) { updateRequirement(input:$input) { requirement { id text version } fieldErrors { path code messageKey params { key value } } } }
-mutation RemoveRequirement($id: ID!, $projectId: ID!, $version: Int!) { deleteRequirement(id:$id, projectId:$projectId, version:$version) { deleted } }
+mutation RemoveRequirement($id: ID!, $projectId: ID!, $version: Int!, $archivedAt: String!) { deleteRequirement(id:$id, projectId:$projectId, version:$version, archivedAt:$archivedAt, confirmed:true) { deleted } }
 
 query ProjectConnection($first: Int!, $after: String) { projectsConnection(first: $first, after: $after) { edges { cursor node { id name goal description createdAt updatedAt } } pageInfo { endCursor hasNextPage } totalCount } }
 query RequirementConnection($projectId: ID!, $first: Int!, $after: String) { requirementsConnection(projectId: $projectId, first: $first, after: $after) { edges { cursor node { id projectId text version createdAt updatedAt } } pageInfo { endCursor hasNextPage } totalCount } }
+
+mutation ArchiveRequirement($id: ID!, $projectId: ID!, $version: Int!) { archiveRequirement(id:$id, projectId:$projectId, version:$version) }
+mutation RestoreRequirement($id: ID!, $projectId: ID!, $version: Int!, $archivedAt: String!) { restoreRequirement(id:$id, projectId:$projectId, version:$version, archivedAt:$archivedAt) }
+query ArchivedRequirements($projectId: ID!, $first: Int!, $after: String) { requirementsConnection(projectId:$projectId, archived:true, first:$first, after:$after) { edges { cursor node { id text version archivedAt } } pageInfo { endCursor hasNextPage } totalCount } }

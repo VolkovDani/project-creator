@@ -60,7 +60,12 @@ async function stream(signal: AbortSignal) {
     try {
       const headers: Record<string, string> = { accept: 'text/event-stream' };
       if (cursor) headers['Last-Event-ID'] = cursor;
-      const response = await fetch('/api/events', { headers, cache: 'no-store', signal });
+      const response = await fetch('/api/events', {
+        headers,
+        cache: 'no-store',
+        priority: 'low',
+        signal,
+      });
       if (signal.aborted) break;
       if (response.status === 401 || response.status === 403) {
         cursor = undefined;

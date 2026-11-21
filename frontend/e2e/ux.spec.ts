@@ -412,7 +412,14 @@ test('index queue shows project-wide progress and running state after SSE and re
   const api = await fixture(page, 45);
   api.setProgress({ total: 200, ready: 120, queued: 78, running: 1, failed: 1 });
   api.setRunning();
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Network.enable');
+  let eventsPriority: string | undefined;
+  cdp.on('Network.requestWillBeSent', ({ request }) => {
+    if (new URL(request.url).pathname === '/api/events') eventsPriority = request.initialPriority;
+  });
   await page.goto('/projects/demo/indexing');
+  await expect.poll(() => eventsPriority).toBe('Low');
   const summary = page.getByRole('region', { name: 'Прогресс индексации проекта', exact: true });
   await expect(summary).toContainText('Готово: 120 из 200');
   await expect(summary).toContainText('В работе: 1');

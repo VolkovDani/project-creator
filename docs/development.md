@@ -534,6 +534,7 @@ The Go server provides an authenticated `GET /events`. Next.js forwards the stre
 through same-origin `/api/events`, keeping the token on the server only. The
 interface remains a local single-user application; this does not replace full
 authentication for internet deployment. URLs contain no tokens.
+The browser requests the long-lived event stream at low priority so it can load the page first.
 
 PostgreSQL migration 002 creates a `cache_events` journal and triggers on projects
 and requirements. Event logging and data changes are in one transaction; rollbacks

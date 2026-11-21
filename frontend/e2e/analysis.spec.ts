@@ -1,5 +1,5 @@
 import { type BrowserContext, expect, type Locator, type Page, test } from '@playwright/test';
-import { expectLayout, layoutCases, setLayout } from './layout-assertions';
+import { expectLayout, layoutCases, openProjectMenu, setLayout } from './layout-assertions';
 
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status === 'passed') await expectLayout(page);
@@ -1403,6 +1403,7 @@ for (const { width, zoom } of layoutCases) {
     );
     await page.goto('/projects/demo/analysis');
     for (const locale of ['ru', 'en'] as const) {
+      await openProjectMenu(page);
       await page.locator('.language select').selectOption(locale);
       const provenanceGroup = page.getByText(
         locale === 'ru'

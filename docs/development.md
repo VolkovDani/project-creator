@@ -479,6 +479,12 @@ Open `http://127.0.0.1:3000`. The Next.js server forwards GraphQL requests to
 This is a local single-user mode: do not expose the interface to the internet
 without separate authentication and access control.
 
+The workspace opens in dark mode on the first visit and restores an explicitly selected theme on later visits. Both themes use the same semantic tokens from `frontend/app/tokens.css`. Text passages have a reading measure, while tables and analysis panels use the available workspace width.
+
+The project menu follows the working order Overview, Requirements, Search, Classification, Glossary and Analysis. Expand **Technical section** to check automatic indexing or retry a failed record. The existing indexing URL still opens directly. The menu can be collapsed on desktop and opened when needed on mobile.
+
+The language selector and dark-theme switch are at the bottom of the project menu. On the project list and creation pages they are in the header. Section links use the same Feather icons as the FigCraft design. Their text labels provide the accessible names.
+
 Browser tabs show the current section and the Project Creator name. Titles and page descriptions follow the selected interface language and use only interface strings.
 
 Next.js serves the multi-size browser icon from `frontend/app/favicon.ico`. The standalone image also ships the supplied PNG variants from `frontend/public/`, including the 180 px Apple touch icon.
@@ -509,7 +515,20 @@ cd frontend
 bun run e2e
 ```
 
+### Controls, links and text
+
+- Use a native button for actions such as **Copy code** or **Save**. Give it a visible boundary or fill so the action is recognizable before hover.
+- Give enabled destructive buttons such as **Delete** a solid 1 px border in the theme’s danger color, visible at rest and on hover. Keep the keyboard focus outline separate from the border.
+- Use a link with an `href` for navigation. Underline links within text by default, including links in rendered Markdown. Keep the underline visible on touch screens.
+- A navigation group such as the project menu can use a consistent row or tab treatment in place of underlines. Make each destination recognizable before hover and mark the current page with a visible indicator and `aria-current="page"`.
+- Keep headings, labels and metadata such as a requirement version or indexing status visually distinct from controls. Reserve the button treatment and pointer cursor for interactive elements.
+- Give keyboard focus a visible outline in both themes. A focused navigation link must remain distinguishable from the current page.
+
 ## Business requirements
+
+Requirements render Markdown headings, paragraphs, lists, tables, quotations, links and fenced code. Known fence languages receive syntax highlighting. Use **Copy code** for the contents of a block. Select visible document text to add a glossary entry. **Markdown source** shows the stored text with glossary matches. Links to a specific glossary occurrence open the exact text at its saved offsets. Editing always uses the stored source.
+
+The document renderer uses `markdown-to-jsx` for parsing and `sugar-high` for syntax tokens. Both are pinned MIT packages with no additional runtime dependencies. React renders the tokens as text. Raw HTML stays literal, and embedded images display their alternative text to avoid fetching remote assets from a requirement.
 
 Requirements can be added, edited, and deleted on a project card. Text is checked
 against the shared contract `contracts/requirement.json`, identically in Go and

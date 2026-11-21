@@ -1,8 +1,82 @@
 import { expect, type Page, test } from '@playwright/test';
-import { expectLayout, layoutCases, setLayout } from './layout-assertions';
+import { expectLayout, layoutCases, openProjectMenu, setLayout } from './layout-assertions';
 
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status === 'passed') await expectLayout(page);
+});
+
+test('project menu groups sections and keeps diagnostics accessible on a direct indexing URL', async ({
+  page,
+}, testInfo) => {
+  await fixture(page, 1);
+  await page.goto('/projects/demo/indexing');
+  const toggle = page.locator('button[aria-controls="project-sidebar"]');
+  const nav = page.getByRole('navigation', { name: 'Разделы проекта' });
+  const narrow = testInfo.project.name === 'narrow';
+  await expect(toggle).toHaveAttribute('aria-expanded', String(!narrow));
+  if (narrow) {
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(nav).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(toggle).toBeFocused();
+    await expect(nav).toBeHidden();
+  } else {
+    await toggle.click();
+    await expect(nav).toBeHidden();
+  }
+  await toggle.click();
+  await expect(nav.getByRole('link')).toHaveText([
+    'Обзор',
+    'Требования',
+    'Поиск',
+    'Классификация',
+    'Словарь',
+    'Анализ',
+    'Технический раздел',
+    'Индексация',
+  ]);
+  for (const link of await nav.getByRole('link').all()) {
+    await expect(link.locator(':scope > svg:first-child[aria-hidden="true"]')).toHaveCount(1);
+  }
+  const firstGlyph = nav.locator('svg use').first();
+  await expect
+    .poll(() => firstGlyph.evaluate((use: SVGUseElement) => use.getBBox().width))
+    .toBeGreaterThan(0);
+  await expect(nav.getByRole('link', { name: 'Обзор' })).toHaveCSS(
+    'text-decoration-line',
+    'underline',
+  );
+  const indexing = nav.getByRole('list').getByRole('link', { name: 'Индексация' });
+  await expect(indexing).toHaveAttribute('aria-current', 'page');
+  const technical = nav.getByRole('link', { name: 'Технический раздел' });
+  await expect(technical).toHaveAttribute('aria-current', 'location');
+  await technical.click();
+  await expect(page).toHaveURL('/projects/demo/technical');
+  if (narrow) await expect(nav).toBeHidden();
+  await page.getByRole('main').getByRole('link', { name: 'Индексация', exact: true }).click();
+  await expect(page).toHaveURL('/projects/demo/indexing');
+  await page.getByRole('link', { name: project.name, exact: true }).click();
+  await expect(page.locator('.overview-links strong')).toHaveText([
+    'Требования',
+    'Поиск',
+    'Классификация',
+    'Словарь',
+    'Анализ',
+  ]);
+  for (const link of await page.locator('.overview-links a').all()) {
+    await expect(link.locator('svg[aria-hidden="true"]')).toHaveCount(2);
+    await expect(link.locator('svg use').last()).toHaveAttribute(
+      'href',
+      '/design-icons.svg#chevron-right',
+    );
+  }
+  await expect(page.locator('.overview-links strong').first()).toHaveCSS(
+    'text-decoration-line',
+    'underline',
+  );
+  await expect(page.locator('.overview-links p').first()).toHaveCSS('text-decoration-line', 'none');
+  await expect(nav.getByRole('link', { name: 'Индексация' })).toHaveCount(0);
 });
 
 test('section metadata follows navigation and the saved language', async ({ page }) => {
@@ -11,10 +85,26 @@ test('section metadata follows navigation and the saved language', async ({ page
   const description = page.locator('head meta[name="description"]');
   await expect(page).toHaveTitle('Классификация — Project Creator');
   await expect(description).toHaveAttribute('content', /классификацию/);
-  await page.getByLabel('Язык').selectOption('en');
+  await expect(page.getByRole('heading', { name: project.name })).toBeVisible();
+  const toggle = page.locator('button[aria-controls="project-sidebar"]');
+  if ((await toggle.getAttribute('aria-expanded')) === 'false') {
+    await expect(page.getByRole('button', { name: 'Тёмная тема' })).toBeHidden();
+    await toggle.click();
+  }
+  const sidebar = page.getByRole('complementary');
+  const theme = sidebar.getByRole('button', { name: 'Тёмная тема' });
+  await expect(theme).toBeVisible();
+  await expect(theme.locator('svg[aria-hidden="true"]')).toHaveCount(1);
+  await expect(sidebar.locator('.language svg[aria-hidden="true"]')).toHaveCount(1);
+  await sidebar.getByRole('combobox', { name: 'Язык' }).selectOption('en');
   await expect(page).toHaveTitle('Classification — Project Creator');
   await expect(description).toHaveAttribute('content', /classifications/);
-  await page.getByRole('link', { name: 'Indexing', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Project sections' })
+    .getByRole('link', { name: 'Technical section' })
+    .click();
+  await expect(page).toHaveTitle('Technical section — Project Creator');
+  await page.getByRole('main').getByRole('link', { name: 'Indexing', exact: true }).click();
   await expect(page).toHaveTitle('Indexing — Project Creator');
   await expect(description).toHaveAttribute('content', /indexing/);
   await page.reload();
@@ -65,33 +155,33 @@ test('pages advertise the browser and Apple icons and serve the supplied sizes',
   }
 });
 
-test('dark theme follows the user across navigation, language changes and reloads', async ({
+test('dark is the default and an explicit light preference survives navigation and reloads', async ({
   page,
 }) => {
   await fixture(page, 1);
   await page.goto('/projects/new');
   const language = page.getByRole('combobox', { name: 'Язык' });
   const theme = page.getByRole('button', { name: 'Тёмная тема' });
-  await expect(theme).toHaveAttribute('aria-pressed', 'false');
+  await expect(theme).toHaveAttribute('aria-pressed', 'true');
   await language.focus();
   await page.keyboard.press('Tab');
   await expect(theme).toBeFocused();
   await page.keyboard.press('Space');
-  await expect(theme).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(27, 28, 28)');
+  await expect(theme).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('html')).toHaveCSS('color-scheme', 'light');
   await expect(page).toHaveURL(/\/projects\/new$/);
   await language.selectOption('en');
   const englishTheme = page.getByRole('button', { name: 'Dark theme' });
-  await expect(englishTheme).toHaveAttribute('aria-pressed', 'true');
+  await expect(englishTheme).toHaveAttribute('aria-pressed', 'false');
   await page.locator('.top a[href="/"]').click();
-  await expect(englishTheme).toHaveAttribute('aria-pressed', 'true');
-  await page.reload();
-  await expect(englishTheme).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark');
-  await englishTheme.click();
+  await expect(englishTheme).toHaveAttribute('aria-pressed', 'false');
   await page.reload();
   await expect(englishTheme).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('html')).toHaveCSS('color-scheme', 'light');
+  await englishTheme.click();
+  await page.reload();
+  await expect(englishTheme).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark');
 });
 
 test('requirement editing opens a native dialog and Escape discards the draft', async ({
@@ -581,7 +671,7 @@ test('infinite requirements restore loaded rows and scroll after leaving the rou
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(1000);
   const savedOffset = await page.evaluate(() => window.scrollY);
   const savedReads = api.connectionReads().length;
-  await page.getByRole('link', { name: 'Обзор', exact: true }).evaluate((link) => {
+  await page.getByRole('link', { name: project.name, exact: true }).evaluate((link) => {
     if (link instanceof HTMLElement) link.click();
   });
   await expect(page).toHaveURL('/projects/demo');
@@ -725,19 +815,21 @@ test('project pages share navigation, locale and browser history without overflo
   await page.goto('/projects/demo');
   await expect(page.getByRole('heading', { name: project.name, exact: true })).toBeVisible();
   await expect(page.getByLabel('Текст требования')).toHaveCount(0);
+  await openProjectMenu(page);
   await page.getByLabel('Язык').selectOption('en');
+  const nav = page.getByRole('navigation', { name: 'Project sections' });
   for (const [name, path] of [
     ['Requirements', 'requirements'],
+    ['Technical section', 'technical'],
     ['Indexing', 'indexing'],
     ['Search', 'search'],
     ['Analysis', 'analysis'],
   ] as const) {
-    await page.getByRole('link', { name, exact: true }).first().click();
+    const link = nav.getByRole('link', { name, exact: true });
+    await link.click();
     await expect(page).toHaveURL(new RegExp(`/${path}$`));
-    await expect(page.getByRole('link', { name, exact: true }).first()).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    await openProjectMenu(page);
+    await expect(link).toHaveAttribute('aria-current', 'page');
     await expect(page.getByLabel('Language')).toHaveValue('en');
   }
   await page.goBack();
@@ -745,6 +837,7 @@ test('project pages share navigation, locale and browser history without overflo
   await page.goForward();
   await expect(page).toHaveURL(/\/analysis$/);
   await page.reload();
+  await openProjectMenu(page);
   await expect(page.getByLabel('Language')).toHaveValue('en');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
@@ -794,8 +887,6 @@ test('indexing group state is restored across a Russian to English navigation', 
 }) => {
   await fixture(page, 2);
   await page.goto('/projects/demo/indexing');
-  const language = page.locator('.language select');
-  await language.selectOption('ru');
   let ready = page.locator('.data-group').last();
   await expect(ready).toHaveAttribute('data-restored', 'true');
   if ((await ready.getAttribute('open')) === null) await ready.locator('summary').click();
@@ -804,7 +895,8 @@ test('indexing group state is restored across a Russian to English navigation', 
     .poll(() => page.evaluate(() => sessionStorage.getItem('group:demo:indexing:ready')))
     .toBe('true');
 
-  await language.selectOption('en');
+  await openProjectMenu(page);
+  await page.getByRole('combobox', { name: 'Язык' }).selectOption('en');
   await page.goto('/projects/demo/requirements');
   await page.goto('/projects/demo/indexing');
   ready = page.locator('.data-group').last();
@@ -1018,10 +1110,21 @@ for (const { width, zoom } of layoutCases) {
     await expect(description).toHaveText(longText);
     expect(await description.evaluate((el) => getComputedStyle(el).whiteSpace)).toMatch(/pre/);
     for (const locale of ['ru', 'en']) {
+      await openProjectMenu(page);
       await page.locator('.language select').selectOption(locale);
       for (const path of ['requirements', 'indexing', 'search', 'analysis']) {
         await page.goto(`/projects/demo/${path}`);
-        await expect(page.locator('.project-nav a[aria-current="page"]')).toBeVisible();
+        const toggle = page.locator('button[aria-controls="project-sidebar"]');
+        const collapsed = (await toggle.getAttribute('aria-expanded')) === 'false';
+        if (collapsed) await toggle.click();
+        await expect(
+          page
+            .getByRole('navigation', {
+              name: locale === 'ru' ? 'Разделы проекта' : 'Project sections',
+            })
+            .locator('a[aria-current="page"]'),
+        ).toBeVisible();
+        if (collapsed) await toggle.click();
         await expect(page.locator('main h2').first()).toBeVisible();
         if (path === 'requirements') {
           const card = page.locator('#requirement-r0');
@@ -1093,3 +1196,13 @@ for (const route of ['requirements', 'analysis']) {
     expect(renderingErrors).toEqual([]);
   });
 }
+
+test('page contents link to requirement entry and the list', async ({ page }) => {
+  await fixture(page, 3);
+  await page.goto('/projects/demo/requirements');
+  const contents = page.getByRole('navigation', { name: 'На этой странице' });
+  await expect(contents).toBeVisible();
+  await contents.getByRole('link', { name: 'Список требований' }).click();
+  await expect(page).toHaveURL(/#requirements-list$/);
+  await expect(page.locator('#requirements-list')).toBeInViewport();
+});

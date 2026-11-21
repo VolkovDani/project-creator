@@ -10,8 +10,8 @@ import {
 import { type Locale, summaryErrorMessage, t } from '../../../lib/i18n';
 import { Latest } from '../../../lib/latest';
 import { useInvalidation } from '../../../lib/live';
-import { GlossaryText } from './GlossaryActions';
 import GlossaryOriginal, { MatchedText } from './GlossaryOriginal';
+import { RequirementMarkdown } from './RequirementMarkdown';
 
 type Summary = RequirementSummariesByIdsQuery['requirementSummariesByIds'][number];
 
@@ -142,9 +142,14 @@ export default function RequirementSummary({
   const hasText = versionMatches && summary?.status === 'ready' && !!summary.text;
   const source =
     loading && !showOriginal ? (
-      <GlossaryText className="user-content" sourceId={requirementId} version={requirementVersion}>
+      <RequirementMarkdown
+        text={original}
+        locale={locale}
+        sourceId={requirementId}
+        version={requirementVersion}
+      >
         {original}
-      </GlossaryText>
+      </RequirementMarkdown>
     ) : (
       <GlossaryOriginal
         highlight={highlight}
@@ -160,14 +165,14 @@ export default function RequirementSummary({
     <section aria-label={hasText ? t(locale, 'summary.section') : undefined}>
       {hasText ? <p className="muted">{t(locale, 'summary.suggestion')}</p> : source}
       {hasText && displayedSummary?.text ? (
-        <GlossaryText className="user-content">
+        <RequirementMarkdown text={displayedSummary.text} locale={locale}>
           <MatchedText
             projectId={projectId}
             text={displayedSummary.text}
             matches={displayedSummary.glossaryMatches ?? []}
             locale={locale}
           />
-        </GlossaryText>
+        </RequirementMarkdown>
       ) : (
         <p
           role={

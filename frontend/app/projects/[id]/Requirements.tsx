@@ -13,8 +13,10 @@ import { type Locale, t } from '../../../lib/i18n';
 import { useInvalidation } from '../../../lib/live';
 import { validateRequirement } from '../../../lib/requirementValidation';
 import { useInfinite } from '../../../lib/useInfinite';
+import { DesignIcon } from '../../components/DesignIcon';
 import Group from '../../components/Group';
 import { LoadMore } from '../../components/ListControls';
+import rowStyles from '../../components/RecordIcons.module.css';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
 import ClassificationCard from './classification/ClassificationCard';
@@ -187,7 +189,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
   return (
     <section className="ui-panel" aria-labelledby="requirements-heading">
       <h2 id="requirements-heading">{t(locale, 'requirements.title')}</h2>
-      <form onSubmit={save} noValidate>
+      <form id="requirement-entry" onSubmit={save} noValidate>
         <label>
           {t(locale, 'requirements.text')}
           <textarea
@@ -290,6 +292,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
       )}
       <RetryFailedSummaries projectId={projectId} locale={locale} />
       <Group
+        anchorId="requirements-list"
         id={`${projectId}:requirements`}
         title={t(locale, 'ui.requirementsGroup')}
         summary={t(locale, 'list.total', { total: infinite.totalCount })}
@@ -304,7 +307,12 @@ export default function Requirements({ projectId, locale }: { projectId: string;
           scrollToId={sourceTarget}
           onEndReached={more}
           renderItem={(row) => (
-            <article className="card" id={`requirement-${row.id}`} key={row.id} tabIndex={-1}>
+            <article
+              className={`card ${rowStyles.documentCard}`}
+              id={`requirement-${row.id}`}
+              key={row.id}
+              tabIndex={-1}
+            >
               {source === row.id && mention && mentionVersion !== row.version && (
                 <p role="status">{t(locale, 'glossary.mentionChanged')}</p>
               )}
@@ -359,6 +367,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
               >
                 {t(locale, 'requirements.delete')}
               </button>
+              <DesignIcon name="requirements" className={rowStyles.documentIcon} />
             </article>
           )}
         />

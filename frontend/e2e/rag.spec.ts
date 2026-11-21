@@ -110,6 +110,9 @@ test('index retry and search are explicit and retain versioned sources', async (
   });
   await page.goto('/projects/demo/indexing');
   await expect(page.getByText('Индекс: ожидает индексации')).toBeVisible();
+  await expect(
+    page.locator('#indexing-source-1 svg[aria-hidden="true"] use[href$="#file-text"]'),
+  ).toBeVisible();
   expect(indexCalls).toBe(0);
   expect(searchCalls).toBe(0);
   await page.getByRole('button', { name: 'Индексировать', exact: true }).click();
@@ -125,6 +128,9 @@ test('index retry and search are explicit and retain versioned sources', async (
   await page.getByLabel('Поисковый запрос').fill('черновик');
   await page.getByRole('button', { name: 'Найти требования' }).click();
   await expect(page.getByText('сохранить черновик', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('article').locator('svg[aria-hidden="true"] use[href$="#file-text"]'),
+  ).toBeVisible();
   await page.getByText('сохранить черновик', { exact: true }).evaluate((el) => {
     const node = el.firstChild;
     if (node) window.getSelection()?.setBaseAndExtent(node, 10, node, 18);

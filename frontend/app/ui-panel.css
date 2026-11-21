@@ -22,173 +22,56 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-:root:not([data-theme="dark"]) .ui-panel {
-  --text: #181d27;
-  --text-muted: #535862;
-  --surface: #fff;
-  --surface-subtle: #fafafa;
-  --border: #d5d7da;
-  --control-border: #717680;
-  --action: #6941c6;
-  --action-hover: #53389e;
-  --action-tint: #f9f5ff;
-  --focus: #7f56d9;
-  --danger: #b42318;
-  --danger-tint: #fef3f2;
-}
-.ui-panel {
-  --space-control: 0.625rem;
-  --space-group: 1rem;
-  --radius-control: 0.5rem;
-  --radius-panel: 0.75rem;
-  --text-control: 0.9375rem;
-  --shadow: 0 1px 2px rgb(0 0 0 / 5%);
-  color: var(--text);
-  background: var(--surface);
-  border-color: var(--border);
-  border-radius: var(--radius-panel);
-  box-shadow: var(--shadow);
-  line-height: 1.5;
-}
 .ui-panel h2 {
   margin-top: 0;
-  line-height: 1.25;
-  letter-spacing: -0.025em;
 }
-.ui-panel .muted,
-.ui-panel .resource-status {
-  color: var(--text-muted);
+.ui-panel fieldset {
+  margin-block: var(--space-4);
+  padding: var(--space-3);
 }
-.ui-panel :is(.card, dialog, .data-group, .analysis-group, .skeleton, fieldset) {
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-panel);
-  background: var(--surface);
+.ui-panel [role="status"] {
+  padding: var(--space-1) var(--space-control);
+  border-inline-start: 3px solid var(--control-border);
 }
-.ui-panel .card,
-.ui-panel dialog {
-  box-shadow: var(--shadow);
-}
-.ui-panel .analysis-pair-current {
-  border: 2px solid var(--action);
-  background: var(--action-tint);
-}
-.ui-panel :is(input:not([type="radio"]), select, textarea, button) {
-  box-sizing: border-box;
-  max-width: 100%;
-  min-height: 2.5rem;
-  padding: var(--space-control);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-control);
-  font: inherit;
-  font-size: var(--text-control);
-  color: var(--text);
-  background: var(--surface);
-}
-.ui-panel input[type="radio"] {
-  width: auto;
-  margin-inline: 0 var(--space-control);
-  accent-color: var(--action);
-}
-.ui-panel button {
-  font-weight: 600;
-  padding-inline: var(--space-group);
-  box-shadow: var(--shadow);
-}
-.ui-panel button:hover:enabled,
-.ui-panel summary:hover {
-  background: var(--action-tint);
-  color: var(--action-hover);
-}
-.ui-panel :is(button[type="submit"], .primary-action) {
-  background: var(--action);
-  border-color: var(--action);
-  color: var(--on-action);
-}
-.ui-panel :is(button[type="submit"], .primary-action):hover:enabled {
-  background: var(--action-hover);
-  color: var(--on-action);
-}
-.ui-panel :is(.destructive-action, .error, [role="alert"]) {
-  color: var(--danger);
-}
-.ui-panel .destructive-action:hover:enabled,
-.ui-panel [role="alert"] {
-  color: var(--danger);
-  background: var(--danger-tint);
-}
-.ui-panel [aria-invalid="true"] {
-  border-color: var(--danger);
-}
-.ui-panel :is(button, input, select, textarea):disabled {
-  cursor: not-allowed;
-  background: var(--surface-subtle);
-  border-color: var(--border);
-  color: var(--text-muted);
-  opacity: 1;
-}
-.ui-panel :focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
-}
-.ui-panel summary {
-  cursor: pointer;
-  border-radius: var(--radius-control);
-}
-.ui-panel details[open] > summary {
-  color: var(--action-hover);
-}
-.ui-panel [role="status"],
-.ui-panel [role="alert"] {
-  padding: 0.25rem var(--space-control);
-  border-inline-start: 3px solid currentColor;
-}
-.ui-panel .skeleton > div {
-  background: var(--border);
-}
-.ui-panel textarea {
-  min-height: 5.625rem;
-}
-
 .ui-panel .classification-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
-  gap: 0.65rem 1rem;
-  margin-block: 1rem;
+  gap: var(--space-control) var(--space-group);
+  margin-block: var(--space-group);
 }
-
 .ui-panel .classification-fields dt {
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: var(--text-small);
 }
-
 .ui-panel .classification-fields dd {
-  margin: 0.15rem 0 0;
+  margin: var(--space-1) 0 0;
   overflow-wrap: anywhere;
 }
-
 .ui-panel .classification-groups {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
-  gap: 1rem;
+  gap: var(--space-group);
 }
-
 .ui-panel .classification-groups ul {
   padding: 0;
   list-style: none;
 }
-
 .ui-panel .classification-groups button {
-  margin: 0.2rem 0;
+  margin: var(--space-1) 0;
   text-align: start;
 }
-
+.ui-panel .classification-groups button[aria-pressed="true"]:enabled {
+  font-weight: 750;
+  color: var(--action);
+  background: var(--action-tint);
+  border-color: var(--action);
+}
 .ui-panel .classification-selection {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 .ui-panel .classification-selection input {
-  width: auto;
+  flex-shrink: 0;
   margin: 0;
 }

@@ -1,0 +1,75 @@
+.requirement-markdown {
+  min-width: 0;
+  overflow-x: auto;
+  font-size: 1rem;
+  line-height: 1.65;
+}
+.requirement-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.2em 0 0.35em;
+  line-height: 1.25;
+  color: var(--text);
+}
+.requirement-markdown > :first-child { margin-top: 0; }
+.requirement-markdown > :last-child { margin-bottom: 0; }
+.requirement-markdown p { margin: 0.6em 0; }
+.requirement-markdown ul, .requirement-markdown ol { padding-inline-start: 1.6em; }
+.requirement-markdown blockquote {
+  margin: 0.8em 0;
+  padding-inline-start: 1em;
+  border-inline-start: 3px solid var(--action);
+  color: var(--text-muted);
+}
+.requirement-markdown table {
+  border-collapse: collapse;
+  margin-block: 1em;
+  font-size: 0.94em;
+}
+.requirement-markdown :is(th, td) {
+  padding: 0.4em 0.75em;
+  border: 1px solid var(--border);
+}
+.requirement-markdown th { background: var(--surface-subtle, var(--page)); }
+.requirement-markdown :not(pre) > code {
+  padding: 0.1em 0.35em;
+  border-radius: 0.25rem;
+  background: var(--surface-subtle, var(--page));
+}
+.markdown-code {
+  margin-block: 1em;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface-subtle, var(--page));
+}
+.markdown-code-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font: 0.8rem/1.4 monospace;
+  color: var(--text-muted);
+}
+.markdown-code-tools span { margin-inline-end: auto; }
+button.markdown-switch, .markdown-code-tools button {
+  color: var(--action);
+  background: transparent;
+  border: 1px solid var(--border);
+  padding: 0.3rem 0.6rem;
+  margin: 0;
+  font-size: 0.85rem;
+}
+button.markdown-switch { margin-block-end: 0.7rem; }
+.markdown-code pre {
+  margin: 0;
+  padding: 0.8rem;
+  overflow-x: auto;
+  white-space: pre;
+  overflow-wrap: normal;
+  line-height: 1.5;
+}
+.markdown-code > p { padding-inline: 0.8rem; }
+.md-keyword, .md-entity { color: var(--action); font-weight: 600; }
+.md-string, .md-class { color: var(--danger); }
+.md-comment { color: var(--text-muted); font-style: italic; }
+.md-property { color: var(--action); }

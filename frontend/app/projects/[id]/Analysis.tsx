@@ -36,8 +36,10 @@ import { useAnalysisProgress, useInvalidation } from '../../../lib/live';
 import { requirementURL } from '../../../lib/rag';
 import { useInfinite } from '../../../lib/useInfinite';
 import { useResource } from '../../../lib/useResource';
+import { DesignIcon } from '../../components/DesignIcon';
 import Group from '../../components/Group';
 import { LoadMore } from '../../components/ListControls';
+import rowStyles from '../../components/RecordIcons.module.css';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
 import { GlossaryText } from './GlossaryActions';
@@ -455,7 +457,10 @@ function PairList({
             data-pair-id={pair.id}
             aria-label={t(locale, 'analysis.pair.position', { number: pair.position + 1 })}
           >
-            <h4>{t(locale, 'analysis.pair.position', { number: pair.position + 1 })}</h4>
+            <h4>
+              <DesignIcon name="classification" className={rowStyles.desktopIcon} />
+              {t(locale, 'analysis.pair.position', { number: pair.position + 1 })}
+            </h4>
             {pair.status === 'completed' && (
               <>
                 {pair.explanation && !pair.isExactDuplicate ? (

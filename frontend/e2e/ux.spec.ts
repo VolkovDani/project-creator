@@ -5,6 +5,30 @@ test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status === 'passed') await expectLayout(page);
 });
 
+test('section metadata follows navigation and the saved language', async ({ page }) => {
+  await fixture(page, 1);
+  await page.goto('/projects/demo/classification');
+  const description = page.locator('head meta[name="description"]');
+  await expect(page).toHaveTitle('Классификация — Project Creator');
+  await expect(description).toHaveAttribute('content', /классификацию/);
+  await page.getByLabel('Язык').selectOption('en');
+  await expect(page).toHaveTitle('Classification — Project Creator');
+  await expect(description).toHaveAttribute('content', /classifications/);
+  await page.getByRole('link', { name: 'Indexing', exact: true }).click();
+  await expect(page).toHaveTitle('Indexing — Project Creator');
+  await expect(description).toHaveAttribute('content', /indexing/);
+  await page.reload();
+  await expect(page).toHaveTitle('Indexing — Project Creator');
+  await expect(page.locator('head title')).toHaveCount(1);
+});
+
+test('favicon is served as an icon', async ({ request }) => {
+  const icon = await request.get('/favicon.ico');
+  expect(icon.status()).toBe(200);
+  expect(icon.headers()['content-type']).toMatch(/image\/(x-icon|vnd.microsoft.icon)/);
+  expect([...(await icon.body()).subarray(0, 4)]).toEqual([0, 0, 1, 0]);
+});
+
 test('dark theme follows the user across navigation, language changes and reloads', async ({
   page,
 }) => {

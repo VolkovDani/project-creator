@@ -6,6 +6,8 @@
   "validation.required": "Заполните поле",
   "validation.maxLength": "Максимальная длина: {max} символов",
   "validation.invalidEncoding": "Поле содержит некорректный текст",
+  "app.pageTitle": "{page} — Project Creator",
+  "app.metaDescription": "Работайте с проектами и бизнес-требованиями в Project Creator.",
   "app.title": "Проекты",
   "app.name": "Название",
   "app.goal": "Цель",

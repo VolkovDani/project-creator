@@ -479,6 +479,8 @@ Open `http://127.0.0.1:3000`. The Next.js server forwards GraphQL requests to
 This is a local single-user mode: do not expose the interface to the internet
 without separate authentication and access control.
 
+Browser tabs show the current section and the Project Creator name. Titles and page descriptions follow the selected interface language and use only interface strings.
+
 After changing the GraphQL schema and operations, run:
 
 The generator reads the local SDL and `operations/*.graphql` with GraphQL Code Generator Core and the two pinned TypeScript plugins. CI validates the operations and compares the generated file with Git.

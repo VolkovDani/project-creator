@@ -1,0 +1,72 @@
+:root {
+  color-scheme: dark;
+  --page: #1b1c1c;
+  --surface: #222324;
+  --surface-subtle: #292b2b;
+  --nav-surface: var(--surface-subtle);
+  --text: #f2f1ed;
+  --text-muted: #b2b3ae;
+  --border: #404242;
+  --control-border: #787b79;
+  --action: #efbd69;
+  --action-hover: #ffda96;
+  --on-action: #231b0e;
+  --action-tint: #3d3426;
+  --focus: #ffd68c;
+  --danger: #ffb4a2;
+  --danger-tint: #402b27;
+  --success: #9bdbb2;
+  --warning: #f3c776;
+  --skeleton: #373939;
+  --glossary-match: #493b26;
+  --backdrop: rgb(0 0 0 / 64%);
+  --shadow: 0 4px 16px rgb(0 0 0 / 22%);
+
+  --font-body: system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", monospace;
+  --text-small: 0.875rem;
+  --text-control: 0.9375rem;
+  --text-body: 1rem;
+  --text-heading: clamp(1.5rem, 1.35rem + 0.6vw, 2rem);
+  --text-title: clamp(1.875rem, 1.6rem + 1.1vw, 2.75rem);
+  --leading-body: 1.6;
+  --leading-heading: 1.22;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-control: 0.625rem;
+  --space-group: var(--space-4);
+  --line: 1px;
+  --radius-control: 0.375rem;
+  --radius-panel: 0.625rem;
+  --control-height: 2.75rem;
+  --reading-width: 72ch;
+  --workspace-width: 96rem;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page: #f8f7f4;
+  --surface: #ffffff;
+  --surface-subtle: #f1f0ec;
+  --text: #272722;
+  --text-muted: #575a54;
+  --border: #d8d9d1;
+  --control-border: #7f837a;
+  --action: #78501b;
+  --action-hover: #583806;
+  --on-action: #ffffff;
+  --action-tint: #fbefda;
+  --focus: #855100;
+  --danger: #9c2d23;
+  --danger-tint: #fff0e9;
+  --success: #25653f;
+  --warning: #77500c;
+  --skeleton: #dedfd8;
+  --glossary-match: #f8e4bb;
+  --backdrop: rgb(26 27 23 / 44%);
+  --shadow: 0 4px 16px rgb(34 35 28 / 10%);
+}

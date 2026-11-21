@@ -479,6 +479,10 @@ Open `http://127.0.0.1:3000`. The Next.js server forwards GraphQL requests to
 This is a local single-user mode: do not expose the interface to the internet
 without separate authentication and access control.
 
+The workspace opens in dark mode on the first visit and restores an explicitly selected theme on later visits. Both themes use the same semantic tokens from `frontend/app/tokens.css`. Text passages have a reading measure, while tables and analysis panels use the available workspace width.
+
+The project menu follows the working order Overview, Requirements, Search, Classification, Glossary and Analysis. Expand **Technical section** to check automatic indexing or retry a failed record. The existing indexing URL still opens directly. The menu can be collapsed on desktop and opened when needed on mobile.
+
 Browser tabs show the current section and the Project Creator name. Titles and page descriptions follow the selected interface language and use only interface strings.
 
 Next.js serves the multi-size browser icon from `frontend/app/favicon.ico`. The standalone image also ships the supplied PNG variants from `frontend/public/`, including the 180 px Apple touch icon.

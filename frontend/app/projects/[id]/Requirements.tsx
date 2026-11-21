@@ -187,7 +187,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
   return (
     <section className="ui-panel" aria-labelledby="requirements-heading">
       <h2 id="requirements-heading">{t(locale, 'requirements.title')}</h2>
-      <form onSubmit={save} noValidate>
+      <form id="requirement-entry" onSubmit={save} noValidate>
         <label>
           {t(locale, 'requirements.text')}
           <textarea
@@ -290,6 +290,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
       )}
       <RetryFailedSummaries projectId={projectId} locale={locale} />
       <Group
+        anchorId="requirements-list"
         id={`${projectId}:requirements`}
         title={t(locale, 'ui.requirementsGroup')}
         summary={t(locale, 'list.total', { total: infinite.totalCount })}

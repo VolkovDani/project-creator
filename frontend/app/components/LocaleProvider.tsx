@@ -31,7 +31,7 @@ export function useLocale() {
 }
 export function InterfacePreferences() {
   const { locale, setLocale } = useLocale();
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(true);
   useEffect(() => {
     setDark(document.documentElement.dataset.theme === 'dark');
   }, []);

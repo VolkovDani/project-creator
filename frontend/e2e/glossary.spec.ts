@@ -229,7 +229,7 @@ for (const theme of ['light', 'dark']) {
       };
     });
     await visitGlossary(page, [], candidates);
-    if (theme === 'dark') await page.getByRole('button', { name: 'Тёмная тема' }).click();
+    if (theme === 'light') await page.getByRole('button', { name: 'Тёмная тема' }).click();
     await expect(page.locator('html')).toHaveCSS('color-scheme', theme);
     for (const c of candidates) {
       const card = page

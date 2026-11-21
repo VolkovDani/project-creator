@@ -516,6 +516,7 @@ bun run e2e
 ### Controls, links and text
 
 - Use a native button for actions such as **Copy code** or **Save**. Give it a visible boundary or fill so the action is recognizable before hover.
+- Give enabled destructive buttons such as **Delete** a solid 1 px border in the theme’s danger color, visible at rest and on hover. Keep the keyboard focus outline separate from the border.
 - Use a link with an `href` for navigation. Underline links within text by default, including links in rendered Markdown. Keep the underline visible on touch screens.
 - A navigation group such as the project menu can use a consistent row or tab treatment in place of underlines. Make each destination recognizable before hover and mark the current page with a visible indicator and `aria-current="page"`.
 - Keep headings, labels and metadata such as a requirement version or indexing status visually distinct from controls. Reserve the button treatment and pointer cursor for interactive elements.

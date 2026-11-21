@@ -181,6 +181,9 @@ button[type="submit"]:enabled:hover,
 .destructive-action {
   color: var(--danger);
 }
+.destructive-action:enabled {
+  border-color: var(--danger);
+}
 .destructive-action:enabled:hover {
   color: var(--danger);
   background: var(--danger-tint);

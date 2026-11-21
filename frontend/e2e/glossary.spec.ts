@@ -280,25 +280,30 @@ for (const theme of ['light', 'dark']) {
       ).toBe(c.before + c.abbreviation + c.after);
     }
   });
-}
 
-test('glossary deletion and its confirmation share a destructive treatment', async ({ page }) => {
-  await visitGlossary(page, [], [], [term]);
-  const remove = page.getByRole('button', { name: 'Удалить', exact: true });
-  const mentions = page.getByRole('button', { name: 'Где упоминается' });
-  const neutralColor = await mentions.evaluate((el) => getComputedStyle(el).color);
-  await expect(remove).not.toHaveCSS('color', neutralColor);
-  await remove.click();
-  const confirm = page.getByRole('button', { name: 'Подтвердить удаление' });
-  await expect(confirm).toHaveCSS(
-    'color',
-    await remove.evaluate((el) => getComputedStyle(el).color),
-  );
-  const cancel = page.getByRole('button', { name: 'Отмена' });
-  await expect(cancel).toHaveCSS('color', neutralColor);
-  await cancel.click();
-  await expect(confirm).toHaveCount(0);
-});
+  test(`glossary deletion and its confirmation share a destructive treatment in the ${theme} theme`, async ({
+    page,
+  }) => {
+    await visitGlossary(page, [], [], [term]);
+    if (theme === 'light') await page.getByRole('button', { name: 'Тёмная тема' }).click();
+    await expect(page.locator('html')).toHaveCSS('color-scheme', theme);
+    const remove = page.getByRole('button', { name: 'Удалить', exact: true });
+    const mentions = page.getByRole('button', { name: 'Где упоминается' });
+    const neutralColor = await mentions.evaluate((el) => getComputedStyle(el).color);
+    const dangerColor = await remove.evaluate((el) => getComputedStyle(el).color);
+    expect(dangerColor).not.toBe(neutralColor);
+    const dangerBorder = `1px solid ${dangerColor}`;
+    await expect(remove).toHaveCSS('border', dangerBorder);
+    await remove.click();
+    const confirm = page.getByRole('button', { name: 'Подтвердить удаление' });
+    await expect(confirm).toHaveCSS('color', dangerColor);
+    await expect(confirm).toHaveCSS('border', dangerBorder);
+    const cancel = page.getByRole('button', { name: 'Отмена' });
+    await expect(cancel).toHaveCSS('color', neutralColor);
+    await cancel.click();
+    await expect(confirm).toHaveCount(0);
+  });
+}
 
 test('scrolling inside the mentions dialog loads the next cursor without moving the page', async ({
   page,

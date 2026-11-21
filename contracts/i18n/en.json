@@ -6,6 +6,8 @@
   "validation.required": "This field is required",
   "validation.maxLength": "Maximum length: {max} characters",
   "validation.invalidEncoding": "This field contains invalid text",
+  "app.pageTitle": "{page} — Project Creator",
+  "app.metaDescription": "Manage projects and business requirements in Project Creator.",
   "app.title": "Projects",
   "app.name": "Name",
   "app.goal": "Goal",

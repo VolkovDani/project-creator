@@ -7,12 +7,14 @@ import { t } from '../lib/i18n';
 import { useInfinite } from '../lib/useInfinite';
 import { LoadMore } from './components/ListControls';
 import { InterfacePreferences, useLocale } from './components/LocaleProvider';
+import PageMetadata from './components/PageMetadata';
 import ResourceState from './components/ResourceState';
 import { VirtualList } from './components/VirtualList';
 export default function Home() {
   const { locale } = useLocale();
   return (
     <main>
+      <PageMetadata titleKey="app.title" />
       <div className="top">
         <h1>{t(locale, 'app.title')}</h1>
         <InterfacePreferences />

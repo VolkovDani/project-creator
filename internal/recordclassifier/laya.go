@@ -1,4 +1,4 @@
-// Package recordclassifier adapts the evaluated single-record Laya questions to the review queue.
+// Package recordclassifier adapts the evaluated single-record decision questions to the review queue.
 package recordclassifier
 
 import (
@@ -26,6 +26,8 @@ import (
 const (
 	Model           = "laya:322m-multilingual-bf16"
 	Digest          = "c1242e4a83f0e1cb58f0f191a65bbc5d3306fae274d152b8229ec574999d465d"
+	d3Model         = "d3:4b"
+	d3Digest        = "2c571f91caf64c47b6ca6bd3adc1daa07dbb84ead8e9489758498cc7e11e533d"
 	questionVersion = "flat-ru-v1"
 	maxBodyBytes    = 64 * 1024
 )
@@ -39,13 +41,22 @@ type question struct {
 }
 
 type Adapter struct {
-	base      string
-	client    *http.Client
-	questions map[string]question
-	profile   string
+	model, digest string
+	base          string
+	client        *http.Client
+	questions     map[string]question
+	profile       string
 }
 
 func New(base string) (*Adapter, error) {
+	return newAdapter(base, Model, Digest)
+}
+
+func NewD3(base string) (*Adapter, error) {
+	return newAdapter(base, d3Model, d3Digest)
+}
+
+func newAdapter(base, model, digest string) (*Adapter, error) {
 	u, err := url.Parse(base)
 	if err != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Path != "" && u.Path != "/" {
 		return nil, errors.New("record classifier requires a local HTTP origin")
@@ -58,14 +69,14 @@ func New(base string) (*Adapter, error) {
 	if err := json.Unmarshal(flatQuestions, &questions); err != nil {
 		return nil, err
 	}
-	hash := sha256.Sum256(append([]byte(Model+":"+Digest+":taxonomy2:ollama0.40.16:review-only-v1:"), flatQuestions...))
-	return &Adapter{base: strings.TrimRight(base, "/"), questions: questions, profile: hex.EncodeToString(hash[:]),
+	hash := sha256.Sum256(append([]byte(model+":"+digest+":taxonomy2:ollama0.40.16:review-only-v1:"), flatQuestions...))
+	return &Adapter{model: model, digest: digest, base: strings.TrimRight(base, "/"), questions: questions, profile: hex.EncodeToString(hash[:]),
 		client: &http.Client{Timeout: 120 * time.Second, Transport: &http.Transport{}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
 func (a *Adapter) Profile() string         { return a.profile }
-func (a *Adapter) Model() string           { return Model }
-func (a *Adapter) Digest() string          { return Digest }
+func (a *Adapter) Model() string           { return a.model }
+func (a *Adapter) Digest() string          { return a.digest }
 func (a *Adapter) QuestionVersion() string { return questionVersion }
 
 type runtimeError int
@@ -112,11 +123,11 @@ func (a *Adapter) verifyPin(ctx context.Context) error {
 	}
 	matches := 0
 	for _, tag := range tags.Models {
-		if tag.Name != Model && tag.Model != Model {
+		if tag.Name != a.model && tag.Model != a.model {
 			continue
 		}
 		matches++
-		if tag.RemoteModel != "" || tag.RemoteHost != "" || strings.TrimPrefix(tag.Digest, "sha256:") != Digest {
+		if tag.RemoteModel != "" || tag.RemoteHost != "" || strings.TrimPrefix(tag.Digest, "sha256:") != a.digest {
 			return errors.New("record classifier model pin mismatch")
 		}
 	}
@@ -135,19 +146,35 @@ func (a *Adapter) verifyRuntime(ctx context.Context) error {
 		return err
 	}
 	var show struct {
-		Details struct{ Format, Runner string }
-		Info    struct {
-			Kind string `json:"modern-bert.decision.type"`
-			Head int    `json:"modern-bert.decision.max_head_tokens"`
+		Parameters string
+		Details    struct {
+			Format, Runner string
+			Quantization   string `json:"quantization_level"`
+		}
+		Info struct {
+			Kind   string `json:"modern-bert.decision.type"`
+			D3Kind string `json:"qwen35.decision.type"`
+			Head   int    `json:"modern-bert.decision.max_head_tokens"`
 		} `json:"model_info"`
 		Capabilities []string
 	}
-	payload, _ := json.Marshal(map[string]string{"model": Model})
+	payload, _ := json.Marshal(map[string]string{"model": a.model})
 	if err := a.request(ctx, "/api/show", payload, &show); err != nil {
 		return err
 	}
-	if version.Version != "0.40.16" || show.Details.Format != "gguf" || show.Details.Runner != "llamacpp" || show.Info.Kind != "laya" || show.Info.Head != 256 || !slices.Contains(show.Capabilities, "decision") {
+	if version.Version != "0.40.16" || show.Details.Format != "gguf" || show.Details.Runner != "llamacpp" || !slices.Contains(show.Capabilities, "decision") {
 		return errors.New("unsupported single-record classifier runtime")
+	}
+	if a.model == d3Model {
+		for _, line := range strings.Split(show.Parameters, "\n") {
+			if slices.Equal(strings.Fields(line), []string{"num_ctx", "4096"}) && show.Info.D3Kind == "vllm-d3" && show.Details.Quantization == "Q8_0" {
+				return nil
+			}
+		}
+		return errors.New("unsupported D3 classifier profile")
+	}
+	if show.Info.Kind != "laya" || show.Info.Head != 256 {
+		return errors.New("unsupported Laya classifier profile")
 	}
 	return nil
 }
@@ -164,7 +191,7 @@ func validScore(v *float64) bool {
 
 func (a *Adapter) axis(ctx context.Context, axis, source string) ([]classification.Alternative, string, error) {
 	q := a.questions[axis]
-	payload, err := json.Marshal(map[string]any{"model": Model, "state": source, "questions": map[string]json.RawMessage{"classification": q.Wire}, "keep_alive": "5m"})
+	payload, err := json.Marshal(map[string]any{"model": a.model, "state": source, "questions": map[string]json.RawMessage{"classification": q.Wire}, "keep_alive": "5m"})
 	if err != nil {
 		return nil, "", err
 	}
@@ -189,7 +216,7 @@ func (a *Adapter) axis(ctx context.Context, axis, source string) ([]classificati
 		return nil, "", err
 	}
 	ans := res.Answers["classification"]
-	if res.Model != Model || res.Usage.Input == nil || res.Usage.Output == nil || *res.Usage.Input < 0 || *res.Usage.Output < 0 || len(res.Answers) != 1 || ans.Type != "choice" || q.Labels[ans.Choice] == "" || !validScore(ans.Confidence) || len(ans.Probabilities) != len(q.Labels) {
+	if res.Model != a.model || res.Usage.Input == nil || res.Usage.Output == nil || *res.Usage.Input < 0 || *res.Usage.Output < 0 || len(res.Answers) != 1 || ans.Type != "choice" || q.Labels[ans.Choice] == "" || !validScore(ans.Confidence) || len(ans.Probabilities) != len(q.Labels) {
 		return nil, "", errors.New("invalid single-record choice")
 	}
 	var items []classification.Alternative
@@ -211,7 +238,10 @@ func (a *Adapter) axis(ctx context.Context, axis, source string) ([]classificati
 	if math.Abs(total-1) > 1e-6 {
 		return nil, "", errors.New("invalid single-record score distribution")
 	}
-	if *res.Usage.Input > 1024 {
+	if a.model == d3Model && *res.Usage.Input >= 4096 {
+		return nil, "input_limit", nil
+	}
+	if a.model == Model && *res.Usage.Input > 1024 {
 		return nil, "outside_training_context", nil
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -225,9 +255,25 @@ func (a *Adapter) axis(ctx context.Context, axis, source string) ([]classificati
 
 func (a *Adapter) Classify(ctx context.Context, source string) (classification.Prediction, error) {
 	result := classification.Prediction{Status: "needs_review", Semantic: "unknown", Representation: "unknown", Reason: "uncalibrated"}
-	if strings.Contains(source, "<bos>") || strings.Contains(source, "<eos>") || strings.Contains(source, "<mask>") {
-		result.Reason = "reserved_token"
-		return result, nil
+	reserved := []string{"<bos>", "<eos>", "<mask>"}
+	if a.model == d3Model {
+		reserved = []string{
+			"<|endoftext|>", "<|im_start|>", "<|im_end|>", "<|object_ref_start|>",
+			"<|object_ref_end|>", "<|box_start|>", "<|box_end|>", "<|quad_start|>",
+			"<|quad_end|>", "<|vision_start|>", "<|vision_end|>", "<|vision_pad|>",
+			"<|image_pad|>", "<|video_pad|>", "<tool_call>", "</tool_call>",
+			"<|fim_prefix|>", "<|fim_middle|>", "<|fim_suffix|>", "<|fim_pad|>",
+			"<|repo_name|>", "<|file_sep|>", "<tool_response>", "</tool_response>",
+			"<think>", "</think>", "<|audio_start|>", "<|audio_end|>",
+			"<tts_pad>", "<tts_text_bos>", "<tts_text_eod>", "<tts_text_bos_single>",
+			"<|audio_pad|>",
+		}
+	}
+	for _, token := range reserved {
+		if strings.Contains(source, token) {
+			result.Reason = "reserved_token"
+			return result, nil
+		}
 	}
 	if len(source) > maxBodyBytes {
 		result.Reason = "input_limit"

@@ -19,6 +19,15 @@
   Anthropic, and others) must connect through replaceable adapters and explicit
   configuration. Do not add automatic cloud data transmission when a local
   model fails.
+- Implement new local and external model connections, provider adapters, weight
+  management and hardware diagnostics in the separate [Models Configurator application](https://github.com/VolkovDani/models-configurator/tree/develop).
+  File its issues there and add them to the shared [GitHub Project](https://github.com/users/VolkovDani/projects/8).
+- Project Creator consumes the versioned inference API and owns source permissions,
+  prompts, output validation, provenance and indexes. Preserve direct compatible
+  API connections and existing local installations during the staged migration.
+  When changing their shared inference contract, run the Project Creator integration
+  test with a manager binary built from the revision being tested. Record both
+  revisions. See the [test command in ADR-012](docs/adr/012-standalone-model-manager.md).
 - Do not treat LLM output as a confirmed fact. Preserve sources and the
   provenance of proposals; do not present a model's self-assessment as a
   statistical probability.

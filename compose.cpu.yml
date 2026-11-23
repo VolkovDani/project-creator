@@ -1,0 +1,8 @@
+# Opt in to bundled Ollama for CPU inference.
+services:
+  ollama:
+    profiles: !reset []
+  backend:
+    depends_on:
+      ollama:
+        condition: service_healthy

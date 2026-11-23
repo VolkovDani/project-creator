@@ -4,6 +4,10 @@
 
 From the root of the cloned repository:
 
+On a fresh installation, `./project-creator setup` starts PostgreSQL, the backend and the frontend and checks the UI/API. It downloads no model weights. On an existing CLI installation, the same command reuses the saved device. Use `setup --device none --switch-device` to switch back to CRUD while preserving data and model pins.
+
+To prepare local models on a fresh installation, choose the device explicitly.
+
 ```bash
 ./project-creator setup --device cpu
 # or Intel Arc:
@@ -22,7 +26,7 @@ From the root of the cloned repository:
 For local inference, `setup` explicitly authorizes downloading local weights, containers, and required NPU dependencies. It prepares configuration, downloads and pins models, exports Qwen if needed, starts the runtime and Compose, and checks the UI/API, indexing, and real analysis of three synthetic pairs. On success it prints the application URL. You do not need to create `.env`, copy digests by hand, export weights manually, or start a second terminal.
 
 ```bash
-./project-creator up       # restart and run the full AI check
+./project-creator up       # restart and verify the configured roles
 ./project-creator doctor   # diagnose without downloading models
 ./project-creator down     # stop while preserving all volumes/weights
 ./project-creator --lang en doctor
@@ -33,6 +37,10 @@ For local inference, `setup` explicitly authorizes downloading local weights, co
 ## Remote generation and embeddings
 
 Use `--device remote` to run the application on a machine without Ollama, an NPU, or local model weights. Use Docker Compose 2.20.2 or later for the remote configuration, including NPU generation with remote embeddings. PostgreSQL runs in Compose. Configure the endpoints in the private repository-root `.env` before setup. On a fresh installation the CLI generates its own database password and application token.
+
+Set the URL and model ID for each role you want to use. Leave all variables for an unused role unset. Generation alone supports all-pairs comparisons and summaries. Embeddings alone support indexing and semantic search. Setup verifies only the selected roles using synthetic records.
+
+For a manager on a separate Docker network, set `PROJECT_CREATOR_MODELS_NETWORK=models-configurator-clients` (or the existing network name) in the same private `.env`. In remote mode the CLI then adds `compose.models-configurator.yml`, connecting the backend to that network. Use the manager address reachable from the backend and its immutable model ID for each role.
 
 **Self-hosted vLLM.** Substitute the addresses reachable from the backend container and the model IDs served by your deployments. The chat model must support Chat Completions with strict JSON Schema output. The embedding model in this example returns 1024 dimensions natively.
 
@@ -95,7 +103,7 @@ Before the first `setup`, run the command from the same repository directory, wi
 ./project-creator setup --device arc --project-name existing-project-name
 ```
 
-Project-name precedence: explicit argument → `COMPOSE_PROJECT_NAME` environment variable → value in `.env` → directory name. The name is written to `.env` and `.project-creator/state.json`; afterward the CLI rejects accidental changes. Using a different name creates a different Docker volume namespace, so do not guess the old installation's name. Arbitrary Compose override files from the `COMPOSE_FILE` environment variable are not inherited. The CLI uses only the standard `compose.yml` and the selected device override.
+Project-name precedence: explicit argument → `COMPOSE_PROJECT_NAME` environment variable → value in `.env` → directory name. The name is written to `.env` and `.project-creator/state.json`; afterward the CLI rejects accidental changes. Using a different name creates a different Docker volume namespace, so do not guess the old installation's name. Arbitrary Compose override files from the `COMPOSE_FILE` environment variable are not inherited. The CLI selects Compose files for the saved device and the explicitly configured model network.
 
 Existing secrets and settings are preserved; missing database passwords and tokens are generated independently (`secrets.token_hex(24)`). `.env` and state are written atomically with mode 600. Placeholder secrets are rejected rather than replaced automatically, so an existing database does not lose its password. The password must be URL-safe because the standard Compose setup interpolates it into a connection URL. A basic literal `.env` is supported; complex shell interpolation, multiline values, and duplicate keys must be simplified manually first. Secrets are not printed; do not publish `.env`, runtime logs, or install reports.
 

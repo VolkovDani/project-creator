@@ -34,25 +34,25 @@ MESSAGES = {
         'up': 'Start an installation already prepared by setup; no model downloads.',
         'down': 'Stop containers and the managed NPU runtime; preserve all data and weights.',
         'doctor': 'Check prerequisites and an existing installation; no downloads or changes.',
-        'device': 'Generator device or remote API mode (NPU uses CPU embeddings by default; --ollama-device can select Arc).',
+        'device': 'Select none (fresh-install default), a generator device or remote API mode (NPU uses CPU embeddings by default; --ollama-device can select Arc).',
         'ollama_device': 'Ollama device for embeddings; use with --device npu.',
         'project': 'Keep the existing Compose project name; only sets the name on first setup.',
         'switch': 'Explicitly change execution device; keep existing data and pinned weights.',
         'locale': 'Diagnostic language.',
         'step': '[{step}] {detail}',
         'error': '{code}: {detail}\nRun ./project-creator doctor for diagnostics. Details: docs/setup-cli.md',
-        'ready': 'Application: {url}\nFull synthetic AI verification passed. Diagnostics: ./project-creator doctor',
+        'ready': 'Application: {url}\nUI/API and configured model roles verified. Diagnostics: ./project-creator doctor',
         'stopped': 'Stopped. Database volumes, model weights and configuration are preserved.',
-        'remote_checks': 'Docker checks passed for remote inference.',
+        'remote_checks': 'Docker checks passed.',
         'checks': 'Prerequisites passed for {device}; RAM {ram:.1f} GiB, swap {swap:.1f} GiB, free disk {disk:.1f} GiB.',
-        'doctor_ok': 'Installation diagnostics passed. A fresh full AI check runs with ./project-creator up.',
+        'doctor_ok': 'Installation diagnostics passed. Check configured roles again with ./project-creator up.',
         'prerequisites': 'Native Linux x86_64, Docker Engine + Compose v2, device access and sufficient memory/disk are required.',
         'config': 'Private configuration and stable Compose project.',
         'models': 'Local model download/cache, immutable digests and licenses.',
         'npu': 'Pinned Python environments, source snapshot, INT4 export and manifest.',
         'runtime': 'Managed NPU runtime, socket and profile.',
         'start': 'Build/start containers without deleting volumes.',
-        'verify': 'UI/API, index and analysis with fixed synthetic sources and expected findings.',
+        'verify': 'Check configured model roles using synthetic records.',
         'fixture': 'Synthetic diagnostic project retained: {id}',
         'download': 'Model download is explicit; interrupted files are reused on retry.',
         'gpu_id': 'GPU UUID/index (numeric Ollama Vulkan index for Arc/AMD Vulkan); explicit change requires --switch-device.',
@@ -66,25 +66,25 @@ MESSAGES = {
         'up': 'Запустить подготовленную установку без скачивания моделей.',
         'down': 'Остановить контейнеры и управляемый NPU runtime, сохранить данные и веса.',
         'doctor': 'Проверить окружение и текущую установку без скачивания и изменений.',
-        'device': 'Устройство генератора или режим удалённых API (для NPU embeddings по умолчанию работают на CPU; --ollama-device может выбрать Arc).',
+        'device': 'Выберите none (новая установка), устройство генератора или режим удалённых API (для NPU embeddings по умолчанию работают на CPU; --ollama-device может выбрать Arc).',
         'ollama_device': 'Устройство Ollama для embeddings; используется вместе с --device npu.',
         'project': 'Сохранить имя существующего Compose-проекта; задаётся только при первой установке.',
         'switch': 'Явно изменить устройство, сохранить данные и закреплённые веса.',
         'locale': 'Язык диагностики.',
         'step': '[{step}] {detail}',
         'error': '{code}: {detail}\nДиагностика: ./project-creator doctor. Подробнее: docs/setup-cli.md',
-        'ready': 'Приложение: {url}\nПолная синтетическая AI-проверка пройдена. Диагностика: ./project-creator doctor',
+        'ready': 'Приложение: {url}\nИнтерфейс, API и настроенные роли моделей проверены. Диагностика: ./project-creator doctor',
         'stopped': 'Остановлено. Тома БД, веса моделей и конфигурация сохранены.',
-        'remote_checks': 'Docker проверен для режима удалённых API.',
+        'remote_checks': 'Проверка Docker пройдена.',
         'checks': 'Окружение для {device} проверено: RAM {ram:.1f} GiB, swap {swap:.1f} GiB, свободно {disk:.1f} GiB.',
-        'doctor_ok': 'Диагностика установки пройдена. Полная AI-проверка выполняется командой ./project-creator up.',
+        'doctor_ok': 'Диагностика установки пройдена. Повторная проверка настроенных ролей выполняется командой ./project-creator up.',
         'prerequisites': 'Нужны нативный Linux x86_64, Docker Engine + Compose v2, доступ к устройству, память и место на диске.',
         'config': 'Приватная конфигурация и постоянное имя Compose-проекта.',
         'models': 'Скачивание/кеш локальных моделей, закрепление digest и лицензий.',
         'npu': 'Закреплённые Python-окружения, snapshot исходников, экспорт INT4 и манифест.',
         'runtime': 'Управляемый NPU runtime, сокет и профиль.',
         'start': 'Сборка/запуск контейнеров с сохранением томов.',
-        'verify': 'UI/API, индексация и анализ с синтетическими источниками и ожидаемыми выводами.',
+        'verify': 'Проверка настроенных ролей моделей на синтетических записях.',
         'fixture': 'Сохранён синтетический проект диагностики: {id}',
         'download': 'Скачивание явно запрошено; после прерывания готовые файлы используются повторно.',
         'gpu_id': 'UUID/индекс GPU (для Arc/AMD Vulkan числовой индекс Ollama Vulkan); смена требует --switch-device.',
@@ -106,7 +106,7 @@ ERROR_MESSAGES = {
     'CONFIG_PORT': ('Некорректный APP_PORT. Задайте в .env число от 1024 до 65535.', 'Invalid APP_PORT. Set a number between 1024 and 65535 in .env.'),
     'CONFIG_PROJECT': ('Некорректное имя Compose-проекта. Используйте строчные латинские буквы, цифры, дефис или подчёркивание.', 'Invalid Compose project name. Use lowercase letters, digits, hyphens or underscores.'),
     'CONFIG_SECRET': ('Проверьте секреты в приватном .env: замените placeholders, используйте token от 32 символов и URL-safe пароль БД. Существующие значения сохранены.', 'Check secrets in private .env: replace placeholders, use a token of at least 32 characters and a URL-safe database password. Existing values are preserved.'),
-    'CONFIG_STATE': ('Состояние установки отсутствует или повреждено. Выполните setup с явным --device либо восстановите state.json.', 'Installation state is missing or invalid. Run setup with an explicit --device or restore state.json.'),
+    'CONFIG_STATE': ('Состояние установки отсутствует или повреждено. Выполните setup либо восстановите state.json.', 'Installation state is missing or invalid. Run setup or restore state.json.'),
     'DEVICE_ACCESS': ('Нет доступа к выбранному устройству. Проверьте драйвер, группу устройства и новый вход в систему по инструкции.', 'The selected device is inaccessible. Check the driver, device group and a new login using the device guide.'),
     'DEVICE_CHANGE': ('Для смены устройства повторите setup с --device и явным --switch-device.', 'To change devices, repeat setup with --device and explicit --switch-device.'),
     'DEVICE_DRIVER': ('Runtime не видит рабочее устройство. Проверьте kernel/userspace драйвер и firmware по инструкции устройства.', 'The runtime cannot find a working device. Check kernel/userspace drivers and firmware using the device guide.'),
@@ -239,15 +239,26 @@ class Config:
 
     def runtime(self, role, device=None):
         device = device or self.state.get('device')
+        if device == 'none':
+            return None
+        prefix = 'PROJECT_CREATOR_'+role+'_'
+        if device == 'remote' and not any(value for key, value in self.values.items() if key.startswith(prefix)):
+            return None
         default = 'openai-compatible' if device == 'remote' else 'ollama'
         if device == 'npu' and role == 'GENERATOR':
             default = 'openvino-npu'
         return self.values.get('PROJECT_CREATOR_'+role+'_RUNTIME') or default
 
     def validate_providers(self, device):
+        if device == 'none':
+            return
+        if device == 'remote' and not any(self.runtime(role, device) for role in ('GENERATOR', 'EMBEDDING')):
+            raise Failure('CONFIG_PROVIDER', 'Configure at least one API role in .env for remote mode.')
         for role in ('GENERATOR', 'EMBEDDING'):
             prefix = 'PROJECT_CREATOR_'+role
             runtime = self.runtime(role, device)
+            if runtime is None:
+                continue
             if device == 'remote':
                 allowed = ('openai-compatible',)
             elif device == 'npu' and role == 'GENERATOR':
@@ -274,7 +285,7 @@ class Config:
         if device not in gpu.DEVICES:
             raise Failure('CONFIG_STATE', 'Unknown device; use setup --help.')
         ollama_device = ollama_device or (self.state.get('ollama_device') if device == 'npu' else device) or ('cpu' if device == 'npu' else device)
-        if ollama_device not in ('cpu', 'remote', *gpu.GPU_DEVICES) or (device != 'npu' and ollama_device != device):
+        if ollama_device not in ('none', 'cpu', 'remote', *gpu.GPU_DEVICES) or (device != 'npu' and ollama_device != device):
             raise Failure('CONFIG_STATE', 'Ollama device must match the generator device except for NPU installations.')
         if gpu_id is not None:
             allowed = r'[0-9]+' if ollama_device in gpu.VULKAN_DEVICES else r'(?:[0-9]+|GPU-[a-fA-F0-9-]+)'
@@ -427,7 +438,7 @@ class Installer:
 
     def compose(self, *args, capture=False, timeout=240, code='COMPOSE'):
         if not self.config.state.get('project'):
-            raise Failure('CONFIG_STATE', 'Run setup with an explicit --device first.')
+            raise Failure('CONFIG_STATE', 'Run setup first.')
         command = ['docker', 'compose', '--project-directory', str(self.root), '--env-file', str(self.root / '.env'),
                    '--project-name', self.config.state['project'], '-f', str(self.root / 'compose.yml')]
         device = self.config.state.get('device')
@@ -436,13 +447,25 @@ class Installer:
         ollama_device = self.config.state.get('ollama_device', 'cpu') if device == 'npu' else device
         if device == 'npu' and ollama_device not in ('cpu', 'arc'):
             raise Failure('CONFIG_STATE', 'Unknown saved Ollama device; restore state or explicitly switch devices.')
-        if not self.config.uses_ollama(device):
-            command += ['-f', str(self.root / 'compose.remote.yml')]
-        elif ollama_device in gpu.OVERRIDES:
+        uses_ollama = self.config.uses_ollama(device)
+        if uses_ollama and (device == 'cpu' or ollama_device in gpu.GPU_DEVICES):
             command += ['-f', str(self.root / gpu.OVERRIDES[ollama_device])]
         if device == 'npu':
             command += ['-f', str(self.root / gpu.OVERRIDES['npu'])]
         environment = self.environment()
+        environment['COMPOSE_PROFILES'] = ''
+        if device == 'remote' or (device == 'npu' and not uses_ollama):
+            command += ['-f', str(self.root / 'compose.remote.yml')]
+            if device == 'npu':
+                environment['PROJECT_CREATOR_GENERATOR_RUNTIME'] = 'openvino-npu'
+        if device == 'remote' and self.config.values.get('PROJECT_CREATOR_MODELS_NETWORK'):
+            command += ['-f', str(self.root / 'compose.models-configurator.yml')]
+        if device == 'none':
+            # Keep pins in .env available for a future explicit switch back to local inference.
+            for key in self.config.values:
+                if key.startswith(('PROJECT_CREATOR_GENERATOR_', 'PROJECT_CREATOR_EMBEDDING_',
+                                   'PROJECT_CREATOR_SUMMARY_', 'PROJECT_CREATOR_RECORD_CLASSIFIER')):
+                    environment[key] = ''
         # Saved selections are authoritative even if .env or the shell drifted.
         selected = self.gpu_id(ollama_device)
         if ollama_device in ('nvidia', 'amd'):
@@ -498,7 +521,8 @@ class Installer:
             raise Failure('PLATFORM', MESSAGES[self.lang]['prerequisites'])
         version = self.runner.run(['docker', 'compose', 'version', '--short'], capture=True, code='DOCKER')
         match = re.match(r'v?(\d+)\.(\d+)(?:\.(\d+))?', version.strip())
-        minimum = (2, 20, 0) if self.config.uses_ollama(device) else (2, 20, 2)
+        remote_overlay = device == 'remote' or (device == 'npu' and not self.config.uses_ollama(device))
+        minimum = (2, 20, 2) if remote_overlay else (2, 20, 0)
         if not match or tuple(int(part or 0) for part in match.groups()) < minimum:
             required = '.'.join(map(str, minimum))
             raise Failure('DOCKER', f'Install Docker Compose v{required} or newer for this configuration.')
@@ -508,7 +532,7 @@ class Installer:
             raise Failure('DOCKER', 'Invalid Docker Engine diagnostics.') from None
         if info.get('OSType') != 'linux' or 'desktop' in info.get('OperatingSystem', '').lower():
             raise Failure('PLATFORM', 'Use native Linux Docker Engine; Docker Desktop is outside the supported matrix.')
-        if device == 'remote':
+        if device in ('none', 'remote'):
             self.say('remote_checks')
             return
         if device == 'nvidia' and 'nvidia' not in info.get('Runtimes', {}):
@@ -876,7 +900,7 @@ class Installer:
 
     def check_execution(self, role):
         device = self.config.state['device']
-        if self.config.runtime(role) == 'openai-compatible':
+        if self.config.runtime(role) in (None, 'openai-compatible'):
             return
         if device == 'npu' and role == 'GENERATOR':
             expected = self.config.values.get('PROJECT_CREATOR_NPU_PROFILE')
@@ -949,6 +973,8 @@ class Installer:
                 requirements.append(result['requirement'])
         if len(requirements) != 2 or len({item['text'] for item in requirements}) != 2:
             raise Failure('FIXTURE_CHANGED', 'Duplicate diagnostic requirements; inspect the diagnostic project.')
+        if self.config.runtime('EMBEDDING') is None:
+            return project, requirements
         for item in requirements:
             result = self.graphql('mutation($p:ID!,$r:ID!){indexRequirement(projectId:$p,requirementId:$r){status version errorCode}}', {'p': project, 'r': item['id']})['indexRequirement']
             if result['status'] != 'ready' or result['version'] != item['version']:
@@ -987,7 +1013,16 @@ class Installer:
 
     def verify(self):
         self.config.state['verified'] = False
+        self.config.state['verification'] = {}
         self.config.save()
+        if self.config.runtime('GENERATOR'):
+            self.verify_generation()
+        elif self.config.runtime('EMBEDDING'):
+            self.fixture(*CASES[0])
+        self.config.state['verified'] = True
+        self.config.save()
+
+    def verify_generation(self):
         for name, texts in CASES:
             project, expected = self.fixture(name, texts)
             result = self.graphql('mutation($p:ID!){startProjectAnalysis(projectId:$p,mode:"all"){'+ANALYSIS_FIELDS+'}}', {'p': project})['startProjectAnalysis']
@@ -996,13 +1031,11 @@ class Installer:
             self.check_execution('GENERATOR')
             self.config.state.setdefault('verification', {})[name] = {'project': project, 'checkedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'device': self.config.state['device']}
             self.config.save()
-        self.config.state['verified'] = True
-        self.config.save()
 
     def up(self):
         device = self.config.state.get('device')
         if not device:
-            raise Failure('CONFIG_STATE', 'Run setup with an explicit --device first.')
+            raise Failure('CONFIG_STATE', 'Run setup first.')
         self.config.state['verified'] = False
         self.config.state.pop('execution', None)
         self.config.save()
@@ -1030,7 +1063,8 @@ class Installer:
             raise Failure('UI', 'Frontend is unavailable; inspect docker compose logs.') from None
         self.graphql('{projects(limit:1,offset:0){id}}')
 
-    def setup(self, device, project=None, switch=False, gpu_id=None, ollama_device=None):
+    def setup(self, device=None, project=None, switch=False, gpu_id=None, ollama_device=None):
+        device = device or self.config.state.get('device') or 'none'
         ollama_device = ollama_device or (self.config.state.get('ollama_device') if device == 'npu' else device) or ('cpu' if device == 'npu' else device)
         if device != 'npu' and ollama_device != device:
             raise Failure('CONFIG_STATE', '--ollama-device is only available with --device npu.')
@@ -1079,7 +1113,7 @@ class Installer:
     def doctor(self, device=None):
         if device and self.config.state.get('device') and device != self.config.state['device']:
             raise Failure('DEVICE_CHANGE', 'Doctor cannot reinterpret a saved installation as another device; switch with setup.')
-        device = device or self.config.state.get('device') or 'cpu'
+        device = device or self.config.state.get('device') or 'none'
         self.prerequisites(device)
         ollama_device = self.config.state.get('ollama_device', 'cpu') if device == 'npu' else device
         if device == 'npu' and ollama_device != 'cpu' and self.config.uses_ollama(device):
@@ -1089,7 +1123,7 @@ class Installer:
             self.compose('config', '--quiet', capture=True)
             self.check_ui()
             for role in ('EMBEDDING', 'GENERATOR'):
-                if self.config.runtime(role) == 'openai-compatible':
+                if self.config.runtime(role) in (None, 'openai-compatible'):
                     continue
                 if device == 'npu' and role == 'GENERATOR':
                     self.check_execution(role)
@@ -1130,7 +1164,7 @@ def main(root=None, argv=None):
     for name in ('setup', 'up', 'down', 'doctor'):
         command = sub.add_parser(name, help=messages[name])
         if name in ('setup', 'doctor'):
-            command.add_argument('--device', choices=gpu.DEVICES, required=name == 'setup', help=messages['device'])
+            command.add_argument('--device', choices=gpu.DEVICES, help=messages['device'])
         if name == 'setup':
             command.add_argument('--project-name', help=messages['project'])
             command.add_argument('--switch-device', action='store_true', help=messages['switch'])

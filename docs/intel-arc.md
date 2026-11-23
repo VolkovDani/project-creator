@@ -118,9 +118,9 @@ API и выбор ID подтверждают только конфигурац�
 Для возврата к обычному стеку без удаления данных:
 
 ```bash
-unset COMPOSE_FILE
-docker compose -f compose.yml up -d --force-recreate ollama
-docker compose -f compose.yml up -d --wait
+export COMPOSE_FILE=compose.yml:compose.cpu.yml
+docker compose up -d --force-recreate ollama
+docker compose up -d --wait
 ```
 
 Сохраняйте каталог/имя Compose-проекта и `.env`; не используйте `down --volumes`.

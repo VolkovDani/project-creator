@@ -49,7 +49,7 @@ token, and initially leave model settings disabled. Prepare the runtime and weig
 ```bash
 (
   set -e
-  export COMPOSE_FILE=compose.yml
+  export COMPOSE_FILE=compose.yml:compose.cpu.yml
   export COMPOSE_PROJECT_NAME=project-creator-real-smoke
   export COMPOSE_ENV_FILE=.env.real-smoke
   docker compose --env-file "$COMPOSE_ENV_FILE" up -d --wait postgres ollama
@@ -65,7 +65,7 @@ then explicitly check the real model:
 ```bash
 (
   set -e
-  export COMPOSE_FILE=compose.yml
+  export COMPOSE_FILE=compose.yml:compose.cpu.yml
   export COMPOSE_PROJECT_NAME=project-creator-real-smoke
   export COMPOSE_ENV_FILE=.env.real-smoke
   export REAL_MODEL_SMOKE=1
@@ -78,7 +78,7 @@ then explicitly check the real model:
 After the check, this command removes only this test project's data and weights:
 
 ```bash
-docker compose --env-file .env.real-smoke -p project-creator-real-smoke -f compose.yml down --volumes
+docker compose --env-file .env.real-smoke -p project-creator-real-smoke -f compose.yml -f compose.cpu.yml down --volumes
 ```
 
 This run does not assess statistical LLM quality and may fail on a slow CPU; it

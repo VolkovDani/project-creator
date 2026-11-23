@@ -1,6 +1,7 @@
 # Optional NVIDIA acceleration; requires NVIDIA Container Toolkit on the host.
 services:
   ollama:
+    profiles: !reset []
     deploy:
       resources:
         reservations:
@@ -10,4 +11,7 @@ services:
               capabilities: [gpu]
     environment:
       OLLAMA_VULKAN: '0'
-
+  backend:
+    depends_on:
+      ollama:
+        condition: service_healthy

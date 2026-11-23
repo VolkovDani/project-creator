@@ -1,0 +1,95 @@
+[
+  {
+    "name": "missing",
+    "errors": [
+      {
+        "path": [
+          "input",
+          "changeReason"
+        ],
+        "code": "REQUIRED",
+        "messageKey": "validation.required",
+        "params": {}
+      }
+    ]
+  },
+  {
+    "name": "null",
+    "input": null,
+    "errors": [
+      {
+        "path": [
+          "input",
+          "changeReason"
+        ],
+        "code": "REQUIRED",
+        "messageKey": "validation.required",
+        "params": {}
+      }
+    ]
+  },
+  {
+    "name": "empty",
+    "input": "",
+    "errors": [
+      {
+        "path": [
+          "input",
+          "changeReason"
+        ],
+        "code": "REQUIRED",
+        "messageKey": "validation.required",
+        "params": {}
+      }
+    ]
+  },
+  {
+    "name": "unicode whitespace",
+    "input": " 　 \t\r\n",
+    "errors": [
+      {
+        "path": [
+          "input",
+          "changeReason"
+        ],
+        "code": "REQUIRED",
+        "messageKey": "validation.required",
+        "params": {}
+      }
+    ]
+  },
+  {
+    "name": "verbatim",
+    "input": "  Требуется согласование.\nSecond line.  ",
+    "errors": []
+  },
+  {
+    "name": "non-whitespace format character",
+    "input": "﻿",
+    "errors": []
+  },
+  {
+    "name": "astral limit",
+    "input": "🚀",
+    "repeat": 10000,
+    "errors": []
+  },
+  {
+    "name": "astral overflow",
+    "input": "🚀",
+    "repeat": 10001,
+    "errors": [
+      {
+        "path": [
+          "input",
+          "changeReason"
+        ],
+        "code": "MAX_LENGTH",
+        "messageKey": "validation.maxLength",
+        "params": {
+          "max": 10000
+        }
+      }
+    ]
+  }
+]

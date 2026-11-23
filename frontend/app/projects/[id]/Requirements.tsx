@@ -11,7 +11,7 @@ import {
 } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
 import { useInvalidation } from '../../../lib/live';
-import { validateRequirement } from '../../../lib/requirementValidation';
+import { validateChangeReason, validateRequirement } from '../../../lib/requirementValidation';
 import { useInfinite } from '../../../lib/useInfinite';
 import { DesignIcon } from '../../components/DesignIcon';
 import Group from '../../components/Group';
@@ -20,6 +20,7 @@ import rowStyles from '../../components/RecordIcons.module.css';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
 import ClassificationCard from './classification/ClassificationCard';
+import RequirementRevisionHistory from './RequirementRevisionHistory';
 import RequirementSummary, { useRequirementSummaries } from './RequirementSummary';
 import RetryFailedSummaries from './RetryFailedSummaries';
 
@@ -27,11 +28,14 @@ export default function Requirements({ projectId, locale }: { projectId: string;
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState('');
   const [editText, setEditText] = useState('');
+  const [changeReason, setChangeReason] = useState('');
   const [editing, setEditing] = useState<{ id: string; version: number } | null>(null);
   const editTrigger = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [validation, setValidation] = useState<{
     key: string;
+    field?: string;
+    code: string;
     params: Record<string, number>;
   } | null>(null);
   const [sourceTarget, setSourceTarget] = useState<string>();
@@ -41,6 +45,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     operation.current++;
     setText('');
     setEditText('');
+    setChangeReason('');
     setEditing(null);
     setValidation(null);
     setFailure(false);
@@ -126,9 +131,19 @@ export default function Requirements({ projectId, locale }: { projectId: string;
   async function save(event: React.FormEvent) {
     event.preventDefault();
     const submittedText = editing ? editText : text;
-    const checked = validateRequirement(contract, submittedText),
-      first = checked.errors[0];
-    setValidation(first ? { key: first.messageKey, params: first.params } : null);
+    const checked = validateRequirement(contract, submittedText);
+    const first =
+      checked.errors[0] ?? (editing ? validateChangeReason(contract, changeReason)[0] : undefined);
+    setValidation(
+      first
+        ? {
+            field: first.path.at(-1),
+            code: first.code,
+            key: first.messageKey,
+            params: first.params,
+          }
+        : null,
+    );
     if (first) return;
     const epoch = ++operation.current;
     setBusy(true);
@@ -141,6 +156,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
               version: editing.version,
               projectId,
               text: checked.normalized,
+              changeReason,
             },
           })
         : await query(AddRequirementDocument, { input: { projectId, text: checked.normalized } });
@@ -149,6 +165,8 @@ export default function Requirements({ projectId, locale }: { projectId: string;
       if (result.fieldErrors.length) {
         const first = result.fieldErrors[0];
         setValidation({
+          field: first.path.at(-1),
+          code: first.code,
           key: first.messageKey,
           params: Object.fromEntries(first.params.map((p) => [p.key, p.value])),
         });
@@ -159,6 +177,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
       if (editing) {
         setEditing(null);
         setEditText('');
+        setChangeReason('');
       } else setText('');
       await infinite.refresh();
     } catch {
@@ -175,7 +194,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
       const result = await query(RemoveRequirementDocument, { id, projectId, version });
       if (!current(epoch)) return;
       if (!result.deleteRequirement.deleted) {
-        setValidation({ key: 'validation.conflict', params: {} });
+        setValidation({ code: 'CONFLICT', key: 'validation.conflict', params: {} });
         await infinite.refresh();
         return;
       }
@@ -196,10 +215,10 @@ export default function Requirements({ projectId, locale }: { projectId: string;
             disabled={busy || !!editing}
             value={text}
             onChange={(event) => setText(event.target.value)}
-            aria-invalid={!!validation}
+            aria-invalid={!editing && validation?.field === 'text'}
           />
         </label>
-        {validation && (
+        {!editing && validation && (
           <p role="alert" className="error">
             {t(locale, validation.key, validation.params)}
           </p>
@@ -217,6 +236,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
             else {
               setEditing(null);
               setEditText('');
+              setChangeReason('');
               setValidation(null);
             }
           }}
@@ -229,11 +249,27 @@ export default function Requirements({ projectId, locale }: { projectId: string;
                 disabled={busy}
                 value={editText}
                 onChange={(event) => setEditText(event.target.value)}
-                aria-invalid={!!validation}
+                aria-invalid={validation?.field === 'text'}
+                aria-describedby={
+                  validation?.field === 'text' ? 'requirement-edit-error' : undefined
+                }
+              />
+            </label>
+            <label>
+              {t(locale, 'requirements.changeReason')}
+              <textarea
+                required
+                disabled={busy}
+                value={changeReason}
+                onChange={(event) => setChangeReason(event.target.value)}
+                aria-invalid={validation?.field === 'changeReason'}
+                aria-describedby={
+                  validation?.field === 'changeReason' ? 'requirement-edit-error' : undefined
+                }
               />
             </label>
             {validation && (
-              <p role="alert" className="error">
+              <p id="requirement-edit-error" role="alert" className="error">
                 {t(locale, validation.key, validation.params)}
               </p>
             )}
@@ -245,28 +281,28 @@ export default function Requirements({ projectId, locale }: { projectId: string;
             <button type="submit" disabled={busy}>
               {t(locale, 'requirements.save')}
             </button>
-            {validation?.key === 'validation.conflict' &&
-              rows.find((row) => row.id === editing.id) && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    const latestRow = rows.find((row) => row.id === editing.id);
-                    if (latestRow) {
-                      setEditing({ id: latestRow.id, version: latestRow.version });
-                      setValidation(null);
-                    }
-                  }}
-                >
-                  {t(locale, 'requirements.useLatest')}
-                </button>
-              )}
+            {validation?.code === 'CONFLICT' && rows.find((row) => row.id === editing.id) && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  const latestRow = rows.find((row) => row.id === editing.id);
+                  if (latestRow) {
+                    setEditing({ id: latestRow.id, version: latestRow.version });
+                    setValidation(null);
+                  }
+                }}
+              >
+                {t(locale, 'requirements.useLatest')}
+              </button>
+            )}
             <button
               type="button"
               disabled={busy}
               onClick={() => {
                 setEditing(null);
                 setEditText('');
+                setChangeReason('');
                 setValidation(null);
               }}
             >
@@ -345,6 +381,19 @@ export default function Requirements({ projectId, locale }: { projectId: string;
                   locale={locale}
                 />
               </Group>
+              <Group
+                id={`${projectId}:requirement:${row.id}:revisions`}
+                title={t(locale, 'requirements.history')}
+                defaultOpen={false}
+                lazy
+              >
+                <RequirementRevisionHistory
+                  projectId={projectId}
+                  requirementId={row.id}
+                  version={row.version}
+                  locale={locale}
+                />
+              </Group>
               <p className="muted">{t(locale, 'requirements.version', { version: row.version })}</p>
               <button
                 type="button"
@@ -353,6 +402,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
                   editTrigger.current = event.currentTarget;
                   setEditing({ id: row.id, version: row.version });
                   setEditText(row.text);
+                  setChangeReason('');
                   setValidation(null);
                   setFailure(false);
                 }}

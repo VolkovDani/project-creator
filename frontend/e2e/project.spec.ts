@@ -23,8 +23,14 @@ test('create a project and open it after reload', async ({ page }) => {
   await other.goto(page.url());
   await other.getByRole('button', { name: 'Изменить' }).click();
   await other.getByRole('dialog').getByLabel('Текст требования').fill('Мой черновик');
+  await other.getByLabel('Причина изменения').fill('Учесть решение заказчика');
   await page.getByRole('button', { name: 'Изменить' }).click();
   await page.getByRole('dialog').getByLabel('Текст требования').fill('Требование два');
+  const reason = page.getByRole('dialog').getByLabel('Причина изменения');
+  await reason.fill('   ');
+  await page.getByRole('dialog').getByRole('button', { name: 'Сохранить' }).click();
+  await expect(reason).toHaveAttribute('aria-invalid', 'true');
+  await reason.fill('Уточнить сроки');
   await page.getByRole('dialog').getByRole('button', { name: 'Сохранить' }).click();
   await expect(page.getByText('Версия 2')).toBeVisible();
   await other.getByRole('dialog').getByRole('button', { name: 'Сохранить' }).click();
@@ -34,6 +40,7 @@ test('create a project and open it after reload', async ({ page }) => {
   await expect(other.getByRole('dialog').getByLabel('Текст требования')).toHaveValue(
     'Мой черновик',
   );
+  await expect(other.getByLabel('Причина изменения')).toHaveValue('Учесть решение заказчика');
   await other
     .getByRole('dialog')
     .getByRole('button', { name: 'Сохранить черновик поверх актуальной версии' })
@@ -42,6 +49,16 @@ test('create a project and open it after reload', async ({ page }) => {
   await expect(other.getByText('Версия 3')).toBeVisible();
   await page.reload();
   await expect(page.getByText('Мой черновик', { exact: true })).toBeVisible();
+  const history = page.getByRole('group', { name: 'История текста требования' });
+  await history.locator('summary').click();
+  const versions = history.getByRole('listitem');
+  await expect(versions).toHaveCount(3);
+  await expect(versions.nth(0)).toContainText('Версия 2 → 3');
+  await expect(versions.nth(0)).toContainText('Требование два');
+  await expect(versions.nth(0)).toContainText('Мой черновик');
+  await expect(versions.nth(0)).toContainText('Учесть решение заказчика');
+  await expect(versions.nth(1)).toContainText('Уточнить сроки');
+  await expect(versions.nth(2)).toContainText('Требование один');
   await page.getByRole('button', { name: 'Удалить' }).click();
   await expect(page.getByText('Требований пока нет')).toBeVisible();
   await other.close();
@@ -124,6 +141,7 @@ test('create stays locked until its response completes', async ({ page }) => {
 test('two tabs receive project and requirement invalidations without reload', async ({ page }) => {
   const watcher = await page.context().newPage();
   await page.goto('/');
+  await watcher.addInitScript(() => localStorage.setItem('project-creator-locale', 'en'));
   await watcher.goto('/');
   const name = `Live ${Date.now()}`;
   await page.getByRole('link', { name: 'Создать проект', exact: true }).click();
@@ -133,20 +151,25 @@ test('two tabs receive project and requirement invalidations without reload', as
   await expect(watcher.getByRole('link', { name })).toBeVisible({ timeout: 15000 });
   await watcher.getByRole('link', { name }).click();
   await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
-  await watcher.getByRole('link', { name: 'Требования', exact: true }).first().click();
+  await watcher.getByRole('link', { name: 'Requirements', exact: true }).first().click();
   await page.getByLabel('Текст требования').fill('Live requirement');
   await page.getByRole('button', { name: 'Добавить требование' }).click();
   await expect(watcher.getByText('Live requirement', { exact: true })).toBeVisible({
     timeout: 15000,
   });
   await page.getByRole('button', { name: 'Изменить' }).click();
+  const history = watcher.getByRole('group', { name: 'Requirement text history' });
+  await history.locator('summary').click();
+  await expect(history.getByRole('listitem')).toHaveCount(1);
   await page.getByRole('dialog').getByLabel('Текст требования').fill('Changed in another tab');
+  await page.getByRole('dialog').getByLabel('Причина изменения').fill('Clarify the deadline');
   await page.getByRole('dialog').getByRole('button', { name: 'Сохранить', exact: true }).click();
-  await expect(watcher.getByText('Changed in another tab', { exact: true })).toBeVisible({
-    timeout: 15000,
-  });
+  const revision = history.getByRole('listitem').first();
+  await expect(revision).toContainText('Version 1 → 2', { timeout: 15000 });
+  await expect(revision).toContainText('Changed in another tab');
+  await expect(revision).toContainText('Clarify the deadline');
   await page.getByRole('button', { name: 'Удалить' }).click();
-  await expect(watcher.getByText('Требований пока нет')).toBeVisible({ timeout: 15000 });
+  await expect(watcher.getByText('No requirements yet')).toBeVisible({ timeout: 15000 });
   await watcher.close();
 });
 

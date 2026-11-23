@@ -3,6 +3,7 @@
   "lengthUnit": "unicode-code-points",
   "trim": "ascii-space-tab-lf-cr",
   "fields": {
-    "text": {"required": true, "maxLength": 10000}
+    "text": {"required": true, "maxLength": 10000},
+    "changeReason": {"required": true, "maxLength": 10000, "blank": "unicode-white-space"}
   }
 }

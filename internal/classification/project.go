@@ -131,7 +131,7 @@ func stageBatch(ctx context.Context, tx *sql.Tx, w, p, profile string, failedOnl
 	var res sql.Result
 	var err error
 	if failedOnly {
-		res, err = tx.ExecContext(ctx, `WITH batch AS (SELECT j.requirement_id,j.version FROM classification_jobs j JOIN requirements r ON j.requirement_id=r.id AND j.version=r.version
+		res, err = tx.ExecContext(ctx, `WITH batch AS (SELECT j.requirement_id,j.version FROM classification_jobs j JOIN active_requirements r ON j.requirement_id=r.id AND j.version=r.version
 		WHERE j.workspace=$1 AND j.project_id=$2 AND j.profile=$3 AND j.status='failed' AND j.available_at<=$4
 		ORDER BY j.requirement_id LIMIT $5)
 		UPDATE classification_jobs j SET status='queued',attempts=0,attempt='',error_code='',available_at=clock_timestamp() FROM batch
@@ -197,7 +197,7 @@ func (s *Service) Backfill(ctx context.Context, w, p string) (int32, error) {
 func (s *Service) Retry(ctx context.Context, w, p, id string, version int32, reanalyze bool) (bool, error) {
 	n, e := s.editQueue(ctx, w, p, func(tx *sql.Tx, profile string) (int32, error) {
 		var current int32
-		if e := tx.QueryRowContext(ctx, `SELECT version FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 FOR UPDATE`, w, p, id).Scan(&current); e != nil {
+		if e := tx.QueryRowContext(ctx, `SELECT version FROM active_requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 FOR UPDATE`, w, p, id).Scan(&current); e != nil {
 			if errors.Is(e, sql.ErrNoRows) {
 				return 0, ErrUnavailable
 			}

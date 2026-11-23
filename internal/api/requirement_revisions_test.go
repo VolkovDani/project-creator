@@ -118,7 +118,7 @@ func TestRequirementRevisionHistory(t *testing.T) {
 		return count
 	}
 	before := eventCount()
-	if _, err = s.db.Exec("ALTER TABLE requirement_text_revisions ADD CHECK (version < 4)"); err != nil {
+	if _, err = s.db.Exec("ALTER TABLE requirement_text_revisions ADD CONSTRAINT reject_version_four CHECK (version < 4)"); err != nil {
 		t.Fatal(err)
 	}
 	response := summaryRequest(t, s, "token-a", fmt.Sprintf(`mutation{updateRequirement(input:{id:%q,projectId:"p",version:3,text:"Rolled back",changeReason:"test"}){requirement{version}}}`, id))
@@ -132,9 +132,26 @@ func TestRequirementRevisionHistory(t *testing.T) {
 	if len(history("token-a", "p", 10, "")) != 3 || eventCount() != before {
 		t.Fatal("rollback changed history")
 	}
-	deleted := field(t, "token-a", fmt.Sprintf(`mutation{deleteRequirement(projectId:"p", id:%q, version:3){deleted}}`, id), "deleteRequirement").(map[string]any)
-	if deleted["deleted"] != true || len(history("token-a", "p", 10, "")) != 0 {
-		t.Fatal(deleted)
+	original := history("token-a", "p", 10, "")
+	archive := fmt.Sprintf(`mutation{archiveRequirement(projectId:"p",id:%q,version:3)}`, id)
+	if field(t, "token-a", archive, "archiveRequirement") != true {
+		t.Fatal("archive failed")
+	}
+	if _, err := s.db.Exec("ALTER TABLE requirement_text_revisions DROP CONSTRAINT reject_version_four"); err != nil {
+		t.Fatal(err)
+	}
+	rejected := save(t, "token-a", "p", 3, "Archived edit", `changeReason:"test"`)
+	if errs := rejected["fieldErrors"].([]any); rejected["requirement"] != nil || len(errs) != 1 || errs[0].(map[string]any)["code"] != "CONFLICT" {
+		t.Fatalf("archived edit: %v", rejected)
+	}
+	if !reflect.DeepEqual(history("token-a", "p", 10, ""), original) || len(history("token-b", "p", 10, "")) != 0 || len(history("token-a", "q", 10, "")) != 0 {
+		t.Fatal("archived revision history changed or leaked")
+	}
+	entry := field(t, "token-a", `{requirementsConnection(projectId:"p",archived:true){edges{node{archivedAt}}}}`, "requirementsConnection").(map[string]any)["edges"].([]any)[0]
+	stamp := entry.(map[string]any)["node"].(map[string]any)["archivedAt"].(string)
+	restore := fmt.Sprintf(`mutation{restoreRequirement(projectId:"p",id:%q,version:3,archivedAt:%q)}`, id, stamp)
+	if field(t, "token-a", restore, "restoreRequirement") != true || !reflect.DeepEqual(history("token-a", "p", 10, ""), original) {
+		t.Fatal("restore changed revision history")
 	}
 }
 
@@ -151,5 +168,31 @@ func TestRequirementRevisionUpgrade(t *testing.T) {
 	var total, matched int
 	if err := db.QueryRow(`SELECT count(*),count(*) FILTER (WHERE version=8 AND text='known text' AND created_at='updated' AND change_reason IS NULL AND author IS NULL) FROM requirement_text_revisions WHERE requirement_id='r'`).Scan(&total, &matched); err != nil || total != 1 || matched != 1 {
 		t.Fatalf("legacy snapshots %d/%d: %v", matched, total, err)
+	}
+}
+
+func TestRequirementArchiveUpgradeFrom17(t *testing.T) {
+	db := analysisDatabaseAtVersion(t, 17)
+	if _, err := db.Exec(`
+		INSERT INTO projects VALUES('p','a','P','G','','now','now');
+		INSERT INTO requirements VALUES('edited','a','p','One',1,'first','first'),('imported','a','p','Imported wording',8,'older','updated');
+		UPDATE requirements SET text='Two',version=2,updated_at='second' WHERE id='edited';
+		INSERT INTO requirement_text_revisions VALUES('edited',2,'Two','Review','editor','second');`); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := storage.Migrate(context.Background(), db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM active_requirements WHERE (id='imported' AND version=8 AND text='Imported wording') OR (id='edited' AND version=2 AND text='Two')`).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("active sources: %d, %v", count, err)
+	}
+	if err := db.QueryRow(`SELECT count(*) FROM requirement_text_revisions WHERE
+		(requirement_id='imported' AND version=8 AND text='Imported wording' AND created_at='updated' AND author IS NULL AND change_reason IS NULL) OR
+		(requirement_id='edited' AND version=1 AND text='One' AND created_at='first' AND author IS NULL AND change_reason IS NULL) OR
+		(requirement_id='edited' AND version=2 AND text='Two' AND created_at='second' AND author='editor' AND change_reason='Review')`).Scan(&count); err != nil || count != 3 {
+		t.Fatalf("preserved revisions: %d, %v", count, err)
 	}
 }

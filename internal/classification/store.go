@@ -94,7 +94,7 @@ func Confirm(ctx context.Context, db *sql.DB, w, p string, decision Entry) (*Ent
 		return nil, nil, err
 	}
 	var version, revision, latestRevision int32
-	err = tx.QueryRowContext(ctx, "SELECT version FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 FOR UPDATE", w, p, decision.ID).Scan(&version)
+	err = tx.QueryRowContext(ctx, "SELECT version FROM active_requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 FOR UPDATE", w, p, decision.ID).Scan(&version)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && version != decision.Version {
 		return nil, invalid("textVersion", "CONFLICT", "validation.conflict"), nil
 	}

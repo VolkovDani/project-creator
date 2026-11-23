@@ -120,9 +120,15 @@ func (r *Resolver) RequirementsConnection(ctx context.Context, args Requirements
 		return nil, err
 	}
 	scope := workspace(ctx) + "\x00" + string(args.ProjectId)
+	kind := "requirements"
+	predicate := "archived_at IS NULL"
+	if args.Archived != nil && *args.Archived {
+		kind = "archived-requirements"
+		predicate = "archived_at IS NOT NULL"
+	}
 	var key, id string
 	if args.After != nil {
-		c, e := decodeConnectionCursor(*args.After, "requirements", scope)
+		c, e := decodeConnectionCursor(*args.After, kind, scope)
 		if e != nil {
 			return nil, e
 		}
@@ -134,10 +140,10 @@ func (r *Resolver) RequirementsConnection(ctx context.Context, args Requirements
 	}
 	defer tx.Rollback()
 	var total int32
-	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM requirements WHERE workspace=$1 AND project_id=$2`, workspace(ctx), args.ProjectId).Scan(&total); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM requirements WHERE workspace=$1 AND project_id=$2 AND `+predicate, workspace(ctx), args.ProjectId).Scan(&total); err != nil {
 		return nil, errors.New("storage failure")
 	}
-	query := `SELECT id,project_id,text,version,created_at,updated_at FROM requirements WHERE workspace=$1 AND project_id=$2`
+	query := `SELECT id,project_id,text,version,created_at,updated_at,archived_at FROM requirements WHERE workspace=$1 AND project_id=$2 AND ` + predicate
 	var rows *sql.Rows
 	if args.After == nil {
 		rows, err = tx.QueryContext(ctx, query+` ORDER BY created_at,id LIMIT $3`, workspace(ctx), args.ProjectId, first+1)
@@ -151,7 +157,7 @@ func (r *Resolver) RequirementsConnection(ctx context.Context, args Requirements
 	items := []*Requirement{}
 	for rows.Next() {
 		p := &Requirement{}
-		if err = rows.Scan(&p.ID, &p.ProjectId, &p.Text, &p.Version, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err = rows.Scan(&p.ID, &p.ProjectId, &p.Text, &p.Version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt); err != nil {
 			return nil, errors.New("storage failure")
 		}
 		items = append(items, p)
@@ -165,7 +171,7 @@ func (r *Resolver) RequirementsConnection(ctx context.Context, args Requirements
 	}
 	conn := &RequirementConnection{Edges: []*RequirementEdge{}, PageInfo: &PageInfo{HasNextPage: hasNext}, TotalCount: total}
 	for _, p := range items {
-		c := encodeConnectionCursor("requirements", scope, p.CreatedAt, string(p.ID))
+		c := encodeConnectionCursor(kind, scope, p.CreatedAt, string(p.ID))
 		conn.Edges = append(conn.Edges, &RequirementEdge{Cursor: c, Node: p})
 		conn.PageInfo.EndCursor = &c
 	}

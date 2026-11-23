@@ -321,7 +321,7 @@ database.
 | `/` | Project list |
 | `/projects/new` | Create a project |
 | `/projects/:id` | Project overview |
-| `/projects/:id/requirements` | Create, edit, and delete requirements |
+| `/projects/:id/requirements` | Create, edit and archive requirements. Restore or permanently delete an entry from the archive |
 | `/projects/:id/indexing` | Overall background queue progress, statuses, and reindexing |
 | `/projects/:id/search` | Semantic search |
 | `/projects/:id/analysis` | Streaming pair analysis and results |

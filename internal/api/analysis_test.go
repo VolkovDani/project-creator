@@ -118,6 +118,34 @@ func TestGraphQLAnalysisPreservesSourcesAndScope(t *testing.T) {
 	if deniedRetry["errors"] == nil || generator.calls.Load() != 1 {
 		t.Fatal("cross-workspace retry invoked provider or exposed sources", deniedRetry)
 	}
+	archived := authorized(`mutation{archiveRequirement(projectId:"p",id:"r2",version:1)}`)
+	if archived["errors"] != nil || archived["data"].(map[string]any)["archiveRequirement"] != true {
+		t.Fatal(archived)
+	}
+	snapshot := authorized(`{projectAnalysis(projectId:"p"){stale sources{id version text}}}`)
+	if snapshot["errors"] != nil {
+		t.Fatal(snapshot)
+	}
+	saved := snapshot["data"].(map[string]any)["projectAnalysis"].(map[string]any)
+	if saved["stale"] != true || len(saved["sources"].([]any)) != 2 {
+		t.Fatalf("archiving must mark the saved analysis stale and retain both source snapshots: %v", saved)
+	}
+	search := authorized(`{searchRequirements(projectId:"p",text:"Оплата",limit:5){requirementId}}`)
+	if search["errors"] != nil {
+		t.Fatal(search)
+	}
+	hits := search["data"].(map[string]any)["searchRequirements"].([]any)
+	if len(hits) != 1 || hits[0].(map[string]any)["requirementId"] != "r1" {
+		t.Fatalf("search returned archived sources: %v", hits)
+	}
+	var stamp string
+	if err := s.db.QueryRow(`SELECT archived_at FROM requirements WHERE id='r2'`).Scan(&stamp); err != nil {
+		t.Fatal(err)
+	}
+	restored := authorized(`mutation{restoreRequirement(projectId:"p",id:"r2",version:1,archivedAt:"` + stamp + `")}`)
+	if restored["errors"] != nil || restored["data"].(map[string]any)["restoreRequirement"] != true {
+		t.Fatal(restored)
+	}
 	if _, err = s.db.Exec(`UPDATE requirements SET text='Оплата доступна любым способом.',version=2 WHERE id='r2'`); err != nil {
 		t.Fatal(err)
 	}

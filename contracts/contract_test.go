@@ -1,7 +1,6 @@
 package contracts
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -30,14 +29,7 @@ func TestRejectUnsupportedContracts(t *testing.T) {
 
 func TestTranslationsCoverValidationKeys(t *testing.T) {
 	for _, locale := range []string{"ru", "en"} {
-		data, err := translations.ReadFile("i18n/" + locale + ".json")
-		if err != nil {
-			t.Fatal(err)
-		}
-		var dictionary map[string]string
-		if err := json.Unmarshal(data, &dictionary); err != nil {
-			t.Fatal(err)
-		}
+		dictionary := Dictionary(locale)
 		for _, key := range []string{"validation.required", "validation.maxLength", "validation.invalidEncoding"} {
 			if dictionary[key] == "" {
 				t.Errorf("%s missing %s", locale, key)

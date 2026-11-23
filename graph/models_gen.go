@@ -179,6 +179,43 @@ type GlossaryMentionPage struct {
 	Items    []*Requirement
 	PageInfo *PageInfo
 }
+type ExplainClassificationInput struct {
+	ProjectId          graphql.ID
+	RequirementId      graphql.ID
+	TextVersion        int32
+	Revision           int32
+	SuggestionRevision int32
+	SemanticType       string
+	RepresentationType string
+	Locale             string
+}
+type ClassificationExplanationCriterion struct {
+	Name     string
+	Status   string
+	Evidence string
+	Note     string
+}
+type ClassificationExplanationAssessment struct {
+	Verdict  string
+	Reason   string
+	Criteria []*ClassificationExplanationCriterion
+}
+type ClassificationExplanationResult struct {
+	Meaning     *ClassificationExplanationAssessment
+	Form        *ClassificationExplanationAssessment
+	Questions   []string
+	Wording     string
+	Limitations string
+}
+type ClassificationExplanationPayload struct {
+	Status      string
+	Result      *ClassificationExplanationResult
+	FieldErrors []*FieldError
+}
+type ClassificationExplanationSuggestionRevisionArgs struct {
+	ProjectId     graphql.ID
+	RequirementId graphql.ID
+}
 type RequirementRevisionHistoryArgs struct {
 	ProjectId     graphql.ID
 	RequirementId graphql.ID
@@ -341,6 +378,9 @@ type ProjectsArgs struct {
 type ProjectsConnectionArgs struct {
 	First *int32
 	After *string
+}
+type ExplainRequirementClassificationArgs struct {
+	Input ExplainClassificationInput
 }
 type ScheduleAnalysisDeletionArgs struct {
 	ProjectId  graphql.ID

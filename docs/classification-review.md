@@ -12,6 +12,16 @@ The card displays the effective decision, its state, its source and the model na
 
 An explicit rerun on a confirmed record keeps the user's decision. Open **Decision history** to compare later model evidence, earlier decisions, the source text version and the decision revision. Scroll to the end of the history or press **Load more** to see the next 10 decisions. With automatic classification disabled, manual review and history remain available.
 
+## Explaining a classification
+
+Open **Independent AI assessment** on the classification card. The section appears once the classifier has saved a proposed label or ranked alternatives for the current text version. A later manual confirmation or correction keeps it available. A manual decision alone, a queued or failed check, and a check that produced no labels or alternatives do not qualify.
+
+Choose **Target meaning** and **Target form** independently, then select **Explain classification**. You can choose categories different from the saved labels. The local model reads the original text, the saved proposal and the effective decision when available. It assesses each axis against the chosen category and quotes the source for criteria it finds. For example, a user story is assessed for role, action and value. Acceptance evidence is optional for that form. The result can include clarifying questions, suggested wording and limitations. To use a wording suggestion, copy it into the requirement editor, review it and save the edit yourself. Requesting an explanation changes neither the text nor the classification.
+
+You can cancel a request. If the text, decision or model proposal changes, review the current card before requesting another assessment. After a text edit, the classifier must first produce a proposal for that version. If the model is busy, retry later. Identical requests can reuse one of the 64 results held in server memory. Reuse depends on the workspace, source and decision revisions, selected categories, language, taxonomy and explanation model profile. Restarting the server clears the cache.
+
+The server uses the configured, digest-pinned local Ollama summary generator if available. Otherwise it uses the configured, digest-pinned local Ollama general generator. If neither supports explanations or the selected model fails, the card reports that the model is unavailable. Source text stays local throughout the request.
+
 ## Review queues
 
 On the project classification page, filter by meaning, form and status. **Needs review** opens that queue. The group counts describe the whole project. Select a group to filter the records. Scroll to the end of the records or press **Load more** to append the next 20. Classification updates refresh individual visible cards and aggregate counts.

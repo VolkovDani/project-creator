@@ -44,7 +44,10 @@ const summaryAttempts = 2
 const summaryContextBytes = 32768
 const summaryOutputReserveBytes = 4096
 
-type SummaryOllama struct{ *chatSummary }
+type SummaryOllama struct {
+	*chatSummary
+	runtime *Ollama
+}
 
 type chatSummary struct {
 	complete            func(context.Context, []map[string]string, map[string]any) (string, error)
@@ -80,7 +83,7 @@ func NewSummaryOllamaWithLanguages(baseURL, model, digest, allowedLanguages stri
 	if err != nil {
 		return nil, err
 	}
-	return &SummaryOllama{summary}, nil
+	return &SummaryOllama{chatSummary: summary, runtime: runtime}, nil
 }
 
 func newChatSummary(

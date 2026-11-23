@@ -8,6 +8,7 @@ import (
 	"errors"
 	"github.com/VolkovDani/project-creator/internal/analysis"
 	"github.com/VolkovDani/project-creator/internal/classification"
+	"github.com/VolkovDani/project-creator/internal/explanation"
 	"github.com/VolkovDani/project-creator/internal/glossary"
 	"github.com/VolkovDani/project-creator/internal/project"
 	"github.com/VolkovDani/project-creator/internal/rag"
@@ -37,6 +38,7 @@ func WithWorkspace(ctx context.Context, workspace string) context.Context {
 func workspace(ctx context.Context) string { v, _ := ctx.Value(workspaceKey{}).(string); return v }
 
 type Resolver struct {
+	Explanations    *explanation.Service
 	Classifications *classification.Service
 	Definitions     glossary.DefinitionGenerator
 	Summaries       *summary.Service

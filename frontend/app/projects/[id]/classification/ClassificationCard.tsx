@@ -21,6 +21,7 @@ import { fieldErrorMessage, type Locale, t } from '../../../../lib/i18n';
 import { useResource } from '../../../../lib/useResource';
 import Group from '../../../components/Group';
 import ResourceState from '../../../components/ResourceState';
+import ClassificationExplanation from './ClassificationExplanation';
 import ClassificationHistory from './ClassificationHistory';
 import DecisionEvidence from './DecisionEvidence';
 
@@ -53,19 +54,32 @@ export default function ClassificationCard({
   const load = useCallback(async () => {
     const vars = { projectId, requirementId };
     if (original !== undefined && version !== undefined) {
-      const { requirementClassification } = await query(RequirementClassificationDocument, vars, {
-        tags: [tag, profileTag],
-      });
-      return { entry: requirementClassification, text: original, version };
+      const { requirementClassification, classificationExplanationSuggestionRevision } =
+        await query(RequirementClassificationDocument, vars, {
+          tags: [tag, profileTag],
+        });
+      return {
+        entry: requirementClassification,
+        text: original,
+        version,
+        suggestionRevision: classificationExplanationSuggestionRevision,
+      };
     }
-    const { requirementClassification, classificationListByIds } = await query(
-      ClassificationReviewCardDocument,
-      vars,
-      { tags: [tag, profileTag, `project:${projectId}:requirements`] },
-    );
+    const {
+      requirementClassification,
+      classificationListByIds,
+      classificationExplanationSuggestionRevision,
+    } = await query(ClassificationReviewCardDocument, vars, {
+      tags: [tag, profileTag, `project:${projectId}:requirements`],
+    });
     const source = classificationListByIds[0];
     return (
-      source && { entry: requirementClassification, text: source.text, version: source.textVersion }
+      source && {
+        entry: requirementClassification,
+        text: source.text,
+        version: source.textVersion,
+        suggestionRevision: classificationExplanationSuggestionRevision,
+      }
     );
   }, [projectId, requirementId, tag, profileTag, original, version]);
   const { data, loading, error, reload } = useResource(
@@ -90,8 +104,9 @@ export default function ClassificationCard({
           key={requirementId}
           projectId={projectId}
           entry={data.entry}
-          original={data.text}
-          version={data.version}
+          original={original ?? data.text}
+          version={version ?? data.version}
+          suggestionRevision={data.suggestionRevision}
           locale={locale}
           showText={original === undefined}
           onEditing={onEditing}
@@ -110,6 +125,7 @@ function DecisionCard({
   version,
   locale,
   showText,
+  suggestionRevision,
   configured,
   selection,
   onEditing,
@@ -118,6 +134,7 @@ function DecisionCard({
   entry: ClassificationFieldsFragment;
   original: string;
   version: number;
+  suggestionRevision: number;
   locale: Locale;
   showText: boolean;
   configured: boolean;
@@ -218,6 +235,29 @@ function DecisionCard({
       <DecisionEvidence entry={entry} locale={locale} />
       {entry.textVersion !== version && (
         <p>{t(locale, 'review.stale', { previous: entry.textVersion, current: version })}</p>
+      )}
+      {suggestionRevision > 0 && entry.textVersion === version && (
+        <Group
+          id={`${detailTag}:explanation`}
+          title={t(locale, 'explanation.title')}
+          defaultOpen={false}
+          lazy
+        >
+          <ClassificationExplanation
+            key={JSON.stringify([
+              projectId,
+              entry.requirementId,
+              version,
+              entry.revision,
+              suggestionRevision,
+              locale,
+            ])}
+            projectId={projectId}
+            entry={entry}
+            suggestionRevision={suggestionRevision}
+            locale={locale}
+          />
+        </Group>
       )}
       {entry.revision > 0 && (
         <Group

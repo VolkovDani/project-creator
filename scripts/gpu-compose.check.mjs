@@ -18,6 +18,7 @@ for (const [device, file] of [['nvidia', 'compose.gpu.yml'], ['amd', 'compose.am
     });
     assert.equal(result.status, 0, result.stderr || result.error?.message);
     const {services, volumes} = JSON.parse(result.stdout);
+    assert.equal(services.backend.depends_on.ollama.condition, 'service_healthy');
     const o = services.ollama;
     assert.equal(o.environment.OLLAMA_VULKAN, device === 'amd-vulkan' ? '1' : '0');
     assert.equal(o.environment.OLLAMA_NO_CLOUD, '1');

@@ -246,7 +246,7 @@ Stop the host runtime with Ctrl+C. In another terminal:
 
 ```bash
 export COMPOSE_FILE=compose.yml:compose.intel.yml
-# or compose.yml only for CPU
+# For CPU, use: export COMPOSE_FILE=compose.yml:compose.cpu.yml
 docker compose up -d --build --force-recreate backend
 docker compose up -d --wait
 ```

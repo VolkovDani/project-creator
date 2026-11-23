@@ -14,6 +14,7 @@ services:
       retries: 20
     restart: unless-stopped
   ollama:
+    profiles: [tools]
     image: ollama/ollama:0.40.16
     environment:
       OLLAMA_HOST: 0.0.0.0:11434
@@ -61,8 +62,6 @@ services:
       PROJECT_CREATOR_GENERATOR_DIGEST: ${PROJECT_CREATOR_GENERATOR_DIGEST:-}
     depends_on:
       postgres:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "/app/server", "healthcheck"]

@@ -319,9 +319,11 @@ coalescing, адресные теги и ограничения описаны �
 
 ## Локальное развёртывание MVP
 
-Docker Compose запускает Next.js, Go API, PostgreSQL с pgvector и Ollama.
-На хост публикуется только интерфейс на loopback; backend, PostgreSQL и Ollama
-доступны по сети Compose. Next.js хранит workspace-токен только на сервере.
+Docker Compose по умолчанию запускает Next.js, Go API и PostgreSQL с pgvector.
+Для локальных моделей можно явно включить Ollama. Backend также поддерживает прямое
+подключение к совместимому API или к общему менеджеру моделей. См. [ADR-012 на русском](docs/adr/012-standalone-model-manager.ru.md)
+и [на английском](docs/adr/012-standalone-model-manager.md). На хост публикуется
+только интерфейс на loopback. Остальные сервисы доступны по сети Compose. Next.js хранит workspace-токен только на сервере.
 Это локальный однопользовательский режим, а не публичная система авторизации.
 
 Миграции выполняются backend до приёма запросов. Healthchecks отделяют готовность

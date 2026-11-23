@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -13,6 +15,20 @@ import (
 
 // Exercise both remote providers through the application's GraphQL and worker paths.
 func TestCompatibleProvidersWithoutLocalRuntime(t *testing.T) {
+	exerciseCompatibleProviders(t, "")
+}
+
+// Enable with a binary built from the separate models-configurator repository.
+func TestModelManagerWorkerIntegration(t *testing.T) {
+	binary := os.Getenv("MODELS_CONFIGURATOR_TEST_BIN")
+	if binary == "" {
+		t.Skip("set MODELS_CONFIGURATOR_TEST_BIN to run the cross-repository pilot")
+	}
+	exerciseCompatibleProviders(t, binary)
+}
+
+func exerciseCompatibleProviders(t *testing.T, managerBinary string) {
+	t.Helper()
 	var calls atomic.Int64
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -67,15 +83,21 @@ func TestCompatibleProvidersWithoutLocalRuntime(t *testing.T) {
 	}))
 	defer provider.Close()
 	base := provider.URL + "/v1"
-	gen, err := analysis.NewOpenAICompatible(base, "chat", "generation-key")
+	chat, embedding := "chat", "embed"
+	generationKey, embeddingKey := "generation-key", "embedding-key"
+	if managerBinary != "" {
+		base, chat, embedding = startTestModelManager(t, managerBinary, base)
+		generationKey, embeddingKey = "", ""
+	}
+	gen, err := analysis.NewOpenAICompatible(base, chat, generationKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sum, err := analysis.NewSummaryOpenAICompatible(base, "chat", "generation-key", "ru")
+	sum, err := analysis.NewSummaryOpenAICompatible(base, chat, generationKey, "ru")
 	if err != nil {
 		t.Fatal(err)
 	}
-	embed, err := rag.NewOpenAICompatible(base, "embed", "embedding-key")
+	embed, err := rag.NewOpenAICompatible(base, embedding, embeddingKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +111,10 @@ func TestCompatibleProvidersWithoutLocalRuntime(t *testing.T) {
 	}
 	waitForIndexQueueReady(t, s, "token-a", "p", 2)
 	for _, id := range []string{"r1", "r2"} {
-		waitAPISummary(t, s, "token-a", "p", id, "ready")
+		row := waitAPISummary(t, s, "token-a", "p", id, "ready")
+		if managerBinary != "" && !strings.Contains(row["provenance"].(string), chat) {
+			t.Fatal("persisted summary is missing the managed model profile")
+		}
 	}
 	authorized := func(q string) map[string]any { return summaryRequest(t, s, "token-a", q) }
 	search := `{searchRequirements(projectId:"p",text:"Оплата",limit:5){requirementId}}`

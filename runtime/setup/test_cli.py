@@ -536,6 +536,91 @@ class RemoteInstallTests(InstallerTestCase):
         self.assertTrue(dependencies['postgres']['required'])
         self.assertFalse(dependencies['ollama']['required'])
 
+    @unittest.skipUnless(cli.shutil.which('docker'), 'Docker Compose is required')
+    def test_base_compose_runs_only_core_services(self):
+        repo = Path(cli.__file__).resolve().parents[2]
+        args = ['docker', 'compose', '--env-file', str(self.root/'.env'), '-f', str(repo/'compose.yml')]
+        settings = json.loads(subprocess.check_output(args + ['config', '--format', 'json'], env=self.app.environment()))
+        self.assertEqual(set(settings['services']), {'postgres', 'backend', 'frontend'})
+        self.assertEqual(set(settings['services']['backend']['depends_on']), {'postgres'})
+        local = json.loads(subprocess.check_output(args + ['-f', str(repo/'compose.cpu.yml'), 'config', '--format', 'json'], env=self.app.environment()))
+        self.assertIn('ollama', local['services'])
+        self.assertEqual(local['services']['backend']['depends_on']['ollama']['condition'], 'service_healthy')
+
+    def test_fresh_setup_verifies_ui_without_models(self):
+        self.app.config.state.clear()
+        self.runner.responses = {'version --short': 'v2.30.1', 'docker info': '{"OSType":"linux"}'}
+        with patch.object(self.app, 'check_ui') as ui, patch.object(self.app, 'fixture', side_effect=AssertionError):
+            self.app.setup()
+            self.app.doctor()
+        self.assertEqual(self.app.config.state['device'], 'none')
+        self.assertTrue(self.app.config.state['verified'])
+        self.assertEqual(ui.call_count, 2)
+        self.assertFalse(any(arg in ('pull', 'ollama', 'model-info', '--profile') for cmd in self.runner.calls for arg in cmd))
+
+    @unittest.skipUnless(cli.shutil.which('docker'), 'Docker Compose is required')
+    def test_remote_single_role_render_preserves_disabled_role_and_network_scope(self):
+        repo = Path(cli.__file__).resolve().parents[2]
+        for role, other in [('GENERATOR', 'EMBEDDING'), ('EMBEDDING', 'GENERATOR')]:
+            with self.subTest(role=role):
+                self.configure_remote(role)
+                self.app.config.update_env({'PROJECT_CREATOR_MODELS_NETWORK': 'model-test'})
+                self.app.config.ensure('remote', switch=True)
+                self.app.compose('config', '--format', 'json')
+                command = [str(repo/Path(arg).name) if arg.endswith('.yml') else arg for arg in self.runner.calls[-1]]
+                result = json.loads(subprocess.check_output(command, env=self.runner.envs[-1]))
+                services = result['services']
+                backend = services['backend']
+                self.assertEqual(set(services), {'postgres', 'frontend', 'backend'})
+                self.assertEqual(backend['environment']['PROJECT_CREATOR_'+role+'_RUNTIME'], 'openai-compatible')
+                self.assertEqual(backend['environment']['PROJECT_CREATOR_'+other+'_RUNTIME'], '')
+                self.assertEqual(set(backend['networks']), {'models', 'default'})
+                self.assertTrue(result['networks']['models']['external'])
+                self.assertEqual(result['networks']['models']['name'], 'model-test')
+                self.assertEqual(set(services['postgres']['networks']), {'default'})
+                self.assertEqual(set(services['frontend']['networks']), {'default'})
+                self.app.config.update_env({'PROJECT_CREATOR_'+role+suffix: '' for suffix in ('_MODEL', '_URL', '_API_KEY')})
+
+    def test_remote_single_role_checks_only_selected_capability(self):
+        for role in ('GENERATOR', 'EMBEDDING'):
+            with self.subTest(role=role):
+                self.configure_remote(role)
+                self.app.config.state.update(device='remote', fixtures={'collision': {'project': 'p'}})
+                self.app.config.validate_providers('remote')
+                rows = [dict(id=key, text=text, version=1) for key, text in zip('ab', cli.CASES[0][1])]
+
+                def graphql(query, variables):
+                    if 'requirements(' in query:
+                        return {'requirements': rows}
+                    self.assertEqual(role, 'EMBEDDING', query)
+                    if 'indexRequirement' in query:
+                        return {'indexRequirement': {'status': 'ready', 'version': 1}}
+                    self.assertIn('searchRequirements', query)
+                    return {'searchRequirements': [{'requirementId': 'a', 'version': 1}]}
+
+                with patch.object(self.app, 'graphql', side_effect=graphql), patch.object(self.app, 'ollama', side_effect=AssertionError):
+                    if role == 'GENERATOR':
+                        self.app.fixture(*cli.CASES[0])
+                    else:
+                        self.app.verify()
+                self.app.config.update_env({'PROJECT_CREATOR_'+role+suffix: '' for suffix in ('_MODEL', '_URL', '_API_KEY')})
+
+    def test_default_setup_preserves_existing_cpu_and_none_keeps_model_pins(self):
+        with patch.object(self.app, 'pin_model') as pin, patch.object(self.app, 'prerequisites', return_value=None), patch.object(self.app, 'up'):
+            self.app.setup()
+        self.assertEqual(self.app.config.state['device'], 'cpu')
+        self.assertEqual(pin.call_count, 2)
+        self.assertIn(str(self.root/'compose.cpu.yml'), self.runner.calls[-1])
+        values = {'PROJECT_CREATOR_GENERATOR_MODEL': 'local', 'PROJECT_CREATOR_GENERATOR_DIGEST': 'a'*64,
+                  'PROJECT_CREATOR_RECORD_CLASSIFIER': 'systemone-review', 'COMPOSE_PROFILES': 'local-models'}
+        self.app.config.update_env(values)
+        with patch.object(self.app, 'prerequisites', return_value=None), patch.object(self.app, 'up'):
+            self.app.setup('none', switch=True)
+        self.app.compose('config')
+        for key, value in values.items():
+            self.assertEqual(self.app.config.values[key], value)
+            self.assertEqual(self.runner.envs[-1][key], '')
+
     def test_npu_with_remote_embeddings_retains_ollama_if_local_summaries_use_it(self):
         self.app.config.ensure('npu', switch=True)
         self.configure_remote('EMBEDDING')
@@ -594,6 +679,7 @@ class RemoteInstallTests(InstallerTestCase):
 
     def test_remote_missing_role_config_fails_before_switch_without_echoing_values(self):
         self.configure_remote('GENERATOR')
+        self.app.config.update_env({'PROJECT_CREATOR_EMBEDDING_MODEL': 'incomplete'})
         original = self.app.config.path.read_text()
         with patch.object(self.app, 'prerequisites'), self.assertRaisesRegex(cli.Failure, 'EMBEDDING_URL') as error:
             self.app.setup('remote', switch=True)

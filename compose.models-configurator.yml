@@ -1,0 +1,8 @@
+# The manager owns the shared client network. Only the backend needs access.
+services:
+  backend:
+    networks: [default, models]
+networks:
+  models:
+    external: true
+    name: ${PROJECT_CREATOR_MODELS_NETWORK:?Set the model manager client network name}

@@ -1,4 +1,4 @@
-# The app only needs Postgres when neither role uses Ollama.
+# Enable only configured API roles. The base application has no model dependency.
 services:
   backend:
     depends_on:
@@ -6,7 +6,7 @@ services:
         condition: service_healthy
         required: false
     environment:
-      PROJECT_CREATOR_GENERATOR_RUNTIME: ${PROJECT_CREATOR_GENERATOR_RUNTIME:-openai-compatible}
-      PROJECT_CREATOR_EMBEDDING_RUNTIME: ${PROJECT_CREATOR_EMBEDDING_RUNTIME:-openai-compatible}
+      PROJECT_CREATOR_GENERATOR_RUNTIME: ${PROJECT_CREATOR_GENERATOR_RUNTIME:-${PROJECT_CREATOR_GENERATOR_MODEL:+openai-compatible}}
+      PROJECT_CREATOR_EMBEDDING_RUNTIME: ${PROJECT_CREATOR_EMBEDDING_RUNTIME:-${PROJECT_CREATOR_EMBEDDING_MODEL:+openai-compatible}}
   ollama:
-    profiles: [local-models]
+    profiles: [local-models, tools]

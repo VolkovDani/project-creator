@@ -6,8 +6,7 @@
 
 Требуются Docker Engine с Compose v2 (команды `docker compose`) либо Docker
 Desktop с Linux-контейнерами. Go и Node.js на хосте для запуска приложения не нужны.
-Запускайте команды из корня репозитория. По умолчанию используется CPU; GPU
-не обязателен, но на медленном CPU анализ может превысить timeout.
+Запускайте команды из корня репозитория. По умолчанию запускаются PostgreSQL, бэкенд и фронтенд. Для встроенного Ollama добавьте Compose-файл выбранного устройства.
 
 В конфигурации закреплены Go 1.26.10, Node.js 26.13.1 на Debian Bookworm,
 PostgreSQL 16 с pgvector 0.8.7 и Ollama 0.40.16. Модели загружаются отдельно:
@@ -44,6 +43,10 @@ chmod 600 .env
 используйте hex без специальных символов URL. `.env` не коммитьте. Переменные
 `PROJECT_CREATOR_DATABASE_URL` и `POSTGRES_PORT` нужны для запуска API на хосте,
 а полный Compose сам задаёт внутренний адрес БД.
+
+Для работы с проектами и требованиями выполните `docker compose up -d --build --wait`, оставив переменные моделей из примера незаданными.
+
+Для запуска встроенного Ollama на CPU добавьте `COMPOSE_FILE=compose.yml:compose.cpu.yml` в `.env` перед выполнением следующих команд. При обновлении ручной CPU-установки также добавьте эту строку. Для возврата с ручной GPU-установки экспортируйте такое же значение `COMPOSE_FILE` в shell и выполните `docker compose up -d --force-recreate ollama`, затем `docker compose up -d --wait` с прежним именем проекта. CLI восстанавливает выбранное устройство автоматически. Override-файлы GPU, NPU и smoke сами включают свой runtime.
 
 ```bash
 docker compose up -d --wait postgres ollama

@@ -2,6 +2,7 @@
 # Do not combine with compose.gpu.yml (NVIDIA). See docs/intel-arc.md.
 services:
   ollama:
+    profiles: !reset []
     image: project-creator-ollama-intel:0.40.16
     pull_policy: build
     build:
@@ -20,4 +21,7 @@ services:
       # Intel-only Vulkan discovery; default to the first Intel logical device.
       # Select another ID from Ollama logs when multiple Intel GPUs are present.
       GGML_VK_VISIBLE_DEVICES: ${GGML_VK_VISIBLE_DEVICES:-0}
-
+  backend:
+    depends_on:
+      ollama:
+        condition: service_healthy

@@ -48,7 +48,7 @@ docker compose --env-file .env.smoke.example -p project-creator-smoke -f compose
 ```bash
 (
   set -e
-  export COMPOSE_FILE=compose.yml
+  export COMPOSE_FILE=compose.yml:compose.cpu.yml
   export COMPOSE_PROJECT_NAME=project-creator-real-smoke
   export COMPOSE_ENV_FILE=.env.real-smoke
   docker compose --env-file "$COMPOSE_ENV_FILE" up -d --wait postgres ollama
@@ -64,7 +64,7 @@ docker compose --env-file .env.smoke.example -p project-creator-smoke -f compose
 ```bash
 (
   set -e
-  export COMPOSE_FILE=compose.yml
+  export COMPOSE_FILE=compose.yml:compose.cpu.yml
   export COMPOSE_PROJECT_NAME=project-creator-real-smoke
   export COMPOSE_ENV_FILE=.env.real-smoke
   export REAL_MODEL_SMOKE=1
@@ -77,7 +77,7 @@ docker compose --env-file .env.smoke.example -p project-creator-smoke -f compose
 После проверки команда ниже удаляет только данные и веса этого тестового проекта:
 
 ```bash
-docker compose --env-file .env.real-smoke -p project-creator-real-smoke -f compose.yml down --volumes
+docker compose --env-file .env.real-smoke -p project-creator-real-smoke -f compose.yml -f compose.cpu.yml down --volumes
 ```
 
 Этот запуск не оценивает статистическое качество LLM и может завершиться ошибкой

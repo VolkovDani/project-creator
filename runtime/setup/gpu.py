@@ -4,8 +4,8 @@ import re
 
 GPU_DEVICES = ('arc', 'nvidia', 'amd', 'amd-vulkan')
 VULKAN_DEVICES = ('arc', 'amd-vulkan')
-DEVICES = ('cpu', *GPU_DEVICES, 'npu', 'remote')
-OVERRIDES = {'arc': 'compose.intel.yml', 'nvidia': 'compose.gpu.yml',
+DEVICES = ('none', 'cpu', *GPU_DEVICES, 'npu', 'remote')
+OVERRIDES = {'cpu': 'compose.cpu.yml', 'arc': 'compose.intel.yml', 'nvidia': 'compose.gpu.yml',
              'amd': 'compose.amd.yml', 'amd-vulkan': 'compose.amd-vulkan.yml',
              'npu': 'compose.npu.yml'}
 # Ollama v0.40.16 docs/gpu.mdx, Linux ROCm targets. Never spoof a target.

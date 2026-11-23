@@ -2,6 +2,7 @@
 # Do not combine this override with other GPU profiles.
 services:
   ollama:
+    profiles: !reset []
     image: project-creator-ollama-amd-vulkan:0.40.16
     pull_policy: build
     build:
@@ -17,3 +18,7 @@ services:
       VK_ICD_FILENAMES: /etc/project-creator-amd-vulkan.json
       # Numeric Vulkan ID from the container logs; blank uses automatic discovery.
       GGML_VK_VISIBLE_DEVICES: ${GGML_VK_VISIBLE_DEVICES:-}
+  backend:
+    depends_on:
+      ollama:
+        condition: service_healthy

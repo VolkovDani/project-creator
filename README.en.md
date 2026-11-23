@@ -13,19 +13,17 @@ The application runs locally for one user and needs no cloud API keys.
 
 ## Quick start
 
-The CPU setup requires native x86_64 Linux, Python 3, and Docker Engine with
-Compose 2.20 or later. Allow 24 GiB of free disk space for the first install.
-For GPUs and Intel NPUs, see [device selection and system requirements](docs/setup-cli.en.md).
-If you cannot run models locally, connect to [a separate vLLM server or a hosted API](docs/setup-cli.en.md#remote-generation-and-embeddings).
+Use native x86_64 Linux, Python 3 and Docker Engine with Compose 2.20 or later.
 
 ```bash
 git clone https://github.com/VolkovDani/project-creator.git
 cd project-creator
-./project-creator setup --device cpu
+./project-creator setup
 ```
 
-Setup downloads the models, starts the application, and checks indexing and analysis
-with sample data. Open the URL it prints (by default [127.0.0.1:3000](http://127.0.0.1:3000)).
+Setup starts PostgreSQL, the backend and the web interface. Open the URL it prints (by default [127.0.0.1:3000](http://127.0.0.1:3000)) to create projects and requirements.
+
+For model-assisted comparisons, rerun `./project-creator setup --device cpu --switch-device` (allow 24 GiB free disk for the first CPU installation), select a GPU/NPU, or configure a compatible API for generation, embeddings, or both. [Installation and provider options](docs/setup-cli.en.md)
 
 Use **Dark theme** beside the language selector in the header to switch themes. The browser remembers your choice for future visits.
 

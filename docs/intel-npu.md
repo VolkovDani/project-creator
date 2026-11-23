@@ -467,7 +467,7 @@ state содержит `verified=true`, управляемый процесс п
 
 ```bash
 export COMPOSE_FILE=compose.yml:compose.intel.yml
-# либо только compose.yml для CPU
+# Для CPU: export COMPOSE_FILE=compose.yml:compose.cpu.yml
 docker compose up -d --build --force-recreate backend
 docker compose up -d --wait
 ```

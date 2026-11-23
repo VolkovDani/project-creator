@@ -1,7 +1,12 @@
 # Native Linux host OpenVINO service; optionally combine with compose.intel.yml
 # for BGE-M3 on Arc. No NPU device/driver is passed to a container.
 services:
+  ollama:
+    profiles: !reset []
   backend:
+    depends_on:
+      ollama:
+        condition: service_healthy
     environment:
       PROJECT_CREATOR_GENERATOR_RUNTIME: openvino-npu
       PROJECT_CREATOR_NPU_SOCKET: /run/project-creator-npu/runtime.sock

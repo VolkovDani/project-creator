@@ -19,6 +19,7 @@ import (
 type Client struct {
 	base, model, key, identity string
 	http                       *http.Client
+	mapErrorCode               func(int, string) error
 }
 
 func New(baseURL, model, key string) (*Client, error) {
@@ -51,6 +52,13 @@ func (c *Client) Model() string { return c.model }
 // Identity distinguishes deployments that serve different weights under the same model ID.
 func (c *Client) Identity() string { return c.identity }
 
+// WithErrorCodes returns a client that recognizes selected status/code pairs.
+// The mapper must return nil for unknown codes and only return sanitized errors.
+func (c Client) WithErrorCodes(mapCode func(status int, code string) error) *Client {
+	c.mapErrorCode = mapCode
+	return &c
+}
+
 func (c *Client) Post(ctx context.Context, path string, body, out any) error {
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -73,6 +81,20 @@ func (c *Client) Post(ctx context.Context, path string, body, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if c.mapErrorCode != nil {
+			const limit = 4096
+			var envelope struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+			if err == nil && len(raw) <= limit && json.Unmarshal(raw, &envelope) == nil {
+				if mapped := c.mapErrorCode(resp.StatusCode, envelope.Error.Code); mapped != nil {
+					return mapped
+				}
+			}
+		}
 		return fmt.Errorf("model endpoint returned HTTP %d", resp.StatusCode)
 	}
 	const maxResponse = 8 << 20

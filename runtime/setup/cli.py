@@ -470,7 +470,8 @@ class Installer:
             command += ['-f', str(self.root / 'compose.remote.yml')]
             if device == 'npu':
                 environment['PROJECT_CREATOR_GENERATOR_RUNTIME'] = 'openvino-npu'
-        if device == 'remote' and self.config.values.get('PROJECT_CREATOR_MODELS_NETWORK'):
+        if self.config.values.get('PROJECT_CREATOR_MODELS_NETWORK') and any(
+                self.config.runtime(role, device) == 'openai-compatible' for role in ('GENERATOR', 'EMBEDDING')):
             command += ['-f', str(self.root / 'compose.models-configurator.yml')]
         if device == 'none':
             # Keep pins in .env available for a future explicit switch back to local inference.

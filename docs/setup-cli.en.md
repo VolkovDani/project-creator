@@ -40,7 +40,19 @@ Use `--device remote` to run the application on a machine without Ollama, an NPU
 
 Set the URL and model ID for each role you want to use. Leave all variables for an unused role unset. Generation alone supports all-pairs comparisons and summaries. Embeddings alone support indexing and semantic search. Setup verifies only the selected roles using synthetic records.
 
-For a manager on a separate Docker network, set `PROJECT_CREATOR_MODELS_NETWORK=models-configurator-clients` (or the existing network name) in the same private `.env`. In remote mode the CLI then adds `compose.models-configurator.yml`, connecting the backend to that network. Use the manager address reachable from the backend and its immutable model ID for each role.
+For a manager on a separate Docker network, set `PROJECT_CREATOR_MODELS_NETWORK=models-configurator-clients` (or the existing network name) in the same private `.env`. When an active role uses the compatible API, the CLI adds `compose.models-configurator.yml`, connecting the backend to that network. Use the manager address reachable from the backend and its immutable model ID for each role.
+
+**Managed Intel NPU with local Arc embeddings.** Start the separate runtime first. Set these values in Project Creator’s private `.env` and copy the full NPU ID from the manager's `GET /v1/models`. Keep the existing local embedding model, tag and digest. The application supplies the same NPU comparison prompts, aliases and validation as the native socket route.
+
+```dotenv
+PROJECT_CREATOR_MODELS_NETWORK=models-configurator-clients
+PROJECT_CREATOR_GENERATOR_RUNTIME=openai-compatible
+PROJECT_CREATOR_GENERATOR_URL=http://models-configurator:8317/v1
+PROJECT_CREATOR_GENERATOR_MODEL=<full-openvino-npu-profile-id>
+PROJECT_CREATOR_EMBEDDING_RUNTIME=ollama
+```
+
+To switch an installation from direct NPU to this combination, run `./project-creator setup --device arc --switch-device`. Subsequent starts use `./project-creator up`. The socket route remains available. [Manager setup](https://github.com/VolkovDani/models-configurator/blob/develop/docs/npu.md)
 
 **Self-hosted vLLM.** Substitute the addresses reachable from the backend container and the model IDs served by your deployments. The chat model must support Chat Completions with strict JSON Schema output. The embedding model in this example returns 1024 dimensions natively.
 

@@ -18,6 +18,27 @@ func TestOpenVINORealNPUSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkNPUComparisonFixtures(t, generator)
+}
+
+// Opt in with a loopback manager endpoint and its immutable OpenVINO model ID.
+func TestManagedOpenVINORealNPUSmoke(t *testing.T) {
+	if os.Getenv("MANAGED_NPU_REAL_SMOKE") != "1" {
+		t.Skip("explicit MANAGED_NPU_REAL_SMOKE=1 and a prepared manager required")
+	}
+	model := os.Getenv("MANAGED_NPU_MODEL")
+	if !managedNPUModelID.MatchString(model) {
+		t.Fatal("select the full managed NPU profile ID")
+	}
+	generator, err := NewOpenAICompatible(os.Getenv("MANAGED_NPU_URL"), model, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkNPUComparisonFixtures(t, generator)
+}
+
+func checkNPUComparisonFixtures(t *testing.T, generator Generator) {
+	t.Helper()
 	cases := []struct{ name, left, right, verdict string }{
 		{"collision", "При любом заказе оплата разрешена только банковской картой. Другие способы запрещены.", "При любом заказе оплата разрешена только наличными. Другие способы запрещены.", "collision"},
 		{"compatible", "Пользователь может оплатить заказ банковской картой.", "Пользователь может выбрать оплату наличными вместо банковской карты.", "compatible"},

@@ -29,7 +29,7 @@ The profile ID includes the provider and a fingerprint covering the upstream, mo
 
 ## Compatibility and verification
 
-Existing CPU, GPU and NPU deployments can continue to use their saved installer state, Compose project name and volumes. The pilot creates a separate Ollama volume for new managed installations. Switching providers leaves the old data available. Move specialized classifier and NPU protocols separately after confirming equivalent behavior for their pinned artifacts. Hardware acceptance remains specific to the measured device.
+Existing CPU, GPU and NPU deployments can continue to use their saved installer state, Compose project name and volumes. The pilot creates a separate Ollama volume for new managed installations. Switching providers leaves the old data available. The standalone OpenVINO NPU route accepts the manager's immutable chat ID. Project Creator canonicalizes the pair, maps source references and validates findings on both NPU routes. The managed route has its own provenance and cache identity. Classifier migration remains separate. Hardware acceptance remains specific to the measured device.
 
 The cross-repository test uses two synthetic upstream roles and the real manager binary. Set `TEST_DATABASE_URL` to a disposable PostgreSQL database with pgvector, then run:
 
@@ -41,3 +41,5 @@ MODELS_CONFIGURATOR_TEST_BIN=/tmp/models-configurator-test go test -count=1 ./in
 ```
 
 The test checks persisted summaries, indexing and search, collision analysis and workspace isolation through the API. Ordinary Go tests use deterministic providers and can run without the manager checkout.
+
+To run the same three hardware fixtures against the managed client, set `MANAGED_NPU_REAL_SMOKE=1`, `MANAGED_NPU_URL=http://127.0.0.1:8317/v1` and `MANAGED_NPU_MODEL` to its full NPU ID, then run `go test -v -count=1 ./internal/analysis -run '^TestManagedOpenVINORealNPUSmoke$'`.

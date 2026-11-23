@@ -2,6 +2,8 @@
 
 [English version](intel-npu.en.md)
 
+Эта инструкция описывает прямое подключение по Unix-сокету. [Отдельный runtime Models Configurator](https://github.com/VolkovDani/models-configurator/blob/develop/docs/npu.ru.md) также принимает существующие веса и манифест и может работать в Docker.
+
 Конфигурация рассчитана на нативный Linux, Python 3.12 и Docker Engine/Compose v2.
 Реализация вошла в проект через PR #24. Ниже сохранены датированные результаты
 первичной приёмки и исправлений. Сравнение генерации на CPU, GPU и NPU и проверка

@@ -44,7 +44,8 @@ import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
 import AnalysisHistoryActions from './AnalysisHistoryActions';
 import { GlossaryText } from './GlossaryActions';
-import { MatchedText, SourceText } from './GlossaryOriginal';
+import { SourceText } from './GlossaryOriginal';
+import { MatchedText } from './MatchedText';
 
 const outcomes: Record<string, string> = {
   possible_collision: 'analysis.outcome.collision',

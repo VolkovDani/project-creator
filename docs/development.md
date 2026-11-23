@@ -530,7 +530,7 @@ bun run e2e
 
 ## Business requirements
 
-Requirements render Markdown headings, paragraphs, lists, tables, quotations, links and fenced code. Known fence languages receive syntax highlighting. Use **Copy code** for the contents of a block. Select visible document text to add a glossary entry. **Markdown source** shows the stored text with glossary matches. Links to a specific glossary occurrence open the exact text at its saved offsets. Editing always uses the stored source.
+Requirements render Markdown headings, paragraphs, lists, tables, quotations, links and fenced code. Known fence languages receive syntax highlighting. Use **Copy code** for the contents of a block. Select visible document text to add a glossary entry. In formatted requirements and ready summaries, project glossary terms have a dotted underline. Hover over a term or focus it with Tab to read its definition. Markdown links and code retain their usual behavior. **Markdown source** shows every matched range in the stored text, including terms that overlap Markdown syntax. Links to a specific glossary occurrence open the exact text at its saved offsets. Editing always uses the stored source.
 
 The document renderer uses `markdown-to-jsx` for parsing and `sugar-high` for syntax tokens. Both are pinned MIT packages with no additional runtime dependencies. React renders the tokens as text. Raw HTML stays literal, and embedded images display their alternative text to avoid fetching remote assets from a requirement.
 

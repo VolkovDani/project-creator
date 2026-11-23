@@ -1,11 +1,13 @@
 'use client';
 
 import { astToJSX, type MarkdownToJSX, parser, RuleType } from 'markdown-to-jsx/react';
-import { Fragment, type ReactNode, useMemo, useRef, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 import { parse } from 'sugar-high/core';
 import { lang, languages } from 'sugar-high/lang';
 import { type Locale, t } from '../../../lib/i18n';
 import { GlossaryText } from './GlossaryActions';
+import { type GlossaryMatches, MatchedText, type RenderMatch } from './MatchedText';
+import { markdownGlossary } from './markdownGlossary';
 import './markdown.css';
 
 function destination(value: string) {
@@ -87,11 +89,25 @@ function CodeBlock({
   );
 }
 
-function formatted(ast: MarkdownToJSX.ASTNode[], locale: Locale) {
+function formatted(
+  ast: MarkdownToJSX.ASTNode[],
+  locale: Locale,
+  projected: ReturnType<typeof markdownGlossary>,
+  renderMatch: RenderMatch,
+) {
   return astToJSX(ast, {
     ...options,
     wrapper: null,
     renderRule(next, node, _children, state) {
+      const segments = projected.get(node);
+      if (segments)
+        return (
+          <Fragment key={state.key}>
+            {segments.map((part, index) =>
+              typeof part === 'string' ? part : renderMatch(part.match, part.label, index),
+            )}
+          </Fragment>
+        );
       if (node.type === RuleType.image) return node.alt || '';
       if (node.type === RuleType.codeBlock)
         return <CodeBlock key={state.key} text={node.text} language={node.lang} locale={locale} />;
@@ -100,20 +116,24 @@ function formatted(ast: MarkdownToJSX.ASTNode[], locale: Locale) {
   });
 }
 
+const emptyMatches: GlossaryMatches = [];
+
 export function RequirementMarkdown({
   text,
   locale,
   sourceId,
   version,
-  showExact,
-  children,
+  projectId,
+  matches = emptyMatches,
+  highlight,
 }: {
   sourceId?: string;
   version?: number;
-  showExact?: boolean;
+  projectId: string;
+  matches?: GlossaryMatches;
+  highlight?: { start: number; end: number };
   text: string;
   locale: Locale;
-  children: ReactNode;
 }) {
   const [source, setSource] = useState(false);
   const ast = useMemo(() => parser(text, options), [text]);
@@ -124,12 +144,23 @@ export function RequirementMarkdown({
         node.type !== RuleType.paragraph ||
         node.children.some((part) => part.type !== RuleType.text),
     );
+  const projected = useMemo(
+    () =>
+      markdownGlossary(
+        text,
+        ast,
+        hasMarkup && !highlight && !source ? matches : emptyMatches,
+        options,
+      ),
+    [text, ast, hasMarkup, highlight, source, matches],
+  );
+  const matchedProps = { projectId, text, matches, locale };
   const exactText = (
     <GlossaryText className="user-content" sourceId={sourceId} version={version}>
-      {children}
+      <MatchedText {...matchedProps} highlight={highlight} />
     </GlossaryText>
   );
-  if (showExact || !hasMarkup) return exactText;
+  if (highlight || !hasMarkup) return exactText;
   return (
     <>
       <button
@@ -149,7 +180,9 @@ export function RequirementMarkdown({
           sourceId={sourceId}
           version={version}
         >
-          {formatted(ast, locale)}
+          <MatchedText {...matchedProps}>
+            {(renderMatch) => formatted(ast, locale, projected, renderMatch)}
+          </MatchedText>
         </GlossaryText>
       )}
     </>

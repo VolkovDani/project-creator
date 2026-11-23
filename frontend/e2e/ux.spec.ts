@@ -1275,6 +1275,39 @@ for (const route of ['requirements', 'analysis']) {
   });
 }
 
+test('page contents and nested disclosures look interactive and toggle from the keyboard', async ({
+  page,
+}, testInfo) => {
+  const theme = testInfo.project.name === 'narrow' ? 'light' : 'dark';
+  await page.addInitScript((value) => localStorage.setItem('project-creator-theme', value), theme);
+  await fixture(page, 1);
+  await page.goto('/projects/demo/requirements');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+  const contents = page.getByRole('navigation', { name: 'На этой странице' }).locator('details');
+  const source = page
+    .locator('#requirement-r0 details')
+    .filter({
+      has: page.locator('summary', { hasText: 'Полный исходный текст требования' }),
+    })
+    .first();
+  const group = page.getByRole('group', { name: 'Список требований', exact: true });
+  for (const panel of [contents, source, group]) {
+    await expect(panel).toHaveCSS('border-top-style', 'solid');
+    await expect(panel).toHaveCSS('border-top-width', '1px');
+    await expect(panel).not.toHaveCSS('padding-inline-start', '0px');
+    const summary = panel.locator(':scope > summary');
+    await expect(summary).toHaveCSS('display', 'list-item');
+    await expect(summary).toHaveCSS('cursor', 'pointer');
+  }
+  const summary = source.locator(':scope > summary');
+  await summary.focus();
+  await page.keyboard.press('Enter');
+  await expect(source).toHaveAttribute('open', '');
+  await expect(summary).toHaveCSS('outline-style', 'solid');
+  await page.keyboard.press('Space');
+  await expect(source).not.toHaveAttribute('open', '');
+});
+
 test('page contents link to requirement entry and the list', async ({ page }) => {
   await fixture(page, 3);
   await page.goto('/projects/demo/requirements');

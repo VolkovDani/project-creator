@@ -325,7 +325,7 @@ aside .interface-preferences {
   margin: 0 0 0 var(--space-2);
 }
 .skeleton,
-.data-group,
+details,
 .analysis-group {
   min-width: 0;
   border: var(--line) solid var(--border);
@@ -350,11 +350,13 @@ aside .interface-preferences {
 .record-list {
   min-height: 180px;
 }
-.data-group,
+details,
 .analysis-group {
   margin: var(--space-4) 0;
 }
 summary {
+  color: var(--text);
+  font-weight: 600;
   cursor: pointer;
   border-radius: var(--radius-control);
   overflow-wrap: anywhere;
@@ -363,9 +365,6 @@ summary:hover,
 details[open] > summary {
   color: var(--action-hover);
 }
-.analysis-group > summary {
-  font-weight: 600;
-}
 .data-group > summary h3 {
   display: inline;
   font-size: var(--text-body);
@@ -373,6 +372,7 @@ details[open] > summary {
 }
 .data-group > summary span {
   display: block;
+  font-weight: normal;
   font-size: var(--text-small);
   margin: var(--space-2) 0 0 var(--space-4);
   color: var(--text-muted);

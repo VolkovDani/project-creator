@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import npu_runtime as npu
 
@@ -75,6 +76,18 @@ def finding(**overrides):
 
 
 class ContractTests(unittest.TestCase):
+    def test_source_limit_is_independent_of_revision_reason_limit(self):
+        path = Path(npu.__file__).resolve().parents[2] / 'contracts' / 'requirement.json'
+        contract = json.loads(path.read_text(encoding='utf-8'))
+        contract['fields']['text']['maxLength'] = 120
+        contract['fields']['changeReason']['maxLength'] = 30
+        with patch.object(Path, 'read_text', return_value=json.dumps(contract)):
+            self.assertEqual(npu.requirement_text_max_length(), 120)
+        contract['fields']['changeReason']['blank'] = 'unknown'
+        with patch.object(Path, 'read_text', return_value=json.dumps(contract)):
+            with self.assertRaises(RuntimeError):
+                npu.requirement_text_max_length()
+
     def test_source_length_matches_shared_requirement_contract(self):
         value = request()['pair']['left']
         value['text'] = 'я' * 2001

@@ -61,6 +61,10 @@ func TestPostgresImportPreservesDataAndRefusesRepeat(t *testing.T) {
 	if text != "Текст" || version != 7 || created != "before" || updated != "after" {
 		t.Fatalf("data changed: %q %d %q %q", text, version, created, updated)
 	}
+	var snapshots int
+	if err = dst.QueryRow(`SELECT count(*) FROM requirement_text_revisions WHERE requirement_id='r' AND version=7 AND text='Текст' AND created_at='after' AND change_reason IS NULL AND author IS NULL`).Scan(&snapshots); err != nil || snapshots != 1 {
+		t.Fatalf("imported snapshot count %d: %v", snapshots, err)
+	}
 	if _, err = Import(context.Background(), src, dst); err == nil {
 		t.Fatal("accepted repeated import")
 	}

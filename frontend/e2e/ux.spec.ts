@@ -220,16 +220,80 @@ test('requirement edit conflict keeps the draft and saving closes the dialog', a
   const dialog = page.getByRole('dialog');
   const editor = dialog.getByLabel('Текст требования');
   await editor.fill('Новая редакция');
+  const save = dialog.getByRole('button', { name: 'Сохранить', exact: true });
+  await save.click();
+  await expect(dialog.getByRole('alert')).toHaveText('Заполните поле');
+  const reason = dialog.getByLabel('Причина изменения');
+  await expect(reason).toHaveAttribute('aria-invalid', 'true');
+  const draftReason = '  Уточнили сроки\nпосле обсуждения  ';
+  await reason.fill(draftReason);
   api.setText('Сохранённая другая редакция');
   api.conflictNextEdit();
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog.getByRole('alert')).toBeVisible();
   await expect(editor).toHaveValue('Новая редакция');
+  await expect(reason).toHaveValue(draftReason);
   await dialog.getByRole('button', { name: 'Сохранить черновик поверх актуальной версии' }).click();
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  expect(api.editWrites()).toEqual([{ id: 'r0', text: 'Новая редакция', version: 2 }]);
+  expect(api.editWrites()).toEqual([
+    { id: 'r0', text: 'Новая редакция', version: 2, changeReason: draftReason },
+  ]);
   await expect(page.getByLabel('Текст требования')).toHaveValue('Черновик добавления');
+});
+
+test('revision history pages by version and distinguishes creation from legacy edits', async ({
+  page,
+}) => {
+  const api = await fixture(page, 1);
+  for (let version = 2; version <= 13; version++) api.setText(`Текст ${version}`);
+  const cursors: Array<number | null> = [];
+  await page.route('**/api/graphql', async (route) => {
+    const { operationName, variables } = route.request().postDataJSON();
+    if (operationName !== 'RequirementRevisionHistory') return route.fallback();
+    expect(variables.projectId).toBe('demo');
+    expect(variables.requirementId).toBe('r0');
+    cursors.push(variables.beforeVersion ?? null);
+    const revisions = Array.from({ length: 13 }, (_, i) => {
+      const version = 13 - i;
+      return {
+        version,
+        text: `Текст ${version}`,
+        previousText: version === 1 ? null : `Текст ${version - 1}`,
+        changeReason: version <= 2 ? null : `Причина ${version}`,
+        author: version === 13 ? 'Автор' : null,
+        createdAt: version === 2 ? 'Legacy timestamp' : '2026-11-20T14:23:01Z',
+      };
+    });
+    await route.fulfill({
+      json: {
+        data: {
+          requirementRevisionHistory: revisions
+            .filter((row) => !variables.beforeVersion || row.version < variables.beforeVersion)
+            .slice(0, variables.first),
+        },
+      },
+    });
+  });
+  await page.goto('/projects/demo/requirements');
+  const history = page.getByRole('group', { name: 'История текста требования' });
+  await history.locator('summary').click();
+  const entries = history.getByRole('listitem');
+  await expect(entries.first()).toContainText('Версия 12 → 13');
+  await expect(entries.first()).toContainText('Текст 12');
+  await expect(entries.first()).toContainText('Текст 13');
+  await expect(entries.first()).toContainText('Причина 13');
+  await expect(entries.first()).toContainText('Автор');
+  await expect(entries.first().locator('time')).toHaveAttribute('datetime', '2026-11-20T14:23:01Z');
+  const more = history.getByRole('button', { name: 'Загрузить ещё' });
+  await more.focus();
+  await page.keyboard.press('Enter');
+  await expect(entries).toHaveCount(13);
+  await expect(entries.nth(11)).toContainText('Причина изменения не указана');
+  await expect(entries.nth(11)).toContainText('Legacy timestamp');
+  await expect(entries.last()).toContainText('Исходная версия');
+  await expect(entries.last()).not.toContainText('Причина изменения');
+  expect(cursors).toEqual([null, 4]);
 });
 
 test('a busy requirement dialog rejects Escape and keeps network errors visible', async ({
@@ -241,6 +305,7 @@ test('a busy requirement dialog rejects Escape and keeps network errors visible'
   await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Текст требования').fill('Busy edit');
+  await dialog.getByLabel('Причина изменения').fill('User reason');
   const save = dialog.getByRole('button', { name: 'Сохранить', exact: true });
   await save.click();
   await request.started;
@@ -249,6 +314,7 @@ test('a busy requirement dialog rejects Escape and keeps network errors visible'
   await expect(dialog).toBeVisible();
   request.release();
   await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(dialog.getByLabel('Причина изменения')).toHaveValue('User reason');
   await expect(dialog).toBeVisible();
 });
 
@@ -339,7 +405,7 @@ async function fixture(
   };
   const connectionReads: Array<{ first: number; after: string | null }> = [];
   const indexReads: string[][] = [];
-  const editWrites: Array<{ id: string; text: string; version: number }> = [];
+  const editWrites: Array<{ id: string; text: string; version: number; changeReason: string }> = [];
   let indexes = rows.map((r, i) => ({
     requirementId: r.id,
     version: 1,
@@ -385,7 +451,12 @@ async function fixture(
         };
       } else {
         const index = rows.findIndex((row) => row.id === input.id);
-        editWrites.push({ id: input.id, text: input.text, version: input.version });
+        editWrites.push({
+          id: input.id,
+          text: input.text,
+          version: input.version,
+          changeReason: input.changeReason,
+        });
         rows[index] = { ...rows[index], text: input.text, version: rows[index].version + 1 };
         data = {
           updateRequirement: {

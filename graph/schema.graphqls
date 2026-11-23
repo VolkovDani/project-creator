@@ -5,7 +5,8 @@ type ErrorParam { key: String! value: Int! }
 type CreateProjectPayload { project: Project fieldErrors: [FieldError!]! }
 type Requirement { id: ID! projectId: ID! text: String! version: Int! createdAt: String! updatedAt: String! }
 input CreateRequirementInput { projectId: ID! text: String! }
-input UpdateRequirementInput { id: ID! projectId: ID! version: Int! text: String! }
+input UpdateRequirementInput { id: ID! projectId: ID! version: Int! text: String! changeReason: String }
+type RequirementTextRevision { version: Int! text: String! previousText: String changeReason: String author: String createdAt: String! }
 type RequirementPayload { requirement: Requirement fieldErrors: [FieldError!]! }
 type DeleteRequirementPayload { deleted: Boolean! }
 type PageInfo { endCursor: String hasNextPage: Boolean! }
@@ -27,6 +28,7 @@ type GlossaryTermsPage { items: [GlossaryTerm!]! pageInfo: PageInfo! }
 type GlossaryMatchesPage { items: [GlossaryCandidate!]! pageInfo: PageInfo! }
 type GlossaryMentionPage { items: [Requirement!]! pageInfo: PageInfo! }
 type Query {
+requirementRevisionHistory(projectId: ID! requirementId: ID! first: Int! beforeVersion: Int): [RequirementTextRevision!]!
 classificationProgress(projectId: ID!): ClassificationProgress
 classificationList(projectId: ID! semanticType: String representationType: String status: String limit: Int! offset: Int!): [ClassificationListItem!]!
 classificationListByIds(projectId: ID! requirementIds: [ID!]!): [ClassificationListItem!]!

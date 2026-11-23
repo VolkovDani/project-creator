@@ -43,10 +43,19 @@ type CreateRequirementInput struct {
 	Text      string
 }
 type UpdateRequirementInput struct {
-	ID        graphql.ID
-	ProjectId graphql.ID
-	Version   int32
-	Text      string
+	ID           graphql.ID
+	ProjectId    graphql.ID
+	Version      int32
+	Text         string
+	ChangeReason *string
+}
+type RequirementTextRevision struct {
+	Version      int32
+	Text         string
+	PreviousText *string
+	ChangeReason *string
+	Author       *string
+	CreatedAt    string
 }
 type RequirementPayload struct {
 	Requirement *Requirement
@@ -168,6 +177,12 @@ type GlossaryMatchesPage struct {
 type GlossaryMentionPage struct {
 	Items    []*Requirement
 	PageInfo *PageInfo
+}
+type RequirementRevisionHistoryArgs struct {
+	ProjectId     graphql.ID
+	RequirementId graphql.ID
+	First         int32
+	BeforeVersion *int32
 }
 type ClassificationProgressArgs struct {
 	ProjectId graphql.ID

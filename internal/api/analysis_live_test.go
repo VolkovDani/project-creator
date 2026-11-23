@@ -11,8 +11,8 @@ func TestAnalysisEventsCoalesceToAuthorizedLatestSnapshot(t *testing.T) {
 	if err := db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 16 {
-		t.Fatalf("migration version = %d, want 16", version)
+	if version != 17 {
+		t.Fatalf("migration version = %d, want 17", version)
 	}
 	if _, err := db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now')`); err != nil {
 		t.Fatal(err)

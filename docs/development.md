@@ -535,13 +535,9 @@ against the shared contract `contracts/requirement.json`, identically in Go and
 TypeScript; shared examples are in `contracts/requirement.fixtures.json`.
 Requirements belong to a workspace and project. The interface appends a batch of up to 40 requirements when the reader reaches the end of the loaded list or presses **Load more**.
 
-Each change increments the version. Updates and deletion check the expected
-version and do not overwrite a newer edit. On conflict, the interface reloads the
-list and allows the saved draft to be applied on top of the current version. A
-complete history of all revisions is not available yet, but the index and analysis
-attempts preserve versions and snapshots of the sources used. Editing a requirement
-requires reindexing and makes previous analyses stale. These mechanisms are
-implemented and described in the [search and analysis guide](requirement-analysis.md).
+The update mutation checks the expected version and requires `input.changeReason`. A missing, empty or whitespace-only reason returns a field error at that path. Both validators use the examples in `contracts/revision-reason.fixtures.json`. PostgreSQL saves the new text, version, reason and timestamp atomically. On a version conflict the interface keeps the draft text and reason. Deletion also checks the expected version.
+
+The requirement card shows text revisions recorded since upgrade. Indexing and analysis retain their own source snapshots. Editing triggers reindexing and marks previous analyses stale. See the [search and analysis guide](requirement-analysis.md).
 
 Editing opens a modal dialog; saving closes it, while Cancel and Escape discard
 the edit draft. Clicking the backdrop does not close the dialog, and an in-flight

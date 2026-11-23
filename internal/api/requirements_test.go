@@ -43,7 +43,7 @@ func TestRequirementLifecycleAndWorkspaceIsolation(t *testing.T) {
 	if len(denied["requirements"].([]any)) != 0 {
 		t.Fatal(denied)
 	}
-	cross := run("token-b", fmt.Sprintf(`mutation { updateRequirement(input:{id:"%s",projectId:"%s",version:1,text:"attacker"}) { requirement{id} } }`, id, project))
+	cross := run("token-b", fmt.Sprintf(`mutation { updateRequirement(input:{id:"%s",projectId:"%s",version:1,changeReason:"Clarify the requirement",text:"attacker"}) { requirement{id} } }`, id, project))
 	if cross["updateRequirement"].(map[string]any)["requirement"] != nil {
 		t.Fatal(cross)
 	}
@@ -55,12 +55,12 @@ func TestRequirementLifecycleAndWorkspaceIsolation(t *testing.T) {
 	if len(invalid["createRequirement"].(map[string]any)["fieldErrors"].([]any)) != 1 {
 		t.Fatal(invalid)
 	}
-	result := run("token-a", fmt.Sprintf(`mutation { updateRequirement(input:{id:"%s",projectId:"%s",version:1,text:"Вторая версия"}) { requirement{text version} } }`, id, project))
+	result := run("token-a", fmt.Sprintf(`mutation { updateRequirement(input:{id:"%s",projectId:"%s",version:1,changeReason:"Clarify the requirement",text:"Вторая версия"}) { requirement{text version} } }`, id, project))
 	u := result["updateRequirement"].(map[string]any)["requirement"].(map[string]any)
 	if u["text"] != "Вторая версия" || u["version"] != float64(2) {
 		t.Fatal(result)
 	}
-	conflict := run("token-a", fmt.Sprintf(`mutation { updateRequirement(input:{id:"%s",projectId:"%s",version:1,text:"stale"}) { fieldErrors { code } } }`, id, project))
+	conflict := run("token-a", fmt.Sprintf(`mutation { updateRequirement(input:{id:"%s",projectId:"%s",version:1,changeReason:"Clarify the requirement",text:"stale"}) { fieldErrors { code } } }`, id, project))
 	fields := conflict["updateRequirement"].(map[string]any)["fieldErrors"].([]any)
 	if len(fields) != 1 || fields[0].(map[string]any)["code"] != "CONFLICT" {
 		t.Fatal(conflict)

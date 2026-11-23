@@ -48,6 +48,7 @@ export function ProjectNavigation({
   const toggle = useRef<HTMLButtonElement>(null);
   const sidebar = useRef<HTMLElement>(null);
   const indexing = pathname === `${base}/indexing`;
+  const history = pathname === `${base}/technical/analysis-history`;
   const technical = pathname === `${base}/technical`;
 
   useEffect(() => {
@@ -102,7 +103,7 @@ export function ProjectNavigation({
               </Link>
             </>
           )}
-          {indexing && (
+          {(indexing || history) && (
             <>
               <span aria-hidden="true">/</span>
               <Link href={`${base}/technical`} onNavigate={closeMobileMenu}>
@@ -141,14 +142,14 @@ export function ProjectNavigation({
               <li className={styles.technical}>
                 <Link
                   href={`${base}/technical`}
-                  aria-current={technical ? 'page' : indexing ? 'location' : undefined}
+                  aria-current={technical ? 'page' : indexing || history ? 'location' : undefined}
                   onNavigate={closeMobileMenu}
                 >
                   <DesignIcon name="technical" />
                   {t(locale, 'nav.technical')}
                   {mobile && <DesignIcon name="next" />}
                 </Link>
-                {(technical || indexing) && (
+                {(technical || indexing || history) && (
                   <ul>
                     <li>
                       <Link
@@ -158,6 +159,17 @@ export function ProjectNavigation({
                       >
                         <DesignIcon name="indexing" />
                         {t(locale, 'nav.indexing')}
+                        {mobile && <DesignIcon name="next" />}
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        href={`${base}/technical/analysis-history`}
+                        aria-current={history ? 'page' : undefined}
+                        onNavigate={closeMobileMenu}
+                      >
+                        <DesignIcon name="analysis" />
+                        {t(locale, 'analysis.history')}
                         {mobile && <DesignIcon name="next" />}
                       </Link>
                     </li>

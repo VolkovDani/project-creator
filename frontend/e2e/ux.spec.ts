@@ -35,6 +35,7 @@ test('project menu groups sections and keeps diagnostics accessible on a direct 
     'Анализ',
     'Технический раздел',
     'Индексация',
+    'История запусков',
   ]);
   for (const link of await nav.getByRole('link').all()) {
     await expect(link.locator(':scope > svg:first-child[aria-hidden="true"]')).toHaveCount(1);

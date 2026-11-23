@@ -75,6 +75,7 @@ export function groupPairs(run: AnalysisRun): AnalysisGroup[] {
 export function canRetryPairs(run: AnalysisRun): boolean {
   return (
     run.status === 'failed' &&
+    !run.deletionScheduledFor &&
     run.errorCode !== 'REPLACED' &&
     !run.stale &&
     (run.failedPairs > 0 || run.totalPairs == null)

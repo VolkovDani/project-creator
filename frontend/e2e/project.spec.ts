@@ -23,8 +23,14 @@ test('create a project and open it after reload', async ({ page }) => {
   await other.goto(page.url());
   await other.getByRole('button', { name: 'Изменить' }).click();
   await other.getByRole('dialog').getByLabel('Текст требования').fill('Мой черновик');
+  await other.getByLabel('Причина изменения').fill('Учесть решение заказчика');
   await page.getByRole('button', { name: 'Изменить' }).click();
   await page.getByRole('dialog').getByLabel('Текст требования').fill('Требование два');
+  const reason = page.getByRole('dialog').getByLabel('Причина изменения');
+  await reason.fill('   ');
+  await page.getByRole('dialog').getByRole('button', { name: 'Сохранить' }).click();
+  await expect(reason).toHaveAttribute('aria-invalid', 'true');
+  await reason.fill('Уточнить сроки');
   await page.getByRole('dialog').getByRole('button', { name: 'Сохранить' }).click();
   await expect(page.getByText('Версия 2')).toBeVisible();
   await other.getByRole('dialog').getByRole('button', { name: 'Сохранить' }).click();
@@ -34,6 +40,7 @@ test('create a project and open it after reload', async ({ page }) => {
   await expect(other.getByRole('dialog').getByLabel('Текст требования')).toHaveValue(
     'Мой черновик',
   );
+  await expect(other.getByLabel('Причина изменения')).toHaveValue('Учесть решение заказчика');
   await other
     .getByRole('dialog')
     .getByRole('button', { name: 'Сохранить черновик поверх актуальной версии' })
@@ -42,9 +49,74 @@ test('create a project and open it after reload', async ({ page }) => {
   await expect(other.getByText('Версия 3')).toBeVisible();
   await page.reload();
   await expect(page.getByText('Мой черновик', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Удалить' }).click();
-  await expect(page.getByText('Требований пока нет')).toBeVisible();
+  const history = page.getByRole('group', { name: 'История текста требования' });
+  await history.locator('summary').click();
+  const versions = history.getByRole('listitem');
+  await expect(versions).toHaveCount(3);
+  await expect(versions.nth(0)).toContainText('Версия 2 → 3');
+  await expect(versions.nth(0)).toContainText('Требование два');
+  await expect(versions.nth(0)).toContainText('Мой черновик');
+  await expect(versions.nth(0)).toContainText('Учесть решение заказчика');
+  await expect(versions.nth(1)).toContainText('Уточнить сроки');
+  await expect(versions.nth(2)).toContainText('Требование один');
   await other.close();
+});
+test('only the selected archived requirement can be permanently deleted after confirmation', async ({
+  page,
+}) => {
+  await page.goto('/projects/new');
+  await page.getByLabel('Название').fill('Проверка архива');
+  await page.getByLabel('Цель').fill('Безопасное удаление');
+  await page.getByRole('button', { name: 'Создать проект' }).click();
+  await page.getByRole('navigation').getByRole('link', { name: 'Требования', exact: true }).click();
+  const selected = 'Проверить срок поставки';
+  const survivor = 'Согласовать цену поставки';
+  for (const text of [selected, survivor]) {
+    await page.getByLabel('Текст требования').fill(text);
+    await page.getByRole('button', { name: 'Добавить требование' }).click();
+    await expect(page.getByText(text, { exact: true })).toBeVisible();
+  }
+  const mutations: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/graphql') && request.method() === 'POST') {
+      const operation = request.postDataJSON()?.operationName;
+      if (operation) mutations.push(operation);
+    }
+  });
+  const move = page
+    .locator('#requirements-list article')
+    .filter({ hasText: selected })
+    .getByRole('button', { name: 'В архив', exact: true });
+  await expect(page.getByRole('button', { name: 'Удалить навсегда' })).toHaveCount(0);
+  await move.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText(selected, { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Отмена' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Отмена' }).click();
+  await expect(move).toBeFocused();
+  expect(mutations).not.toContain('ArchiveRequirement');
+  await move.click();
+  await dialog.getByRole('button', { name: 'Переместить в архив' }).click();
+  const archive = page.getByRole('group', { name: 'Архив требований' });
+  await archive.locator('summary').click();
+  const purge = archive.getByRole('button', { name: 'Удалить навсегда' });
+  await expect(archive.getByText(selected, { exact: true })).toBeVisible();
+  await purge.click();
+  await expect(dialog.getByRole('button', { name: 'Отмена' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(purge).toBeFocused();
+  expect(mutations).not.toContain('RemoveRequirement');
+  await archive.getByRole('button', { name: 'Восстановить' }).click();
+  await expect(move).toBeVisible();
+  await move.click();
+  await dialog.getByRole('button', { name: 'Переместить в архив' }).click();
+  await purge.click();
+  await dialog.getByRole('button', { name: 'Удалить навсегда' }).click();
+  await expect(archive.getByText('Архив пуст')).toBeVisible();
+  expect(mutations.filter((name) => name === 'RemoveRequirement')).toHaveLength(1);
+  await expect(
+    page.locator('#requirements-list').getByText(survivor, { exact: true }),
+  ).toBeVisible();
 });
 test('pair analysis uses the threshold configured on the running backend', async ({ page }) => {
   await page.goto('/projects/new');
@@ -124,6 +196,7 @@ test('create stays locked until its response completes', async ({ page }) => {
 test('two tabs receive project and requirement invalidations without reload', async ({ page }) => {
   const watcher = await page.context().newPage();
   await page.goto('/');
+  await watcher.addInitScript(() => localStorage.setItem('project-creator-locale', 'en'));
   await watcher.goto('/');
   const name = `Live ${Date.now()}`;
   await page.getByRole('link', { name: 'Создать проект', exact: true }).click();
@@ -133,20 +206,37 @@ test('two tabs receive project and requirement invalidations without reload', as
   await expect(watcher.getByRole('link', { name })).toBeVisible({ timeout: 15000 });
   await watcher.getByRole('link', { name }).click();
   await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
-  await watcher.getByRole('link', { name: 'Требования', exact: true }).first().click();
+  await watcher.getByRole('link', { name: 'Requirements', exact: true }).first().click();
   await page.getByLabel('Текст требования').fill('Live requirement');
   await page.getByRole('button', { name: 'Добавить требование' }).click();
   await expect(watcher.getByText('Live requirement', { exact: true })).toBeVisible({
     timeout: 15000,
   });
   await page.getByRole('button', { name: 'Изменить' }).click();
+  const history = watcher.getByRole('group', { name: 'Requirement text history' });
+  await history.locator('summary').click();
+  await expect(history.getByRole('listitem')).toHaveCount(1);
   await page.getByRole('dialog').getByLabel('Текст требования').fill('Changed in another tab');
+  await page.getByRole('dialog').getByLabel('Причина изменения').fill('Clarify the deadline');
   await page.getByRole('dialog').getByRole('button', { name: 'Сохранить', exact: true }).click();
-  await expect(watcher.getByText('Changed in another tab', { exact: true })).toBeVisible({
+  const revision = history.getByRole('listitem').first();
+  await expect(revision).toContainText('Version 1 → 2', { timeout: 15000 });
+  await expect(revision).toContainText('Changed in another tab');
+  await expect(revision).toContainText('Clarify the deadline');
+  await page.getByRole('button', { name: 'В архив', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Переместить в архив' }).click();
+  await expect(watcher.getByText('No requirements yet')).toBeVisible({ timeout: 15000 });
+  const archive = watcher.getByRole('group', { name: 'Requirements archive' });
+  await archive.locator('summary').click();
+  await expect(archive.getByText('Changed in another tab', { exact: true })).toBeVisible();
+  await archive.getByRole('button', { name: 'Restore', exact: true }).click();
+  await expect(
+    page.locator('#requirements-list').getByText('Версия 2', { exact: true }),
+  ).toBeVisible({
     timeout: 15000,
   });
-  await page.getByRole('button', { name: 'Удалить' }).click();
-  await expect(watcher.getByText('Требований пока нет')).toBeVisible({ timeout: 15000 });
+  await expect(revision).toContainText('Clarify the deadline');
+  await expect(history.getByRole('listitem')).toHaveCount(2);
   await watcher.close();
 });
 

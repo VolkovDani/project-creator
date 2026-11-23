@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/VolkovDani/project-creator/internal/analysis"
@@ -53,16 +55,19 @@ func analysisDatabaseAtVersion(t *testing.T, version int) *sql.DB {
 	if _, err = db.Exec(`CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY)`); err != nil {
 		t.Fatal(err)
 	}
-	files := []string{"001_initial.sql", "002_cache_events.sql", "003_rag.sql", "004_analysis.sql", "005_analysis_diagnostics.sql"}
-	for i, name := range files[:version] {
-		script, err := os.ReadFile("../storage/migrations/" + name)
+	for n := 1; n <= version; n++ {
+		files, err := filepath.Glob(fmt.Sprintf("../storage/migrations/%03d_*.sql", n))
+		if err != nil || len(files) != 1 {
+			t.Fatalf("migration %d: %v, %v", n, files, err)
+		}
+		script, err := os.ReadFile(files[0])
 		if err != nil {
 			t.Fatal(err)
 		}
 		if _, err = db.Exec(string(script)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err = db.Exec(`INSERT INTO schema_migrations VALUES($1)`, i+1); err != nil {
+		if _, err = db.Exec(`INSERT INTO schema_migrations VALUES($1)`, n); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -76,11 +76,35 @@
   padding-bottom: var(--space-4);
   border-bottom: var(--line) solid var(--border);
 }
-.projectName {
+.switcher {
+  margin: var(--space-4) 0 var(--space-2);
+}
+.switcher > button {
+  width: 100%;
+  margin: 0;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.switcher small {
+  display: block;
   color: var(--text-muted);
-  margin: var(--space-5) var(--space-control) var(--space-2);
-  font-size: var(--text-small);
-  font-weight: 600;
+  font-weight: 400;
+}
+.projectChoices {
+  max-height: 35dvh;
+  overflow-y: auto;
+  padding: var(--space-2);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius-control);
+}
+.projectChoices ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.projectChoices li > * {
+  display: block;
+  padding: var(--space-2);
 }
 .navigation ul {
   display: grid;

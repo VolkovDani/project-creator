@@ -87,7 +87,7 @@ func (s *Service) Start(workspaces []string) error {
 		} else {
 			_, e = tx.ExecContext(s.ctx, `INSERT INTO summary_profiles VALUES($1,$2,$3) ON CONFLICT(workspace) DO UPDATE SET profile=excluded.profile,provenance=excluded.provenance`, w, s.Profile(), s.generator.Provenance())
 			if e == nil {
-				_, e = tx.ExecContext(s.ctx, `INSERT INTO requirement_summaries(workspace,project_id,requirement_id,version,profile,provenance,status) SELECT workspace,project_id,id,version,$2,$3,'queued' FROM requirements WHERE workspace=$1 ON CONFLICT(workspace,project_id,requirement_id,version,profile) DO UPDATE SET status='queued',text='',attempt='',error_code='',provenance=excluded.provenance WHERE requirement_summaries.status='stale'`, w, s.Profile(), s.generator.Provenance())
+				_, e = tx.ExecContext(s.ctx, `INSERT INTO requirement_summaries(workspace,project_id,requirement_id,version,profile,provenance,status) SELECT workspace,project_id,id,version,$2,$3,'queued' FROM active_requirements WHERE workspace=$1 ON CONFLICT(workspace,project_id,requirement_id,version,profile) DO UPDATE SET status='queued',text='',attempt='',error_code='',provenance=excluded.provenance WHERE requirement_summaries.status='stale'`, w, s.Profile(), s.generator.Provenance())
 			}
 		}
 		if e != nil {
@@ -109,7 +109,7 @@ func (s *Service) ByIDs(ctx context.Context, w, p string, ids []string) ([]State
 	if e := auth(ctx, s.db, w, p); e != nil {
 		return nil, e
 	}
-	rows, e := s.db.QueryContext(ctx, `SELECT r.id,r.version,coalesce(s.status,CASE WHEN $4='' THEN 'not_configured' ELSE 'missing' END),coalesce(s.text,''),coalesce(s.provenance,''),coalesce(s.created_at::text,''),coalesce(s.error_code,'') FROM unnest($3::text[]) WITH ORDINALITY requested(id,position) JOIN requirements r ON r.id=requested.id AND r.workspace=$1 AND r.project_id=$2 LEFT JOIN requirement_summaries s ON s.workspace=r.workspace AND s.project_id=r.project_id AND s.requirement_id=r.id AND s.version=r.version AND s.profile=$4 ORDER BY requested.position`, w, p, ids, s.Profile())
+	rows, e := s.db.QueryContext(ctx, `SELECT r.id,r.version,coalesce(s.status,CASE WHEN $4='' THEN 'not_configured' ELSE 'missing' END),coalesce(s.text,''),coalesce(s.provenance,''),coalesce(s.created_at::text,''),coalesce(s.error_code,'') FROM unnest($3::text[]) WITH ORDINALITY requested(id,position) JOIN active_requirements r ON r.id=requested.id AND r.workspace=$1 AND r.project_id=$2 LEFT JOIN requirement_summaries s ON s.workspace=r.workspace AND s.project_id=r.project_id AND s.requirement_id=r.id AND s.version=r.version AND s.profile=$4 ORDER BY requested.position`, w, p, ids, s.Profile())
 	if e != nil {
 		return nil, ErrUnavailable
 	}
@@ -151,9 +151,9 @@ func (s *Service) change(ctx context.Context, w, p, id string, cancel bool) (Sta
 		return State{}, e
 	}
 	if cancel {
-		_, e = tx.ExecContext(ctx, `UPDATE requirement_summaries s SET status='cancelled',attempt='',error_code='CANCELLED' FROM requirements r WHERE s.workspace=$1 AND s.project_id=$2 AND s.requirement_id=$3 AND s.profile=$4 AND s.status IN ('queued','running') AND r.workspace=s.workspace AND r.project_id=s.project_id AND r.id=s.requirement_id AND r.version=s.version`, w, p, id, s.Profile())
+		_, e = tx.ExecContext(ctx, `UPDATE requirement_summaries s SET status='cancelled',attempt='',error_code='CANCELLED' FROM active_requirements r WHERE s.workspace=$1 AND s.project_id=$2 AND s.requirement_id=$3 AND s.profile=$4 AND s.status IN ('queued','running') AND r.workspace=s.workspace AND r.project_id=s.project_id AND r.id=s.requirement_id AND r.version=s.version`, w, p, id, s.Profile())
 	} else {
-		_, e = tx.ExecContext(ctx, `INSERT INTO requirement_summaries(workspace,project_id,requirement_id,version,profile,provenance,status) SELECT workspace,project_id,id,version,$4,$5,'queued' FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 ON CONFLICT(workspace,project_id,requirement_id,version,profile) DO UPDATE SET status='queued',error_code='',attempt='',text='' WHERE requirement_summaries.status IN ('failed','cancelled','stale')`, w, p, id, s.Profile(), s.generator.Provenance())
+		_, e = tx.ExecContext(ctx, `INSERT INTO requirement_summaries(workspace,project_id,requirement_id,version,profile,provenance,status) SELECT workspace,project_id,id,version,$4,$5,'queued' FROM active_requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 ON CONFLICT(workspace,project_id,requirement_id,version,profile) DO UPDATE SET status='queued',error_code='',attempt='',text='' WHERE requirement_summaries.status IN ('failed','cancelled','stale')`, w, p, id, s.Profile(), s.generator.Provenance())
 	}
 	if e != nil {
 		return State{}, e
@@ -178,7 +178,7 @@ func (s *Service) Cancel(ctx context.Context, w, p, id string) (State, error) {
 // active in storage when multiple service instances share a workspace.
 const currentFailedSummaryFilter = `
 	WHERE s.workspace=$1 AND s.project_id=$2 AND s.profile=$3 AND s.status='failed'
-	  AND EXISTS (SELECT 1 FROM requirements r WHERE r.workspace=s.workspace
+	  AND EXISTS (SELECT 1 FROM active_requirements r WHERE r.workspace=s.workspace
 	      AND r.project_id=s.project_id AND r.id=s.requirement_id AND r.version=s.version)
 	  AND EXISTS (SELECT 1 FROM summary_profiles p WHERE p.workspace=s.workspace AND p.profile=s.profile)`
 
@@ -252,7 +252,7 @@ func (s *Service) claim() (*job, error) {
 			return nil, e
 		}
 		j.attempt = hex.EncodeToString(b[:])
-		e = tx.QueryRowContext(s.ctx, `SELECT s.project_id,r.id,r.version,r.text FROM requirement_summaries s JOIN requirements r ON r.workspace=s.workspace AND r.project_id=s.project_id AND r.id=s.requirement_id AND r.version=s.version JOIN summary_profiles p ON p.workspace=s.workspace AND p.profile=s.profile WHERE s.workspace=$1 AND s.profile=$2 AND s.status='queued' ORDER BY s.created_at,s.requirement_id LIMIT 1 FOR UPDATE OF s SKIP LOCKED`, w, s.Profile()).Scan(&j.project, &j.source.ID, &j.source.Version, &j.source.Text)
+		e = tx.QueryRowContext(s.ctx, `SELECT s.project_id,r.id,r.version,r.text FROM requirement_summaries s JOIN active_requirements r ON r.workspace=s.workspace AND r.project_id=s.project_id AND r.id=s.requirement_id AND r.version=s.version JOIN summary_profiles p ON p.workspace=s.workspace AND p.profile=s.profile WHERE s.workspace=$1 AND s.profile=$2 AND s.status='queued' ORDER BY s.created_at,s.requirement_id LIMIT 1 FOR UPDATE OF s SKIP LOCKED`, w, s.Profile()).Scan(&j.project, &j.source.ID, &j.source.Version, &j.source.Text)
 		if e == sql.ErrNoRows {
 			continue
 		}
@@ -277,7 +277,7 @@ func (s *Service) claim() (*job, error) {
 }
 func (s *Service) owned(ctx context.Context, j *job) bool {
 	var ok bool
-	e := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM requirement_summaries s JOIN requirements r ON r.workspace=s.workspace AND r.project_id=s.project_id AND r.id=s.requirement_id AND r.version=s.version JOIN summary_profiles p ON p.workspace=s.workspace AND p.profile=s.profile WHERE s.workspace=$1 AND s.project_id=$2 AND s.requirement_id=$3 AND s.version=$4 AND s.profile=$5 AND s.attempt=$6 AND s.status='running' AND s.lease_until>clock_timestamp())`, j.workspace, j.project, j.source.ID, j.source.Version, j.profile, j.attempt).Scan(&ok)
+	e := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM requirement_summaries s JOIN active_requirements r ON r.workspace=s.workspace AND r.project_id=s.project_id AND r.id=s.requirement_id AND r.version=s.version JOIN summary_profiles p ON p.workspace=s.workspace AND p.profile=s.profile WHERE s.workspace=$1 AND s.project_id=$2 AND s.requirement_id=$3 AND s.version=$4 AND s.profile=$5 AND s.attempt=$6 AND s.status='running' AND s.lease_until>clock_timestamp())`, j.workspace, j.project, j.source.ID, j.source.Version, j.profile, j.attempt).Scan(&ok)
 	return e == nil && ok
 }
 func summaryErrorCode(err error) string {

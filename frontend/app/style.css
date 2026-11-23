@@ -54,6 +54,17 @@ main p,
 .user-content {
   max-inline-size: var(--reading-width);
 }
+.revision-removed {
+  background-color: var(--danger-tint);
+  color: var(--danger);
+  text-decoration: line-through;
+}
+.revision-added {
+  background-color: color-mix(in srgb, var(--success) 14%, var(--surface));
+  color: var(--success);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
 a {
   color: var(--action);
   text-decoration-line: underline;
@@ -314,7 +325,7 @@ aside .interface-preferences {
   margin: 0 0 0 var(--space-2);
 }
 .skeleton,
-.data-group,
+details,
 .analysis-group {
   min-width: 0;
   border: var(--line) solid var(--border);
@@ -339,11 +350,13 @@ aside .interface-preferences {
 .record-list {
   min-height: 180px;
 }
-.data-group,
+details,
 .analysis-group {
   margin: var(--space-4) 0;
 }
 summary {
+  color: var(--text);
+  font-weight: 600;
   cursor: pointer;
   border-radius: var(--radius-control);
   overflow-wrap: anywhere;
@@ -352,9 +365,6 @@ summary:hover,
 details[open] > summary {
   color: var(--action-hover);
 }
-.analysis-group > summary {
-  font-weight: 600;
-}
 .data-group > summary h3 {
   display: inline;
   font-size: var(--text-body);
@@ -362,6 +372,7 @@ details[open] > summary {
 }
 .data-group > summary span {
   display: block;
+  font-weight: normal;
   font-size: var(--text-small);
   margin: var(--space-2) 0 0 var(--space-4);
   color: var(--text-muted);
@@ -407,7 +418,7 @@ details[open] > summary {
   outline: 3px solid var(--focus);
   scroll-margin-top: var(--space-5);
 }
-.user-content button.glossary-match {
+:is(.user-content, .requirement-markdown) button.glossary-match {
   display: inline;
   min-height: 0;
   margin: 0;

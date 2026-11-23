@@ -132,7 +132,7 @@ func (r *Resolver) RequirementGlossary(ctx context.Context, a RequirementGlossar
 	defer tx.Rollback()
 	var source string
 	if a.AnalysisId == nil {
-		e = tx.QueryRowContext(ctx, `SELECT text FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 AND version=$4`, w, p, a.RequirementId, a.Version).Scan(&source)
+		e = tx.QueryRowContext(ctx, `SELECT text FROM active_requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 AND version=$4`, w, p, a.RequirementId, a.Version).Scan(&source)
 	} else {
 		e = tx.QueryRowContext(ctx, `SELECT s.source->>'text' FROM analysis_sources s JOIN analysis_runs r ON r.id=s.run_id
 WHERE r.workspace=$1 AND r.project_id=$2 AND r.id=$3 AND s.requirement_id=$4 AND (s.source->>'version')::int=$5`, w, p, *a.AnalysisId, a.RequirementId, a.Version).Scan(&source)
@@ -210,7 +210,7 @@ func (r *Resolver) GlossaryCandidates(ctx context.Context, a GlossaryCandidatesA
 	if e != nil {
 		return nil, errors.New("glossary unavailable")
 	}
-	rows, e := r.DB.QueryContext(ctx, `SELECT id,version,text FROM requirements WHERE workspace=$1 AND project_id=$2 ORDER BY created_at,id LIMIT $3 OFFSET $4`, w, p, a.Limit+1, a.Offset)
+	rows, e := r.DB.QueryContext(ctx, `SELECT id,version,text FROM active_requirements WHERE workspace=$1 AND project_id=$2 ORDER BY created_at,id LIMIT $3 OFFSET $4`, w, p, a.Limit+1, a.Offset)
 	if e != nil {
 		return nil, errors.New("glossary unavailable")
 	}
@@ -285,7 +285,7 @@ func (r *Resolver) GlossaryCandidatesConnection(ctx context.Context, a GlossaryC
 	}
 	out := &GlossaryMatchesPage{PageInfo: &PageInfo{}}
 	// Stream scoped source rows; retain only the requested candidates and one lookahead.
-	rows, err := tx.QueryContext(ctx, `SELECT id,version,text FROM requirements WHERE workspace=$1 AND project_id=$2 AND id >= $3 ORDER BY id`, w, p, c.ID)
+	rows, err := tx.QueryContext(ctx, `SELECT id,version,text FROM active_requirements WHERE workspace=$1 AND project_id=$2 AND id >= $3 ORDER BY id`, w, p, c.ID)
 	if err != nil {
 		return nil, errors.New("glossary unavailable")
 	}
@@ -340,7 +340,7 @@ func (r *Resolver) GlossaryMentions(ctx context.Context, a GlossaryMentionsArgs)
 		return out, nil
 	}
 	matches := glossary.MentionsTerm(terms, id)
-	rows, err := tx.QueryContext(ctx, `SELECT id,project_id,text,version,created_at,updated_at FROM requirements WHERE workspace=$1 AND project_id=$2 AND id>$3 ORDER BY id`, w, p, c.ID)
+	rows, err := tx.QueryContext(ctx, `SELECT id,project_id,text,version,created_at,updated_at FROM active_requirements WHERE workspace=$1 AND project_id=$2 AND id>$3 ORDER BY id`, w, p, c.ID)
 	if err != nil {
 		return nil, errors.New("glossary unavailable")
 	}

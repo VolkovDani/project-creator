@@ -71,6 +71,7 @@ const run = (pairs: AnalysisPairView[], overrides: Partial<AnalysisRun> = {}): A
   missingRequirementIds: [],
   createdAt: 'now',
   completedAt: '',
+  deletionScheduledFor: null,
   stale: false,
   generatorProfile: 'g',
   embeddingProfile: 'e',
@@ -153,6 +154,7 @@ test('legacy findings keep the saved source texts and exact versions', () => {
 test('only a current stopped run with failed pairs can resume failed work', () => {
   const failed = run([pair('failed', 0, 'failed')], { status: 'failed', stage: 'finished' });
   assert.equal(canRetryPairs(failed), true);
+  assert.equal(canRetryPairs({ ...failed, deletionScheduledFor: '2026-12-03T12:00:00Z' }), false);
   assert.equal(canRetryPairs({ ...failed, stale: true }), false);
   assert.equal(canRetryPairs({ ...failed, status: 'running' }), false);
   assert.equal(canRetryPairs({ ...failed, errorCode: 'REPLACED' }), false);

@@ -335,7 +335,7 @@ func (s *Service) startWithOptions(ctx context.Context, workspace, project strin
 	if err != nil {
 		return empty, errStorage
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO analysis_sources(run_id,requirement_id,source) SELECT $1,id,jsonb_build_object('id',id,'version',version,'text',text) FROM requirements WHERE workspace=$2 AND project_id=$3`, id, workspace, project)
+	_, err = tx.ExecContext(ctx, `INSERT INTO analysis_sources(run_id,requirement_id,source) SELECT $1,id,jsonb_build_object('id',id,'version',version,'text',text) FROM active_requirements WHERE workspace=$2 AND project_id=$3`, id, workspace, project)
 	if err != nil {
 		return empty, errStorage
 	}
@@ -372,7 +372,7 @@ func (s *Service) Retry(ctx context.Context, workspace, project, id string) (Run
 		return Run{}, err
 	}
 	r, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM analysis_runs WHERE workspace=$1 AND project_id=$2 ORDER BY seq DESC LIMIT 1 FOR UPDATE`, workspace, project))
-	if err != nil || r.ID != id {
+	if err != nil || r.ID != id || r.DeletionScheduledFor != nil {
 		return Run{}, ErrRetryUnavailable
 	}
 	if r.Status == "running" {

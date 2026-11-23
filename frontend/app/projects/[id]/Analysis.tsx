@@ -42,8 +42,10 @@ import { LoadMore } from '../../components/ListControls';
 import rowStyles from '../../components/RecordIcons.module.css';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
+import AnalysisHistoryActions from './AnalysisHistoryActions';
 import { GlossaryText } from './GlossaryActions';
-import { MatchedText, SourceText } from './GlossaryOriginal';
+import { SourceText } from './GlossaryOriginal';
+import { MatchedText } from './MatchedText';
 
 const outcomes: Record<string, string> = {
   possible_collision: 'analysis.outcome.collision',
@@ -544,13 +546,26 @@ export default function Analysis({
   defaultThreshold,
   locale,
   onSource,
+  historyView = false,
 }: {
   projectId: string;
   defaultThreshold: number;
   locale: Locale;
   onSource?: SourceHandler;
+  historyView?: boolean;
 }) {
   const [run, setRun] = useState<LiveRun | null>();
+  const runRef = useRef(run);
+  runRef.current = run;
+  const [retentionDays, setRetentionDays] = useState<number>();
+  const tags = useMemo(
+    () => [
+      `project:${projectId}:analysis`,
+      `project:${projectId}:analysis-history`,
+      `project:${projectId}:requirements`,
+    ],
+    [projectId],
+  );
   const [selected, setSelected] = useState('');
   const [mode, setMode] = useState(analysisRules.defaultMode);
   const [thresholdOverride, setThresholdOverride] = useState<string>();
@@ -575,11 +590,12 @@ export default function Analysis({
     const generation = latest.current.begin();
     setLoading(true);
     const epoch = operation.current;
+    const runAtStart = runRef.current;
     try {
       const data = await query(
         ProjectAnalysisSummaryDocument,
-        { projectId, analysisId: selected || null },
-        { tags: [`project:${projectId}:analysis`, `project:${projectId}:requirements`] },
+        { projectId, analysisId: selected || null, withRetention: historyView },
+        { tags },
       );
       if (
         active.current &&
@@ -587,11 +603,15 @@ export default function Analysis({
         operation.current === epoch &&
         latest.current.isCurrent(generation)
       ) {
-        setRun((current) =>
-          data.projectAnalysis
-            ? acceptSnapshot(current, liveRun(data.projectAnalysis))
-            : (current ?? null),
-        );
+        setRetentionDays(data.analysisDeletionRetentionDays);
+        const snapshot = data.projectAnalysis ? liveRun(data.projectAnalysis) : null;
+        // A confirmed latest run can be older or absent after retention cleanup.
+        // Preserve progress that arrived while the query was in flight.
+        setRun((current) => {
+          if (current === runAtStart && current?.id !== snapshot?.id) return snapshot;
+          return snapshot ? acceptSnapshot(current, snapshot) : (current ?? null);
+        });
+        if (selected && !snapshot) setSelected('');
         setError(false);
       }
     } catch {
@@ -601,7 +621,7 @@ export default function Analysis({
     } finally {
       if (active.current && latest.current.isCurrent(generation)) setLoading(false);
     }
-  }, [projectId, selected]);
+  }, [projectId, selected, tags, historyView]);
   useEffect(() => {
     active.current = true;
     operation.current++;
@@ -621,15 +641,16 @@ export default function Analysis({
       const data = await query(
         AnalysisHistoryDocument,
         { projectId, limit: size + 1, offset: Number(after) },
-        { tags: [`project:${projectId}:analysis`, `project:${projectId}:requirements`] },
+        { tags },
       );
       return offsetConnection(data.analysisHistory, after, size);
     },
-    [projectId],
+    [projectId, tags],
   );
   const historyList = useInfinite({
     identity: `analysis-history:${projectId}`,
-    tags: [`project:${projectId}:analysis`, `project:${projectId}:requirements`],
+    tags,
+    enabled: historyView,
     load: historyLoader,
   });
   const history = historyList.rows;
@@ -638,7 +659,7 @@ export default function Analysis({
       void historyList.loadMore().catch(() => {});
   }
   useInvalidation(
-    [`project:${projectId}:analysis`, `project:${projectId}:requirements`],
+    tags,
     () => {
       void load();
     },
@@ -650,8 +671,6 @@ export default function Analysis({
       setError(false);
     },
   );
-  const runRef = useRef(run);
-  runRef.current = run;
   useAnalysisProgress(projectId, (snapshot) => {
     if (selected && selected !== snapshot.id) return;
     const previous = runRef.current;
@@ -667,7 +686,8 @@ export default function Analysis({
           clientCache.invalidate([`project:${projectId}:analysis:${next.id}:${group.key}`]);
       }
     }
-    if (previous && previous.id !== next.id) void historyList.refresh().catch(() => {});
+    if (historyView && previous && previous.id !== next.id)
+      void historyList.refresh().catch(() => {});
     runRef.current = next;
     setRun(next);
     setLoading(false);
@@ -735,7 +755,6 @@ export default function Analysis({
         }
         setSelected('');
         setLoading(false);
-        void historyList.refresh().catch(() => {});
       }
     } catch {
       if (active.current && context.current === projectId && operation.current === epoch)
@@ -744,6 +763,18 @@ export default function Analysis({
       if (active.current && context.current === projectId && operation.current === epoch)
         setBusy(false);
     }
+  }
+  function historyLabel(
+    item: Pick<AnalysisRun, 'createdAt' | 'generatorProfile' | 'deletionScheduledFor'>,
+  ) {
+    return [
+      item.createdAt,
+      item.generatorProfile,
+      item.deletionScheduledFor &&
+        `${t(locale, 'analysis.deletionDeadline')} ${new Date(item.deletionScheduledFor).toLocaleString(locale)}`,
+    ]
+      .filter(Boolean)
+      .join(' · ');
   }
   const heading = `analysis-heading-${encodeURIComponent(projectId)}`;
   const status = busy ? 'running' : run?.status;
@@ -760,7 +791,7 @@ export default function Analysis({
   const groups = run ? groupPairs(run) : [];
   const parametersChanged =
     !!run && (mode !== run.mode || thresholdValue !== run.similarityThreshold);
-  const retryable = !selected && !!run && canRetryPairs(run);
+  const retryable = !historyView && !selected && !!run && canRetryPairs(run);
   const candidatesKnown = !!run && run.totalPairs != null;
   const layaPools = run ? getLayaPools(run) : null;
   const hasLayaPipeline =
@@ -774,84 +805,88 @@ export default function Analysis({
         0);
   return (
     <section className="ui-panel" aria-labelledby={heading}>
-      <h2 id={heading}>{t(locale, 'analysis.title')}</h2>
-      <p>{t(locale, 'analysis.help')}</p>
-      <p>{t(locale, 'analysis.disclaimer')}</p>
-      <label>
-        {t(locale, 'analysis.mode')}{' '}
-        <select value={mode} onChange={(event) => setMode(event.target.value)} disabled={busy}>
-          <option value="related">{t(locale, 'analysis.mode.related')}</option>
-          <option value="all">{t(locale, 'analysis.mode.all')}</option>
-        </select>
-      </label>
-      {mode === 'related' && (
-        <label>
-          {t(locale, 'analysis.threshold')}{' '}
-          <input
-            type="number"
-            min={analysisRules.minThreshold}
-            max={analysisRules.maxThreshold}
-            step={Number(defaultThreshold.toFixed(2)) === defaultThreshold ? 0.01 : 'any'}
-            value={threshold}
-            onChange={(event) => setThresholdOverride(event.target.value)}
-            disabled={busy}
-          />
-        </label>
-      )}
-      <p className="muted">
-        {t(locale, 'analysis.thresholdHelp', {
-          min: analysisRules.minThreshold,
-          max: analysisRules.maxThreshold,
-        })}
-      </p>
-      {selectionValidation.errors.map((error) => (
-        <p role="alert" key={error.path.join('.')}>
-          {t(locale, error.messageKey, error.params)}
-        </p>
-      ))}
-      <button
-        className="primary-action"
-        type="button"
-        disabled={!validSelection || busy || run?.status === 'running'}
-        onClick={() => void changeAnalysis()}
-      >
-        {t(locale, busy ? 'analysis.starting' : run ? 'analysis.newRun' : 'analysis.start')}
-      </button>
-      {run?.status === 'running' && parametersChanged && !selected && (
-        <fieldset>
-          <legend>{t(locale, 'analysis.replacement.strategy')}</legend>
+      <h2 id={heading}>{t(locale, historyView ? 'analysis.history' : 'analysis.title')}</h2>
+      {!historyView && <p>{t(locale, 'analysis.help')}</p>}
+      {(!historyView || run) && <p>{t(locale, 'analysis.disclaimer')}</p>}
+      {!historyView && (
+        <>
           <label>
-            <input
-              type="radio"
-              name={`analysis-replacement-${projectId}`}
-              value="wait"
-              checked={replacementStrategy === 'wait'}
-              onChange={() => setReplacementStrategy('wait')}
-              disabled={busy}
-            />
-            {t(locale, 'analysis.replacement.wait')}
+            {t(locale, 'analysis.mode')}{' '}
+            <select value={mode} onChange={(event) => setMode(event.target.value)} disabled={busy}>
+              <option value="related">{t(locale, 'analysis.mode.related')}</option>
+              <option value="all">{t(locale, 'analysis.mode.all')}</option>
+            </select>
           </label>
-          <label>
-            <input
-              type="radio"
-              name={`analysis-replacement-${projectId}`}
-              value="cancel"
-              checked={replacementStrategy === 'cancel'}
-              onChange={() => setReplacementStrategy('cancel')}
-              disabled={busy}
-            />
-            {t(locale, 'analysis.replacement.cancel')}
-          </label>
+          {mode === 'related' && (
+            <label>
+              {t(locale, 'analysis.threshold')}{' '}
+              <input
+                type="number"
+                min={analysisRules.minThreshold}
+                max={analysisRules.maxThreshold}
+                step={Number(defaultThreshold.toFixed(2)) === defaultThreshold ? 0.01 : 'any'}
+                value={threshold}
+                onChange={(event) => setThresholdOverride(event.target.value)}
+                disabled={busy}
+              />
+            </label>
+          )}
+          <p className="muted">
+            {t(locale, 'analysis.thresholdHelp', {
+              min: analysisRules.minThreshold,
+              max: analysisRules.maxThreshold,
+            })}
+          </p>
+          {selectionValidation.errors.map((error) => (
+            <p role="alert" key={error.path.join('.')}>
+              {t(locale, error.messageKey, error.params)}
+            </p>
+          ))}
           <button
+            className="primary-action"
             type="button"
-            disabled={!validSelection || busy}
-            onClick={() => void changeAnalysis('replace')}
+            disabled={!validSelection || busy || run?.status === 'running'}
+            onClick={() => void changeAnalysis()}
           >
-            {t(locale, 'analysis.replacement.submit')}
+            {t(locale, busy ? 'analysis.starting' : run ? 'analysis.newRun' : 'analysis.start')}
           </button>
-        </fieldset>
+          {run?.status === 'running' && parametersChanged && !selected && (
+            <fieldset>
+              <legend>{t(locale, 'analysis.replacement.strategy')}</legend>
+              <label>
+                <input
+                  type="radio"
+                  name={`analysis-replacement-${projectId}`}
+                  value="wait"
+                  checked={replacementStrategy === 'wait'}
+                  onChange={() => setReplacementStrategy('wait')}
+                  disabled={busy}
+                />
+                {t(locale, 'analysis.replacement.wait')}
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name={`analysis-replacement-${projectId}`}
+                  value="cancel"
+                  checked={replacementStrategy === 'cancel'}
+                  onChange={() => setReplacementStrategy('cancel')}
+                  disabled={busy}
+                />
+                {t(locale, 'analysis.replacement.cancel')}
+              </label>
+              <button
+                type="button"
+                disabled={!validSelection || busy}
+                onClick={() => void changeAnalysis('replace')}
+              >
+                {t(locale, 'analysis.replacement.submit')}
+              </button>
+            </fieldset>
+          )}
+        </>
       )}
-      {historyList.error && (
+      {historyView && historyList.error && (
         <ResourceState
           locale={locale}
           loading={false}
@@ -860,7 +895,10 @@ export default function Analysis({
           retry={() => void historyList.retry().catch(() => {})}
         />
       )}
-      {history.length > 0 && (
+      {historyView && historyList.loaded && !historyList.error && !history.length && (
+        <p>{t(locale, 'analysis.historyEmpty')}</p>
+      )}
+      {historyView && history.length > 0 && (
         <div>
           <label>
             {t(locale, 'analysis.history')}{' '}
@@ -875,13 +913,11 @@ export default function Analysis({
             >
               <option value="">{t(locale, 'analysis.latest')}</option>
               {selected && run && !history.some((item) => item.id === selected) && (
-                <option value={selected}>
-                  {run.createdAt} · {run.generatorProfile}
-                </option>
+                <option value={selected}>{historyLabel(run)}</option>
               )}
               {history.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.createdAt} · {item.generatorProfile}
+                  {historyLabel(item)}
                 </option>
               ))}
             </select>
@@ -889,12 +925,12 @@ export default function Analysis({
           <LoadMore locale={locale} {...historyList} loadMore={moreHistory} />
         </div>
       )}
-      {run?.status === 'running' && (
+      {!historyView && run?.status === 'running' && (
         <button type="button" disabled={busy} onClick={() => void changeAnalysis('cancel')}>
           {t(locale, 'analysis.cancel')}
         </button>
       )}
-      {run?.status === 'running' && (
+      {!historyView && run?.status === 'running' && (
         <button
           type="button"
           disabled={busy}
@@ -903,6 +939,17 @@ export default function Analysis({
           {t(locale, 'analysis.refresh')}
         </button>
       )}
+      {historyView &&
+        run &&
+        (!selected || run.id === selected) &&
+        (run.status === 'completed' || run.status === 'failed') && (
+          <AnalysisHistoryActions
+            key={run.id}
+            run={run}
+            retentionDays={retentionDays}
+            locale={locale}
+          />
+        )}
       {retryable && (
         <button type="button" disabled={busy} onClick={() => void changeAnalysis('retry')}>
           {t(locale, 'analysis.retryFailed')}

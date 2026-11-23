@@ -1,11 +1,9 @@
 'use client';
 import { useCallback, useState } from 'react';
 import { query } from '../../../lib/client';
-import { RequirementGlossaryDocument, type RequirementGlossaryQuery } from '../../../lib/generated';
-import { loadGlossaryTerms } from '../../../lib/glossaryTerms';
+import { RequirementGlossaryDocument } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
 import { useResource } from '../../../lib/useResource';
-import GlossaryMatch from './GlossaryMatch';
 import { RequirementMarkdown } from './RequirementMarkdown';
 
 type Props = {
@@ -58,100 +56,9 @@ export function SourceText({
       locale={locale}
       sourceId={requirementId}
       version={version}
-      showExact={!!highlight}
-    >
-      <MatchedText
-        highlight={highlight}
-        projectId={projectId}
-        text={original}
-        matches={result.data?.matches ?? []}
-        locale={locale}
-      />
-    </RequirementMarkdown>
+      highlight={highlight}
+      projectId={projectId}
+      matches={result.data?.matches}
+    />
   );
-}
-
-type MatchedTextProps = {
-  highlight?: Props['highlight'];
-  projectId: string;
-  text: string;
-  matches: NonNullable<RequirementGlossaryQuery['requirementGlossary']>['matches'];
-  locale: Locale;
-};
-
-function candidateSegment(
-  chars: string[],
-  start: number,
-  end: number,
-  highlight: Props['highlight'],
-) {
-  const left = Math.max(start, highlight?.start ?? end);
-  const right = Math.min(end, highlight?.end ?? start);
-  if (left >= right || !highlight || highlight.end > chars.length)
-    return chars.slice(start, end).join('');
-  return (
-    <span key={start}>
-      {chars.slice(start, left).join('')}
-      <mark data-candidate="">{chars.slice(left, right).join('')}</mark>
-      {chars.slice(right, end).join('')}
-    </span>
-  );
-}
-
-export function MatchedText(props: MatchedTextProps) {
-  const ids = [...new Set(props.matches.flatMap((match) => match.terms.map((term) => term.id)))];
-  if (ids.length === 0) {
-    if (!props.highlight) return props.text;
-    const chars = Array.from(props.text);
-    return candidateSegment(chars, 0, chars.length, props.highlight);
-  }
-  const idsKey = JSON.stringify(ids.sort());
-  return (
-    <HighlightedText key={JSON.stringify([props.projectId, idsKey])} {...props} idsKey={idsKey} />
-  );
-}
-
-function HighlightedText({
-  projectId,
-  text,
-  matches,
-  locale,
-  idsKey,
-  highlight,
-}: MatchedTextProps & {
-  idsKey: string;
-}) {
-  const load = useCallback(
-    () => loadGlossaryTerms(projectId, JSON.parse(idsKey)),
-    [projectId, idsKey],
-  );
-  const { data, loading, error, reload } = useResource(load, [
-    `project:${projectId}`,
-    `project:${projectId}:glossary`,
-  ]);
-  const details = new Map(data?.map((term) => [term.id, term]));
-  const chars = Array.from(text);
-  const nodes: React.ReactNode[] = [];
-  let pos = 0;
-  for (const match of matches) {
-    nodes.push(candidateSegment(chars, pos, match.start, highlight));
-    const terms = match.terms.flatMap(({ id }) => {
-      const term = details.get(id);
-      return term ? [term] : [];
-    });
-    nodes.push(
-      <GlossaryMatch
-        key={match.start}
-        text={candidateSegment(chars, match.start, match.end, highlight)}
-        terms={terms}
-        locale={locale}
-        loading={loading}
-        error={error}
-        reload={reload}
-      />,
-    );
-    pos = match.end;
-  }
-  nodes.push(candidateSegment(chars, pos, chars.length, highlight));
-  return <>{nodes}</>;
 }

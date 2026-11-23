@@ -6,6 +6,7 @@ import { type Locale, t } from '../../../lib/i18n';
 import { DesignIcon } from '../../components/DesignIcon';
 import { InterfacePreferences } from '../../components/LocaleProvider';
 import styles from './ProjectShell.module.css';
+import { ProjectSwitcher } from './ProjectSwitcher';
 
 export const sections = [
   'overview',
@@ -48,6 +49,7 @@ export function ProjectNavigation({
   const toggle = useRef<HTMLButtonElement>(null);
   const sidebar = useRef<HTMLElement>(null);
   const indexing = pathname === `${base}/indexing`;
+  const history = pathname === `${base}/technical/analysis-history`;
   const technical = pathname === `${base}/technical`;
 
   useEffect(() => {
@@ -102,7 +104,7 @@ export function ProjectNavigation({
               </Link>
             </>
           )}
-          {indexing && (
+          {(indexing || history) && (
             <>
               <span aria-hidden="true">/</span>
               <Link href={`${base}/technical`} onNavigate={closeMobileMenu}>
@@ -119,7 +121,15 @@ export function ProjectNavigation({
             <Image src="/favicon-48x48.png" alt="" width={36} height={36} unoptimized />
             <strong>{t(locale, 'app.brand')}</strong>
           </div>
-          <p className={styles.projectName}>{name}</p>
+          {expanded && (
+            <ProjectSwitcher
+              key={pathname}
+              name={name}
+              base={base}
+              sectionPath={pathname.slice(base.length)}
+              locale={locale}
+            />
+          )}
           <nav className={styles.navigation} aria-label={t(locale, 'ui.sections')}>
             <ul>
               {sections.map((section) => {
@@ -141,14 +151,14 @@ export function ProjectNavigation({
               <li className={styles.technical}>
                 <Link
                   href={`${base}/technical`}
-                  aria-current={technical ? 'page' : indexing ? 'location' : undefined}
+                  aria-current={technical ? 'page' : indexing || history ? 'location' : undefined}
                   onNavigate={closeMobileMenu}
                 >
                   <DesignIcon name="technical" />
                   {t(locale, 'nav.technical')}
                   {mobile && <DesignIcon name="next" />}
                 </Link>
-                {(technical || indexing) && (
+                {(technical || indexing || history) && (
                   <ul>
                     <li>
                       <Link
@@ -158,6 +168,17 @@ export function ProjectNavigation({
                       >
                         <DesignIcon name="indexing" />
                         {t(locale, 'nav.indexing')}
+                        {mobile && <DesignIcon name="next" />}
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        href={`${base}/technical/analysis-history`}
+                        aria-current={history ? 'page' : undefined}
+                        onNavigate={closeMobileMenu}
+                      >
+                        <DesignIcon name="analysis" />
+                        {t(locale, 'analysis.history')}
                         {mobile && <DesignIcon name="next" />}
                       </Link>
                     </li>

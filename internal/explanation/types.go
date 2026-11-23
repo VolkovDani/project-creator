@@ -3,6 +3,7 @@ package explanation
 
 import (
 	"context"
+	"errors"
 
 	"github.com/VolkovDani/project-creator/internal/classification"
 )
@@ -40,6 +41,14 @@ type Result struct {
 	Wording     string     `json:"wording"`
 	Limitations string     `json:"limitations"`
 }
+
+// Generators return these errors when a request exceeds the model context or
+// when the generated assessment fails validation.
+var (
+	ErrInputTooLong  = errors.New("explanation input exceeds model context")
+	ErrInvalidOutput = errors.New("invalid explanation output")
+)
+
 type Generator interface {
 	ExplanationProfile() string
 	ExplainClassification(context.Context, Source, Target) (Result, error)

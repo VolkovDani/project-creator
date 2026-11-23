@@ -91,8 +91,13 @@ func (axis explanationOutputAxis) assessment(source, category, locale string) (e
 			return explanation.Assessment{}, errClassificationOutput
 		}
 		quote := *c.Evidence
-		if quote != "" && (!strings.Contains(source, quote) || c.Status == "missing" || c.Status == "not_applicable") || quote == "" && c.Status == "present" {
+		if (quote != "" && !strings.Contains(source, quote)) || (quote == "" && c.Status == "present") {
 			return explanation.Assessment{}, errClassificationOutput
+		}
+		// A model may quote actual context while explaining an absent criterion.
+		// Only display excerpts for present or uncertain criteria.
+		if c.Status == "missing" || c.Status == "not_applicable" {
+			quote = ""
 		}
 		optional := category == "user_story" && key == "acceptance"
 		if !optional && (c.Status == "not_applicable" || axis.Verdict == "fits" && c.Status != "present") {

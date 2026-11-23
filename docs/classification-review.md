@@ -20,7 +20,7 @@ Choose **Target meaning** and **Target form** independently, then select **Expla
 
 You can cancel a request. If the text, decision or model proposal changes, review the current card before requesting another assessment. After a text edit, the classifier must first produce a proposal for that version. If the model is busy, retry later. Identical requests can reuse one of the 64 results held in server memory. Reuse depends on the workspace, source and decision revisions, selected categories, language, taxonomy and explanation model profile. Restarting the server clears the cache.
 
-The server uses the configured, digest-pinned local Ollama summary generator if available. Otherwise it uses the configured, digest-pinned local Ollama general generator. If neither supports explanations or the selected model fails, the card reports that the model is unavailable. Source text stays local throughout the request.
+The server uses the configured, digest-pinned local Ollama summary generator if available. Otherwise it uses the configured, digest-pinned local Ollama general generator. The card reports when the local provider is unavailable, the request exceeds the model’s context limit, or the model’s response fails validation. It also distinguishes a timeout, a cancelled request and a failed request to the server. Only successful explanations enter the cache. Source text stays local throughout the request.
 
 ## Review queues
 

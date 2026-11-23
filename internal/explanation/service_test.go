@@ -3,6 +3,7 @@ package explanation
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -17,6 +18,7 @@ type generatorStub struct {
 	profile string
 	source  Source
 	after   func()
+	err     error
 }
 
 func (g *generatorStub) ExplanationProfile() string { return g.profile }
@@ -29,7 +31,7 @@ func (g *generatorStub) ExplainClassification(ctx context.Context, source Source
 	if g.after != nil {
 		g.after()
 	}
-	return Result{Limitations: target.Locale}, nil
+	return Result{Limitations: target.Locale}, g.err
 }
 
 func database(t *testing.T) *sql.DB {
@@ -197,7 +199,8 @@ func TestInvalidTargets(t *testing.T) {
 	}
 }
 
-func TestCanceledGenerationIsReleasedAndNeverCached(t *testing.T) {
+func classifiedRequirement(t *testing.T) (*sql.DB, Request) {
+	t.Helper()
 	db := database(t)
 	if _, err := db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now');
  INSERT INTO requirements VALUES('r','a','p','source',1,'now','now');
@@ -205,8 +208,61 @@ func TestCanceledGenerationIsReleasedAndNeverCached(t *testing.T) {
  VALUES('a','p','r',1,1,'suggested','model','2','business_rule','statement')`); err != nil {
 		t.Fatal(err)
 	}
+	return db, Request{ProjectID: "p", RequirementID: "r", TextVersion: 1, Revision: 1, SuggestionRevision: 1, Target: Target{Semantic: "constraint", Representation: "test_case", Locale: "ru"}}
+}
+
+func TestGenerationFailureStatusAndRetry(t *testing.T) {
+	db, req := classifiedRequirement(t)
+	for _, tc := range []struct {
+		name, status string
+		err          error
+	}{
+		{"invalid output", "invalid_output", ErrInvalidOutput},
+		{"input too long", "input_too_long", ErrInputTooLong},
+		{"provider failure", "unavailable", errors.New("private provider details")},
+		{"cancelled", "cancelled", context.Canceled},
+		{"deadline exceeded", "timeout", context.DeadlineExceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gen := &generatorStub{profile: "m", err: fmt.Errorf("private inference details: %w", tc.err)}
+			service := New(db, gen)
+			result, status, fields, err := service.Explain(context.Background(), "a", req)
+			if err != nil || len(fields) != 0 || result != nil || status != tc.status || gen.calls != 1 {
+				t.Fatalf("failed call: result=%+v status=%q fields=%+v err=%v calls=%d", result, status, fields, err, gen.calls)
+			}
+			gen.err = nil
+			result, status, _, err = service.Explain(context.Background(), "a", req)
+			if err != nil || result == nil || status != "ready" || gen.calls != 2 {
+				t.Fatalf("explicit retry: result=%+v status=%q err=%v calls=%d", result, status, err, gen.calls)
+			}
+		})
+	}
+}
+
+func TestExpiredExplanationRequest(t *testing.T) {
+	db, req := classifiedRequirement(t)
+	ctx, cancel := context.WithDeadline(context.Background(), time.Unix(1, 0))
+	defer cancel()
 	gen := &generatorStub{profile: "m"}
-	req := Request{ProjectID: "p", RequirementID: "r", TextVersion: 1, Revision: 1, SuggestionRevision: 1, Target: Target{Semantic: "constraint", Representation: "test_case", Locale: "ru"}}
+	result, status, fields, err := New(db, gen).Explain(ctx, "a", req)
+	if err != nil || len(fields) != 0 || result != nil || status != "timeout" || gen.calls != 0 {
+		t.Fatalf("expired request: result=%+v status=%q fields=%+v err=%v calls=%d", result, status, fields, err, gen.calls)
+	}
+}
+
+func TestExplanationRequiresConfiguredGenerator(t *testing.T) {
+	db, req := classifiedRequirement(t)
+	for _, generator := range []Generator{nil, &generatorStub{}} {
+		result, status, fields, err := New(db, generator).Explain(context.Background(), "a", req)
+		if err != nil || len(fields) != 0 || result != nil || status != "unavailable" {
+			t.Fatalf("missing configuration: result=%+v status=%q fields=%+v err=%v", result, status, fields, err)
+		}
+	}
+}
+
+func TestCanceledGenerationIsReleasedAndNeverCached(t *testing.T) {
+	db, req := classifiedRequirement(t)
+	gen := &generatorStub{profile: "m"}
 	service := New(db, gen)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -218,7 +274,7 @@ func TestCanceledGenerationIsReleasedAndNeverCached(t *testing.T) {
 		cancel()
 	}
 	r, status, _, err := service.Explain(ctx, "a", req)
-	if err != nil || r != nil || status != "unavailable" {
+	if err != nil || r != nil || status != "cancelled" {
 		t.Fatalf("canceled: %+v %s %v", r, status, err)
 	}
 	gen.after = nil

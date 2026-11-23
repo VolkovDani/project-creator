@@ -57,6 +57,9 @@ func (s *Service) source(ctx context.Context, w string, req Request) (Source, st
 		return Source{}, "stale", nil
 	}
 	if err != nil {
+		if ctx.Err() != nil {
+			return Source{}, failureStatus(ctx.Err()), nil
+		}
 		return Source{}, "", err
 	}
 	if len(suggestion) == 0 {

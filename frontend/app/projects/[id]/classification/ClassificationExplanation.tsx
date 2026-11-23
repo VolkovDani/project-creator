@@ -121,7 +121,7 @@ export default function ClassificationExplanation({
       if (!controller.signal.aborted) setPayload(explainRequirementClassification);
     } catch {
       if (!controller.signal.aborted)
-        setPayload({ status: 'unavailable', result: null, fieldErrors: [] });
+        setPayload({ status: 'request_failed', result: null, fieldErrors: [] });
     } finally {
       if (!controller.signal.aborted) {
         pending.current = null;

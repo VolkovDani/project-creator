@@ -9,10 +9,8 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
-	"unicode"
 )
 
 // OpenVINO talks only to an explicitly selected local Unix socket. The runtime
@@ -22,22 +20,6 @@ type OpenVINO struct {
 	client                             *http.Client
 }
 
-const npuAlphabetRetryInstruction = "Explain the decisive condition in one short Russian sentence of 8 to 16 words. End with a period. Paraphrase without quoting either source. Use only Russian letters and ASCII Latin letters for technical terms."
-
-var npuProfilePattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
-var npuRetryExplanation = regexp.MustCompile(`^[А-Яа-яЁёA-Za-z0-9 .,!?():;%«»/—–-]{1,319}[.!?]$`)
-
-func npuAlphabetRetrySchema() map[string]any {
-	schema := findingSchema()
-	properties := schema["properties"].(map[string]any)
-	properties["leftId"] = map[string]any{"const": "left"}
-	properties["rightId"] = map[string]any{"const": "right"}
-	properties["leftVersion"] = map[string]any{"const": 1}
-	properties["rightVersion"] = map[string]any{"const": 1}
-	properties["explanation"] = map[string]any{"type": "string", "pattern": npuRetryExplanation.String()}
-	return schema
-}
-
 func NewOpenVINO(socket, profile string) (*OpenVINO, error) {
 	if !filepath.IsAbs(socket) || strings.ContainsAny(socket, "\x00\r\n") || !npuProfilePattern.MatchString(profile) {
 		return nil, errors.New("OpenVINO requires an absolute Unix socket path and full lowercase SHA256 profile")
@@ -45,10 +27,7 @@ func NewOpenVINO(socket, profile string) (*OpenVINO, error) {
 	transport := &http.Transport{Proxy: nil, MaxConnsPerHost: 1, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}
-	provenance, key := encodePairProvenance(generationProvenance{
-		Adapter: "openvino-npu-unix-v1", RuntimeProfile: profile, SystemPrompt: systemPrompt,
-		ResponseSchema: findingSchema(), AlphabetRetrySchema: npuAlphabetRetrySchema(), Normalization: "source-aliases-v2:text-order",
-	}, npuAlphabetRetryInstruction)
+	provenance, key := npuPairProvenance(generationProvenance{Adapter: "openvino-npu-unix-v1", RuntimeProfile: profile})
 	return &OpenVINO{pinnedProfile: profile, profile: key, provenance: provenance, client: &http.Client{Transport: transport, Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirects disabled") }}}, nil
 }
 
@@ -132,37 +111,9 @@ func (o *OpenVINO) Compare(ctx context.Context, pair Pair) (Finding, error) {
 	if err := o.verify(ctx); err != nil {
 		return Finding{}, err
 	}
-	// Opaque IDs and revision numbers are references, not requirement semantics.
-	// Keep their per-request mapping in the adapter so incidental identifiers do
-	// not influence the model's verdict. Source texts remain byte-for-byte intact.
-	aliases := Pair{
-		Left:              Source{ID: "left", Version: 1, Text: pair.Left.Text},
-		Right:             Source{ID: "right", Version: 1, Text: pair.Right.Text},
-		Preclassification: pair.Preclassification,
-	}
-	// Contradiction is symmetric. Canonical text order keeps the same comparison
-	// independent of the caller's source order while preserving every source byte.
-	if aliases.Right.Text < aliases.Left.Text {
-		aliases.Left.Text, aliases.Right.Text = aliases.Right.Text, aliases.Left.Text
-	}
-	finding, err := generatePairFinding(ctx, npuAlphabetRetryInstruction, func(prompt string, retry bool) (Finding, error) {
-		schema := findingSchema()
-		if retry {
-			schema = npuAlphabetRetrySchema()
-		}
-		finding, err := o.generateFinding(ctx, aliases, prompt, schema)
-		if err == nil && retry && (!npuRetryExplanation.MatchString(finding.Explanation) || strings.IndexFunc(finding.Explanation, unicode.IsLetter) < 0) {
-			return Finding{}, invalidModelOutput("NPU retry explanation is invalid")
-		}
-		return finding, err
-	})
+	finding, err := compareNPUPair(ctx, pair, o.generateFinding)
 	if err != nil {
 		return Finding{}, err
-	}
-	finding.LeftID, finding.LeftVersion = pair.Left.ID, pair.Left.Version
-	finding.RightID, finding.RightVersion = pair.Right.ID, pair.Right.Version
-	if !validFinding(pair, finding) {
-		return Finding{}, errors.New("invalid NPU comparison source mapping")
 	}
 	if err := o.verify(ctx); err != nil {
 		return Finding{}, err
@@ -198,9 +149,19 @@ type npuFailure string
 
 func (e npuFailure) Error() string { return string(e) }
 func knownNPUFailure(code string) bool {
+	return npuFailureStatus(code) != 0
+}
+
+func npuFailureStatus(code string) int {
 	switch code {
-	case "NPU_UNAVAILABLE", "NPU_RECOVERY_FAILED", "NPU_WORKER_EXIT", "TIMEOUT", "INVALID_OUTPUT", "PROFILE_CHANGED":
-		return true
+	case "NPU_UNAVAILABLE", "NPU_RECOVERY_FAILED", "NPU_WORKER_EXIT":
+		return http.StatusServiceUnavailable
+	case "TIMEOUT":
+		return http.StatusGatewayTimeout
+	case "PROFILE_CHANGED":
+		return http.StatusConflict
+	case "INVALID_OUTPUT":
+		return http.StatusBadGateway
 	}
-	return false
+	return 0
 }

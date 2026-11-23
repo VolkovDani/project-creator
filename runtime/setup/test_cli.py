@@ -581,6 +581,24 @@ class RemoteInstallTests(InstallerTestCase):
                 self.assertEqual(set(services['frontend']['networks']), {'default'})
                 self.app.config.update_env({'PROJECT_CREATOR_'+role+suffix: '' for suffix in ('_MODEL', '_URL', '_API_KEY')})
 
+    @unittest.skipUnless(cli.shutil.which('docker'), 'Docker Compose is required')
+    def test_managed_generator_with_local_arc_embeddings(self):
+        repo = Path(cli.__file__).resolve().parents[2]
+        self.configure_remote('GENERATOR')
+        self.app.config.update_env({'PROJECT_CREATOR_MODELS_NETWORK': 'model-test',
+                                    'PROJECT_CREATOR_GENERATOR_RUNTIME': 'openai-compatible'})
+        self.app.config.ensure('arc', switch=True)
+        self.app.compose('config', '--format', 'json')
+        args = [str(repo/Path(arg).name) if arg.endswith('.yml') else arg for arg in self.runner.calls[-1]]
+        services = json.loads(subprocess.check_output(args, env=self.runner.envs[-1]))['services']
+        backend = services['backend']
+        self.assertEqual(set(backend['networks']), {'default', 'models'})
+        self.assertEqual(set(services['ollama']['networks']), {'default'})
+        self.assertEqual(backend['environment']['PROJECT_CREATOR_GENERATOR_RUNTIME'], 'openai-compatible')
+        self.assertIn('ollama', backend['depends_on'])
+        self.assertFalse(backend.get('devices'))
+        self.assertTrue(services['ollama']['devices'])
+
     def test_remote_single_role_checks_only_selected_capability(self):
         for role in ('GENERATOR', 'EMBEDDING'):
             with self.subTest(role=role):

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"regexp"
 
 	"github.com/VolkovDani/project-creator/internal/oaicompat"
 )
@@ -13,9 +14,13 @@ type OpenAICompatible struct {
 	client              *oaicompat.Client
 	schema              map[string]any
 	profile, provenance string
+	managedNPU          bool
 }
 
 const chatCompletionTokens = 1024
+
+// Models Configurator IDs consist of the provider, configured name and SHA-256 identity.
+var managedNPUModelID = regexp.MustCompile(`^openvino-npu\.[A-Za-z0-9][A-Za-z0-9_.-]{0,79}\.[0-9a-f]{64}$`)
 
 // Use the strict schema subset shared by compatible servers. The local decoders
 // still enforce the original length, version and source constraints.
@@ -43,6 +48,18 @@ func NewOpenAICompatible(baseURL, model, key string) (*OpenAICompatible, error) 
 	if err != nil {
 		return nil, err
 	}
+	if managedNPUModelID.MatchString(model) {
+		client = client.WithErrorCodes(func(status int, code string) error {
+			if npuFailureStatus(code) == status {
+				return npuFailure(code)
+			}
+			return nil
+		})
+		spec := compatibleProvenance(client, "openai-compatible-managed-npu-pair-v1")
+		spec.Parameters["userMessageEncoding"] = "python-json-ensure-ascii-false-v1"
+		provenance, profile := npuPairProvenance(spec)
+		return &OpenAICompatible{client: client, profile: profile, provenance: provenance, managedNPU: true}, nil
+	}
 	spec := compatibleProvenance(client, "openai-compatible-pair-v1")
 	spec.ResponseSchema = compatibleSchema(findingSchema())
 	spec.SystemPrompt = systemPrompt
@@ -57,18 +74,33 @@ func (g *OpenAICompatible) Compare(ctx context.Context, pair Pair) (Finding, err
 	if !validSource(pair.Left) || !validSource(pair.Right) || pair.Left.ID == pair.Right.ID {
 		return Finding{}, errors.New("invalid comparison input")
 	}
+	if g.managedNPU {
+		return compareNPUPair(ctx, pair, g.generateNPUFinding)
+	}
 	data, err := json.Marshal(pair)
 	if err != nil {
 		return Finding{}, errors.New("invalid comparison input")
 	}
 	return generatePairFinding(ctx, alphabetRetryInstruction, func(prompt string, _ bool) (Finding, error) {
-		messages := []map[string]string{{"role": "system", "content": prompt}, {"role": "user", "content": string(data)}}
-		content, err := compatibleChat(ctx, g.client, messages, "requirement_finding", g.schema)
-		if err != nil {
-			return Finding{}, err
-		}
-		return decodeFinding(content, pair)
+		return g.generateFinding(ctx, pair, prompt, string(data), g.schema)
 	})
+}
+
+func (g *OpenAICompatible) generateNPUFinding(ctx context.Context, aliases Pair, prompt string, schema map[string]any) (Finding, error) {
+	user, err := npuUserMessage(aliases)
+	if err != nil {
+		return Finding{}, err
+	}
+	return g.generateFinding(ctx, aliases, prompt, user, schema)
+}
+
+func (g *OpenAICompatible) generateFinding(ctx context.Context, pair Pair, prompt, user string, schema map[string]any) (Finding, error) {
+	messages := []map[string]string{{"role": "system", "content": prompt}, {"role": "user", "content": user}}
+	content, err := compatibleChat(ctx, g.client, messages, "requirement_finding", schema)
+	if err != nil {
+		return Finding{}, err
+	}
+	return decodeFinding(content, pair)
 }
 
 // SummaryOpenAICompatible generates scoped previews using Chat Completions.

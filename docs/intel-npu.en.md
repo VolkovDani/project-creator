@@ -2,6 +2,8 @@
 
 [Russian version](intel-npu.md)
 
+This guide covers the direct Unix-socket installation. The [standalone Models Configurator runtime](https://github.com/VolkovDani/models-configurator/blob/develop/docs/npu.md) also accepts its existing export and manifest and can run in Docker.
+
 This configuration targets native Linux, Python 3.12 and Docker Engine/Compose v2.
 The implementation shipped through PR #24. The dated sections below preserve the initial acceptance results and subsequent fixes. The [device verification report](intel-device-verification.md) covers CPU/GPU/NPU generation and BGE-M3 static windows. The design and dependencies are recorded in [ADR-002](adr/002-openvino-npu.md).
 

@@ -15,6 +15,8 @@ async function fixture(
   page: Page,
   options?: {
     markdown?: string;
+    formattedSummary?: string;
+    matchedSpelling?: string;
     failSummaryReads?: boolean;
     summaryVersion?: number;
     initialStatus?: string;
@@ -50,26 +52,33 @@ async function fixture(
     version: 1,
   };
   const summaryText = () =>
-    options?.longPreview
+    options?.formattedSummary ??
+    (options?.longPreview
       ? 'я'.repeat(176)
       : summaryVersion === 3
         ? suggestion
-        : `${suggestion} v${summaryVersion}`;
+        : `${suggestion} v${summaryVersion}`);
+  function matches(text: string, start: number, end: number) {
+    if (options?.matchedSpelling) {
+      const spelling = options.matchedSpelling;
+      return Array.from(text.matchAll(new RegExp(RegExp.escape(spelling), 'gu')), (match) => {
+        const offset = Array.from(text.slice(0, match.index)).length;
+        return {
+          start: offset,
+          end: offset + Array.from(spelling).length,
+          terms: [{ id: term.id }],
+        };
+      });
+    }
+    return options?.highlight ? [{ start, end, terms: [{ id: term.id }] }] : [];
+  }
   const summary = () => ({
     requirementId: 'req-1',
     projectId: project.id,
     version: summaryVersion,
     status,
     text: summaryText(),
-    glossaryMatches: options?.highlight
-      ? [
-          {
-            start: 8,
-            end: 19,
-            terms: [{ id: term.id }],
-          },
-        ]
-      : [],
+    glossaryMatches: matches(summaryText(), 8, 19),
     byteLength: new TextEncoder().encode(summaryText()).length,
     layaEligible: new TextEncoder().encode(summaryText()).length <= 350,
     profile: 'local-test-profile',
@@ -97,7 +106,7 @@ async function fixture(
       data = {
         requirementGlossary: {
           version: sourceVersion,
-          matches: options?.highlight ? [{ start: 2, end: 8, terms: [{ id: term.id }] }] : [],
+          matches: matches(sourceText, 2, 8),
         },
       };
     } else if (query.includes('glossaryTermsByIds(')) {
@@ -107,7 +116,7 @@ async function fixture(
         ids: [term.id],
       });
       await pendingTerms;
-      if (termReads === 1) {
+      if (termReads === 1 && !options?.matchedSpelling) {
         await route.fulfill({ status: 503, json: { error: 'fixture glossary failure' } });
         return;
       }
@@ -304,6 +313,7 @@ test('saving a new source version refetches its summary without another SSE even
   await card.getByRole('button', { name: 'Изменить', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Текст требования').fill('Обновлённая версия требования.');
+  await dialog.getByLabel('Причина изменения').fill('Уточнили формулировку.');
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect.poll(api.summaryReads).toBeGreaterThan(before);
   await expect(card.getByText(`${suggestion} v4`, { exact: true })).toBeVisible();
@@ -414,7 +424,9 @@ test('renders requirement Markdown and retains the exact source, including Unico
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
-  await expect(card.getByRole('heading', { name: '📦 Перенос поставки' })).toBeVisible();
+  const heading = card.getByRole('heading', { level: 1 });
+  await expect(heading).toHaveText('📦 Перенос поставки');
+  await expect(heading.getByRole('button', { name: '📦 Пере' })).toBeVisible();
   await expect(card.getByRole('cell', { name: 'Черновик' })).toBeVisible();
   await expect(card.locator('blockquote')).toHaveText('Условия');
   await expect(card.locator('li').filter({ hasText: 'Получить согласование' })).toBeVisible();
@@ -427,9 +439,7 @@ test('renders requirement Markdown and retains the exact source, including Unico
   await expect(card.locator('pre code span').filter({ hasText: 'const' })).toBeVisible();
   await card.getByRole('button', { name: 'Скопировать код' }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('const days = 3;');
-  await card
-    .getByRole('heading', { name: '📦 Перенос поставки' })
-    .evaluate((el) => window.getSelection()?.selectAllChildren(el));
+  await heading.evaluate((el) => window.getSelection()?.selectAllChildren(el));
   await expect(card.getByRole('button', { name: 'Добавить выделение в словарь' })).toBeVisible();
   await card
     .getByRole('button', { name: 'Скопировать код' })
@@ -440,6 +450,39 @@ test('renders requirement Markdown and retains the exact source, including Unico
   await expect(card.locator('[data-glossary-text]').first().getByRole('button')).toHaveText(
     '📦 Пере',
   );
+});
+
+test('formatted summaries and originals open glossary definitions within Markdown prose', async ({
+  page,
+}) => {
+  const markdown =
+    '[API]: https://example.org/API\n\n- [API] и `API`: 🧪 &amp; **API**\n\nhttps://example.org/API и API';
+  const api = await fixture(page, {
+    markdown,
+    formattedSummary: '# 🧪 API',
+    matchedSpelling: 'API',
+  });
+  api.releaseTerms();
+  await page.goto('/projects/summary-project/requirements');
+  const card = page.locator('#requirement-req-1');
+  const summaryMatch = card.getByRole('heading').getByRole('button', { name: 'API' });
+  await expect(summaryMatch).toHaveCSS('text-decoration-style', 'dotted');
+  await summaryMatch.focus();
+  await expect(page.getByRole('tooltip')).toContainText('Определение из словаря проекта');
+  await page.keyboard.press('Escape');
+  await card.getByText('Полный исходный текст требования', { exact: true }).click();
+  const formatted = card.locator('details .requirement-markdown');
+  await expect(formatted.locator('li strong').getByRole('button', { name: 'API' })).toBeVisible();
+  await expect(formatted.getByRole('link', { name: 'API', exact: true })).toHaveAttribute(
+    'href',
+    'https://example.org/API',
+  );
+  await expect(formatted.locator('p').getByRole('button', { name: 'API' })).toBeVisible();
+  await expect(formatted.locator('a button, code button')).toHaveCount(0);
+  await card.locator('details').getByRole('button', { name: 'Исходная разметка' }).click();
+  const source = card.locator('details [data-glossary-text]');
+  await expect(source).toHaveText(markdown);
+  await expect(source.getByRole('button', { name: 'API' })).toHaveCount(7);
 });
 
 test('formatted Markdown paragraphs keep glossary source identity', async ({ page }) => {

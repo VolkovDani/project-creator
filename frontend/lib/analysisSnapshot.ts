@@ -46,6 +46,9 @@ export function parseAnalysisSnapshot(value: unknown): AnalysisSnapshot {
         record[key] !== undefined &&
         (!Number.isSafeInteger(record[key]) || Number(record[key]) < 0),
     ) ||
+    (record.deletionScheduledFor != null &&
+      (typeof record.deletionScheduledFor !== 'string' ||
+        !Number.isFinite(Date.parse(record.deletionScheduledFor)))) ||
     (record.classifierProfile !== undefined && typeof record.classifierProfile !== 'string') ||
     ['totalPairs', 'possiblePairs', 'notSelectedPairs'].some(
       (key) =>
@@ -58,5 +61,9 @@ export function parseAnalysisSnapshot(value: unknown): AnalysisSnapshot {
     !/^\d+$/.test(String(record.revision))
   )
     throw Error('invalid analysis snapshot');
-  return { ...value, layaSkippedPairs: record.layaSkippedPairs ?? 0 } as AnalysisSnapshot;
+  return {
+    ...value,
+    deletionScheduledFor: record.deletionScheduledFor ?? null,
+    layaSkippedPairs: record.layaSkippedPairs ?? 0,
+  } as AnalysisSnapshot;
 }

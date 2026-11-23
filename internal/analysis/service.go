@@ -9,6 +9,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -50,6 +51,7 @@ type Options struct {
 const selectionVersion = "related-v2:cosine-max-chunk:threshold-required:exact-fields-v1"
 
 type Run struct {
+	DeletionScheduledFor                                                                                                                               *string
 	ClassifierProfile                                                                                                                                  string
 	LayaPendingPairs, LayaRunningPairs, LayaCompletedPairs, LayaFailedPairs, LayaSkippedPairs                                                          int
 	ReasonCode                                                                                                                                         string
@@ -78,6 +80,7 @@ type Run struct {
 }
 
 type Service struct {
+	retentionDays    atomic.Int64
 	defaultThreshold float64
 	db               *sql.DB
 	retriever        *rag.Service
@@ -163,7 +166,7 @@ func (s *Service) authorize(ctx context.Context, q queryer, workspace, project s
 // result commits by the project lock; versions and exact text both participate.
 func sourceSignature(ctx context.Context, q queryer, workspace, project string) (string, error) {
 	var signature string
-	err := q.QueryRowContext(ctx, `SELECT md5(coalesce(string_agg(md5(jsonb_build_array(id,version,text)::text),'' ORDER BY id),'')) FROM requirements WHERE workspace=$1 AND project_id=$2`, workspace, project).Scan(&signature)
+	err := q.QueryRowContext(ctx, `SELECT md5(coalesce(string_agg(md5(jsonb_build_array(id,version,text)::text),'' ORDER BY id),'')) FROM active_requirements WHERE workspace=$1 AND project_id=$2`, workspace, project).Scan(&signature)
 	if err != nil {
 		return "", errStorage
 	}
@@ -179,20 +182,20 @@ const runColumns = `id,project_id,status,outcome,error_code,generator_profile,em
  created_at,completed_at,reason_code,missing_requirement_ids,stage,total_pairs,processed_pairs,active_pair_id,
  coalesce((SELECT jsonb_agg(` + pairJSON + ` ORDER BY p.position) FROM (SELECT * FROM analysis_pairs WHERE run_id=analysis_runs.id ORDER BY position LIMIT 100) p),'[]'::jsonb),
  incomplete,worker_id,generator_provenance,mode,similarity_threshold,selection_profile,possible_pairs,pair_cursor_left,pair_cursor_right,full_queue,
- (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs,count(*) FILTER(WHERE laya_status='pending' AND status<>'failed'),count(*) FILTER(WHERE laya_status='running'),count(*) FILTER(WHERE laya_status='completed'),count(*) FILTER(WHERE laya_status='failed'),count(*) FILTER(WHERE laya_status='skipped')) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text,classifier_profile`
+ (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs,count(*) FILTER(WHERE laya_status='pending' AND status<>'failed'),count(*) FILTER(WHERE laya_status='running'),count(*) FILTER(WHERE laya_status='completed'),count(*) FILTER(WHERE laya_status='failed'),count(*) FILTER(WHERE laya_status='skipped')) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text,classifier_profile,deletion_scheduled_for`
 
 const compactRunColumns = `id,project_id,status,outcome,error_code,generator_profile,embedding_profile,source_signature,
  '[]'::jsonb,'[]'::jsonb,created_at,completed_at,reason_code,missing_requirement_ids,stage,total_pairs,processed_pairs,active_pair_id,
  '[]'::jsonb,incomplete,worker_id,''::text,mode,similarity_threshold,''::text,possible_pairs,pair_cursor_left,pair_cursor_right,full_queue,
- (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs,count(*) FILTER(WHERE laya_status='pending' AND status<>'failed'),count(*) FILTER(WHERE laya_status='running'),count(*) FILTER(WHERE laya_status='completed'),count(*) FILTER(WHERE laya_status='failed'),count(*) FILTER(WHERE laya_status='skipped')) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text,classifier_profile`
+ (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs,count(*) FILTER(WHERE laya_status='pending' AND status<>'failed'),count(*) FILTER(WHERE laya_status='running'),count(*) FILTER(WHERE laya_status='completed'),count(*) FILTER(WHERE laya_status='failed'),count(*) FILTER(WHERE laya_status='skipped')) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text,classifier_profile,deletion_scheduled_for`
 
 func scanRun(row *sql.Row) (*Run, error) {
 	r := &Run{Sources: []Source{}, Findings: []Finding{}, Pairs: []PairResult{}, MissingRequirementIDs: []string{}}
 	var sources, findings, missing, pairs, counts []byte
 	var created time.Time
-	var completed sql.NullTime
+	var completed, deletionScheduledFor sql.NullTime
 	var total, possible sql.NullInt64
-	err := row.Scan(&r.ID, &r.ProjectID, &r.Status, &r.Outcome, &r.ErrorCode, &r.GeneratorProfile, &r.EmbeddingProfile, &r.signature, &sources, &findings, &created, &completed, &r.ReasonCode, &missing, &r.Stage, &total, &r.ProcessedPairs, &r.ActivePairID, &pairs, &r.incomplete, &r.workerID, &r.GeneratorProvenance, &r.Mode, &r.SimilarityThreshold, &r.SelectionProfile, &possible, &r.cursorLeft, &r.cursorRight, &r.fullQueue, &counts, &r.Revision, &r.ClassifierProfile)
+	err := row.Scan(&r.ID, &r.ProjectID, &r.Status, &r.Outcome, &r.ErrorCode, &r.GeneratorProfile, &r.EmbeddingProfile, &r.signature, &sources, &findings, &created, &completed, &r.ReasonCode, &missing, &r.Stage, &total, &r.ProcessedPairs, &r.ActivePairID, &pairs, &r.incomplete, &r.workerID, &r.GeneratorProvenance, &r.Mode, &r.SimilarityThreshold, &r.SelectionProfile, &possible, &r.cursorLeft, &r.cursorRight, &r.fullQueue, &counts, &r.Revision, &r.ClassifierProfile, &deletionScheduledFor)
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +216,10 @@ func scanRun(row *sql.Row) (*Run, error) {
 			m := n - *r.TotalPairs
 			r.NotSelectedPairs = &m
 		}
+	}
+	if deletionScheduledFor.Valid {
+		deadline := deletionScheduledFor.Time.UTC().Format(time.RFC3339Nano)
+		r.DeletionScheduledFor = &deadline
 	}
 	r.CreatedAt = created.UTC().Format(time.RFC3339Nano)
 	if completed.Valid {

@@ -35,6 +35,7 @@ test('project menu groups sections and keeps diagnostics accessible on a direct 
     'Анализ',
     'Технический раздел',
     'Индексация',
+    'История запусков',
   ]);
   for (const link of await nav.getByRole('link').all()) {
     await expect(link.locator(':scope > svg:first-child[aria-hidden="true"]')).toHaveCount(1);
@@ -77,6 +78,53 @@ test('project menu groups sections and keeps diagnostics accessible on a direct 
   );
   await expect(page.locator('.overview-links p').first()).toHaveCSS('text-decoration-line', 'none');
   await expect(nav.getByRole('link', { name: 'Индексация' })).toHaveCount(0);
+});
+
+test('switch projects from the sidebar using the keyboard', async ({ page }, testInfo) => {
+  const other = { ...project, id: 'another', name: 'Другой проект' };
+  await fixture(page, 1);
+  await page.route('**/api/graphql', (route) => {
+    const { operationName, variables } = route.request().postDataJSON();
+    if (operationName === 'ProjectDetail' && variables.id === other.id)
+      return route.fulfill({ json: { data: { project: other, analysisDefaultThreshold: 0.65 } } });
+    if (operationName !== 'ProjectConnection') return route.fallback();
+    const node = variables.after === project.id ? other : project;
+    return route.fulfill({
+      json: {
+        data: {
+          projectsConnection: {
+            edges: [{ node, cursor: node.id }],
+            pageInfo: { endCursor: node.id, hasNextPage: node.id === project.id },
+            totalCount: 2,
+          },
+        },
+      },
+    });
+  });
+  await page.goto('/projects/demo/technical?oldProjectContext=demo');
+  const narrow = testInfo.project.name === 'narrow';
+  const menu = page.locator('button[aria-controls="project-sidebar"]');
+  const sidebar = page.getByRole('complementary');
+  if (narrow) await menu.press('Enter');
+  const switcher = sidebar.getByRole('button', { name: /Сменить проект/ });
+  await expect(switcher).toContainText(project.name);
+  // Start at the first section link and reach the preceding control with the keyboard.
+  await sidebar.getByRole('link', { name: 'Обзор' }).focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(switcher).toBeFocused();
+  await page.keyboard.press('Enter');
+  const destination = sidebar.getByRole('link', { name: other.name, exact: true });
+  await expect(destination).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect(destination).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL('/projects/another/technical');
+  await expect(page.getByRole('main').getByRole('heading', { name: other.name })).toBeVisible();
+  if (narrow) {
+    await expect(sidebar).toBeHidden();
+    await menu.press('Enter');
+  }
+  await expect(switcher).toContainText(other.name);
 });
 
 test('section metadata follows navigation and the saved language', async ({ page }) => {
@@ -220,16 +268,87 @@ test('requirement edit conflict keeps the draft and saving closes the dialog', a
   const dialog = page.getByRole('dialog');
   const editor = dialog.getByLabel('Текст требования');
   await editor.fill('Новая редакция');
+  const save = dialog.getByRole('button', { name: 'Сохранить', exact: true });
+  await save.click();
+  await expect(dialog.getByRole('alert')).toHaveText('Заполните поле');
+  const reason = dialog.getByLabel('Причина изменения');
+  await expect(reason).toHaveAttribute('aria-invalid', 'true');
+  const draftReason = '  Уточнили сроки\nпосле обсуждения  ';
+  await reason.fill(draftReason);
   api.setText('Сохранённая другая редакция');
   api.conflictNextEdit();
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog.getByRole('alert')).toBeVisible();
   await expect(editor).toHaveValue('Новая редакция');
+  await expect(reason).toHaveValue(draftReason);
   await dialog.getByRole('button', { name: 'Сохранить черновик поверх актуальной версии' }).click();
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  expect(api.editWrites()).toEqual([{ id: 'r0', text: 'Новая редакция', version: 2 }]);
+  expect(api.editWrites()).toEqual([
+    { id: 'r0', text: 'Новая редакция', version: 2, changeReason: draftReason },
+  ]);
   await expect(page.getByLabel('Текст требования')).toHaveValue('Черновик добавления');
+});
+
+test('revision history pages by version and distinguishes creation from legacy edits', async ({
+  page,
+}) => {
+  const api = await fixture(page, 1);
+  for (let version = 2; version <= 13; version++) api.setText(`Текст ${version}`);
+  const cursors: Array<number | null> = [];
+  await page.route('**/api/graphql', async (route) => {
+    const { operationName, variables } = route.request().postDataJSON();
+    if (operationName !== 'RequirementRevisionHistory') return route.fallback();
+    expect(variables.projectId).toBe('demo');
+    expect(variables.requirementId).toBe('r0');
+    cursors.push(variables.beforeVersion ?? null);
+    const revisions = Array.from({ length: 13 }, (_, i) => {
+      const version = 13 - i;
+      return {
+        version,
+        text: `Текст ${version}`,
+        previousText: version <= 2 ? null : `Текст ${version - 1}`,
+        changeReason: version <= 2 ? null : `Причина ${version}`,
+        author: version === 13 ? 'Автор' : null,
+        createdAt: version === 2 ? 'Legacy timestamp' : '2026-11-20T14:23:01Z',
+      };
+    });
+    await route.fulfill({
+      json: {
+        data: {
+          requirementRevisionHistory: revisions
+            .filter((row) => !variables.beforeVersion || row.version < variables.beforeVersion)
+            .slice(0, variables.first),
+        },
+      },
+    });
+  });
+  await page.goto('/projects/demo/requirements');
+  const history = page.getByRole('group', { name: 'История текста требования' });
+  await history.locator('summary').click();
+  const entries = history.getByRole('listitem');
+  await expect(entries.first()).toContainText('Версия 12 → 13');
+  await expect(entries.first()).toContainText('Текст 12');
+  await expect(entries.first()).toContainText('Текст 13');
+  await expect(entries.first().locator('del')).toHaveText('12');
+  await expect(entries.first().locator('ins')).toHaveText('13');
+  await expect(entries.first().locator('del')).toHaveCSS('text-decoration-line', 'line-through');
+  await expect(entries.first().locator('ins')).toHaveCSS('text-decoration-line', 'underline');
+  await expect(entries.first()).toContainText('Причина 13');
+  await expect(entries.first()).toContainText('Автор');
+  await expect(entries.first().locator('time')).toHaveAttribute('datetime', '2026-11-20T14:23:01Z');
+  const more = history.getByRole('button', { name: 'Загрузить ещё' });
+  await more.focus();
+  await page.keyboard.press('Enter');
+  await expect(entries).toHaveCount(13);
+  await expect(entries.nth(11)).toContainText('Причина изменения не указана');
+  await expect(entries.nth(11)).toContainText('Legacy timestamp');
+  await expect(entries.nth(11)).toContainText('Предыдущий текст недоступен');
+  await expect(entries.nth(11).locator('ins, del')).toHaveCount(0);
+  await expect(entries.last().locator('ins, del')).toHaveCount(0);
+  await expect(entries.last()).toContainText('Исходная версия');
+  await expect(entries.last()).not.toContainText('Причина изменения');
+  expect(cursors).toEqual([null, 4]);
 });
 
 test('a busy requirement dialog rejects Escape and keeps network errors visible', async ({
@@ -241,6 +360,7 @@ test('a busy requirement dialog rejects Escape and keeps network errors visible'
   await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Текст требования').fill('Busy edit');
+  await dialog.getByLabel('Причина изменения').fill('User reason');
   const save = dialog.getByRole('button', { name: 'Сохранить', exact: true });
   await save.click();
   await request.started;
@@ -249,6 +369,7 @@ test('a busy requirement dialog rejects Escape and keeps network errors visible'
   await expect(dialog).toBeVisible();
   request.release();
   await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(dialog.getByLabel('Причина изменения')).toHaveValue('User reason');
   await expect(dialog).toBeVisible();
 });
 
@@ -339,7 +460,7 @@ async function fixture(
   };
   const connectionReads: Array<{ first: number; after: string | null }> = [];
   const indexReads: string[][] = [];
-  const editWrites: Array<{ id: string; text: string; version: number }> = [];
+  const editWrites: Array<{ id: string; text: string; version: number; changeReason: string }> = [];
   let indexes = rows.map((r, i) => ({
     requirementId: r.id,
     version: 1,
@@ -385,7 +506,12 @@ async function fixture(
         };
       } else {
         const index = rows.findIndex((row) => row.id === input.id);
-        editWrites.push({ id: input.id, text: input.text, version: input.version });
+        editWrites.push({
+          id: input.id,
+          text: input.text,
+          version: input.version,
+          changeReason: input.changeReason,
+        });
         rows[index] = { ...rows[index], text: input.text, version: rows[index].version + 1 };
         data = {
           updateRequirement: {
@@ -1196,6 +1322,39 @@ for (const route of ['requirements', 'analysis']) {
     expect(renderingErrors).toEqual([]);
   });
 }
+
+test('page contents and nested disclosures look interactive and toggle from the keyboard', async ({
+  page,
+}, testInfo) => {
+  const theme = testInfo.project.name === 'narrow' ? 'light' : 'dark';
+  await page.addInitScript((value) => localStorage.setItem('project-creator-theme', value), theme);
+  await fixture(page, 1);
+  await page.goto('/projects/demo/requirements');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+  const contents = page.getByRole('navigation', { name: 'На этой странице' }).locator('details');
+  const source = page
+    .locator('#requirement-r0 details')
+    .filter({
+      has: page.locator('summary', { hasText: 'Полный исходный текст требования' }),
+    })
+    .first();
+  const group = page.getByRole('group', { name: 'Список требований', exact: true });
+  for (const panel of [contents, source, group]) {
+    await expect(panel).toHaveCSS('border-top-style', 'solid');
+    await expect(panel).toHaveCSS('border-top-width', '1px');
+    await expect(panel).not.toHaveCSS('padding-inline-start', '0px');
+    const summary = panel.locator(':scope > summary');
+    await expect(summary).toHaveCSS('display', 'list-item');
+    await expect(summary).toHaveCSS('cursor', 'pointer');
+  }
+  const summary = source.locator(':scope > summary');
+  await summary.focus();
+  await page.keyboard.press('Enter');
+  await expect(source).toHaveAttribute('open', '');
+  await expect(summary).toHaveCSS('outline-style', 'solid');
+  await page.keyboard.press('Space');
+  await expect(source).not.toHaveAttribute('open', '');
+});
 
 test('page contents link to requirement entry and the list', async ({ page }) => {
   await fixture(page, 3);

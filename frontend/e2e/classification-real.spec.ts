@@ -58,6 +58,7 @@ test('a saved manual classification survives reload and becomes stale when its s
   await page.getByRole('button', { name: 'Изменить', exact: true }).click();
   const editor = page.getByRole('dialog');
   await editor.getByLabel('Текст требования').fill(edited);
+  await editor.getByLabel('Причина изменения').fill('Уточнили условие классификации.');
   await editor.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(page.getByText(edited, { exact: true }).first()).toBeVisible();
 

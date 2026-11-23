@@ -25,6 +25,19 @@ export default function TechnicalPage() {
         <p>{t(locale, 'ui.indexingBackground')}</p>
         <p>{t(locale, 'ui.indexingFailureHelp')}</p>
       </div>
+      <div className={styles.indexingCard}>
+        <h3>
+          <Link
+            className={styles.destination}
+            href={`/projects/${encodeURIComponent(project.id)}/technical/analysis-history`}
+          >
+            <DesignIcon name="analysis" />
+            {t(locale, 'analysis.history')}
+            <DesignIcon name="next" />
+          </Link>
+        </h3>
+        <p>{t(locale, 'analysis.historyHelp')}</p>
+      </div>
     </section>
   );
 }

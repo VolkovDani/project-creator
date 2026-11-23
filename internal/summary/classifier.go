@@ -61,7 +61,7 @@ func (c *Classifier) ClassifyScoped(ctx context.Context, w, project string, p an
 		}
 		var text string
 		// Verify the original snapshot before releasing the derived text to the model.
-		if e = c.s.db.QueryRowContext(ctx, `SELECT text FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 AND version=$4`, w, project, source.ID, source.Version).Scan(&text); e != nil || text != source.Text {
+		if e = c.s.db.QueryRowContext(ctx, `SELECT text FROM active_requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 AND version=$4`, w, project, source.ID, source.Version).Scan(&text); e != nil || text != source.Text {
 			return analysis.Preclassification{}, analysis.ErrSummaryUnavailable
 		}
 		source.Text = v.Text

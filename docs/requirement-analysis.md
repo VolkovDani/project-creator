@@ -2,6 +2,12 @@
 
 [Project Creator](../README.en.md) · [Русская версия](requirement-analysis.ru.md)
 
+## Editing a requirement and reading its history
+
+Choose **Edit** on a requirement card, update the source text and enter the **Reason for change**. The reason belongs to the saved text version. Creating a requirement and confirming its classification do not require a reason. If someone saves another edit first, the dialog keeps your draft and reason so you can decide whether to apply them to the latest version.
+
+Open **Requirement text history** on the card to read the revisions, newest first. Each edit shows the previous and new wording, the submitted reason and the time of the change. When both versions are available, removed words are crossed out in the previous text and added words are underlined in the new text. For extensive rewrites, the changed passage can be highlighted as a single block. The local workspace token identifies a workspace only, so edits made with it have no recorded individual author. For requirements that predate revision history, the first available entry contains the text and version that existed at upgrade. Earlier wording and reasons cannot be reconstructed from that entry.
+
 ## Local embeddings and requirement search
 
 RAG stores vectors in PostgreSQL with pgvector. This section uses the local Ollama adapter. For remote indexing, search, comparisons and previews, see [OpenAI-compatible providers](setup-cli.en.md#remote-generation-and-embeddings).
@@ -136,11 +142,19 @@ guarantee finding every semantic contradiction. Confidence percentages are not
 calculated. Model output never changes requirements.
 
 Analysis starts explicitly from a button and quickly returns an attempt ID. Work
-continues on the server after the tab is closed. The primary “Related pairs” mode
-selects the union of exact matches of normalized text and pairs with cosine
-similarity at or above the threshold. Shared words do not bypass the threshold.
-It uses exact search across all current fragments, without an approximate index or
-top-5/top-6 limit. No new structural links are created: the current data model
+continues on the server after the tab is closed. In **“Related pairs”** mode,
+a threshold closer to **0** admits more pairs, while a threshold closer to **1**
+is stricter. Each indexed fragment of one requirement is compared with every
+fragment of the other. The highest cosine similarity determines whether the
+pair qualifies. For example, if the best match is between the final paragraphs
+and scores `0.72`, the pair qualifies at `0.65` or `0.72` and falls below
+a threshold of `0.80`. When the model checks a pair, it receives the full text
+of both requirements.
+
+Exact matches of normalized text qualify at any threshold. Choose **“All pairs”**
+to check every combination of requirements regardless of similarity. Shared words
+do not bypass the threshold. The search across current fragments is exact, without
+an approximate index or a top-5/top-6 limit. No new structural links are created: the current data model
 does not yet have links for requirements.
 
 To change the initial threshold for “Related pairs”, set
@@ -211,9 +225,11 @@ profile before the next explicit analysis run; a cancelled request is not retrie
 automatically. You can explicitly retry unfinished pairs in the current run or
 start a new analysis that reuses completed results.
 
-Retrying failed pairs is available in the “Latest run” view: select a saved run in
-history to open it. Historical results do not replace user text with current
-versions. Older results are migrated without assigning unknown provenance.
+On the **Analysis** page, you can retry failed pairs in the latest run until you schedule it for deletion. Historical results preserve the source text from that run. Older results are migrated without assigning unknown provenance.
+
+Open the project’s **Technical section** to find **Analysis history**. You can view a saved run there and schedule a finished run for deletion. The displayed deadline is counted from when you schedule deletion. Scheduling the same run again keeps its original deadline. Once scheduled, you can permanently delete it immediately. Deletion removes that run and its saved pairs and source snapshots. The project, its requirements and other runs remain available. Unscheduled runs are kept regardless of age.
+
+Set `ANALYSIS_HISTORY_RETENTION_DAYS` in the repository-root `.env` to change the period for newly scheduled deletions. The default is 30 days. Use a whole number from 1 through 106751 inclusive, then recreate the backend with the same launcher or Compose configuration. For a host backend, export the variable and restart the server. Existing deadlines keep their saved dates. The backend checks for expired runs at startup and once an hour while running. If a check fails, cleanup retries on the next sweep.
 
 Successful verdicts `collision`, `compatible`, `insufficient`, and `duplicate` are
 reused between runs only within the same workspace/project, for the same
@@ -315,7 +331,7 @@ database.
 | `/` | Project list |
 | `/projects/new` | Create a project |
 | `/projects/:id` | Project overview |
-| `/projects/:id/requirements` | Create, edit, and delete requirements |
+| `/projects/:id/requirements` | Create, edit and archive requirements. Restore or permanently delete an entry from the archive |
 | `/projects/:id/indexing` | Overall background queue progress, statuses, and reindexing |
 | `/projects/:id/search` | Semantic search |
 | `/projects/:id/analysis` | Streaming pair analysis and results |

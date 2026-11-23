@@ -104,6 +104,8 @@ test('legacy SSE snapshots without Laya fields remain valid while malformed Laya
     similarityThreshold: 0.65,
     missingRequirementIds: [],
   };
+  assert.equal(parseAnalysisSnapshot(legacy).deletionScheduledFor, null);
+  assert.throws(() => parseAnalysisSnapshot({ ...legacy, deletionScheduledFor: {} }));
   assert.equal(parseAnalysisSnapshot(legacy).layaSkippedPairs, 0);
   assert.throws(() => parseAnalysisSnapshot({ ...legacy, layaRunningPairs: -1 }));
 });
@@ -135,4 +137,20 @@ test('legacy SSE snapshots default skipped Laya count to zero and validate it', 
   };
   assert.equal(parseAnalysisSnapshot(legacy).layaSkippedPairs, 0);
   assert.throws(() => parseAnalysisSnapshot({ ...legacy, layaSkippedPairs: -1 }));
+});
+
+test('removing the latest run allows an older surviving snapshot for that project', () => {
+  const channel = new AnalysisChannel();
+  const latest = snapshot('deleted', '5', '2026-11-07');
+  const survivor = snapshot('survivor', '1', '2026-11-06');
+  const other = { ...latest, projectId: 'q' };
+  const received: unknown[] = [];
+  channel.subscribe('p', (value) => received.push(value));
+  channel.subscribe('q', (value) => received.push(value));
+  channel.push(latest);
+  channel.push(other);
+  channel.forgetProject('p');
+  channel.push(survivor);
+  channel.flush();
+  assert.deepEqual(received, [other, survivor]);
 });

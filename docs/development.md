@@ -481,7 +481,9 @@ without separate authentication and access control.
 
 The workspace opens in dark mode on the first visit and restores an explicitly selected theme on later visits. Both themes use the same semantic tokens from `frontend/app/tokens.css`. Text passages have a reading measure, while tables and analysis panels use the available workspace width.
 
-The project menu follows the working order Overview, Requirements, Search, Classification, Glossary and Analysis. Expand **Technical section** to check automatic indexing or retry a failed record. The existing indexing URL still opens directly. The menu can be collapsed on desktop and opened when needed on mobile.
+The project menu follows the working order Overview, Requirements, Search, Classification, Glossary and Analysis. Open the **Technical section** to review analysis history, manage scheduled deletions, check automatic indexing or retry a failed record. The existing indexing URL still opens directly. The menu can be collapsed on desktop and opened when needed on mobile.
+
+To switch projects, choose another project you have access to directly from the desktop sidebar. On mobile, open the project menu to make the same choice. The selected project opens in the current section. With a keyboard, press Tab to reach the project switcher.
 
 The language selector and dark-theme switch are at the bottom of the project menu. On the project list and creation pages they are in the header. Section links use the same Feather icons as the FigCraft design. Their text labels provide the accessible names.
 
@@ -519,29 +521,29 @@ bun run e2e
 
 - Use a native button for actions such as **Copy code** or **Save**. Give it a visible boundary or fill so the action is recognizable before hover.
 - Give enabled destructive buttons such as **Delete** a solid 1 px border in the theme’s danger color, visible at rest and on hover. Keep the keyboard focus outline separate from the border.
+- Before permanently deleting saved user data, identify the item and ask for explicit confirmation. Put initial keyboard focus on **Cancel**. Cancel and Escape must leave the item intact.
 - Use a link with an `href` for navigation. Underline links within text by default, including links in rendered Markdown. Keep the underline visible on touch screens.
 - A navigation group such as the project menu can use a consistent row or tab treatment in place of underlines. Make each destination recognizable before hover and mark the current page with a visible indicator and `aria-current="page"`.
 - Keep headings, labels and metadata such as a requirement version or indexing status visually distinct from controls. Reserve the button treatment and pointer cursor for interactive elements.
+- Use native `details` and `summary` for expandable sections. The shared stylesheet supplies their frame, spacing and summary styling. Keep the native disclosure marker and keyboard interaction.
 - Give keyboard focus a visible outline in both themes. A focused navigation link must remain distinguishable from the current page.
 
 ## Business requirements
 
-Requirements render Markdown headings, paragraphs, lists, tables, quotations, links and fenced code. Known fence languages receive syntax highlighting. Use **Copy code** for the contents of a block. Select visible document text to add a glossary entry. **Markdown source** shows the stored text with glossary matches. Links to a specific glossary occurrence open the exact text at its saved offsets. Editing always uses the stored source.
+Requirements render Markdown headings, paragraphs, lists, tables, quotations, links and fenced code. Known fence languages receive syntax highlighting. Use **Copy code** for the contents of a block. Select visible document text to add a glossary entry. In formatted requirements and ready summaries, project glossary terms have a dotted underline. Hover over a term or focus it with Tab to read its definition. Markdown links and code retain their usual behavior. **Markdown source** shows every matched range in the stored text, including terms that overlap Markdown syntax. Links to a specific glossary occurrence open the exact text at its saved offsets. Editing always uses the stored source.
 
 The document renderer uses `markdown-to-jsx` for parsing and `sugar-high` for syntax tokens. Both are pinned MIT packages with no additional runtime dependencies. React renders the tokens as text. Raw HTML stays literal, and embedded images display their alternative text to avoid fetching remote assets from a requirement.
 
-Requirements can be added, edited, and deleted on a project card. Text is checked
+Active requirements offer **Archive**. A dialog shows an excerpt and initially focuses **Cancel**. Archiving preserves the full text revision history, including change reasons, and the classification history. Archived requirements are excluded from search and new project analyses. Open **Requirements archive** to restore an entry or choose **Delete permanently** and confirm in a second dialog. Escape and Cancel close either dialog without a mutation. The API permits permanent deletion only with explicit confirmation, the matching archived entry and its version, within the same project and workspace.
+
+Requirement text is checked
 against the shared contract `contracts/requirement.json`, identically in Go and
 TypeScript; shared examples are in `contracts/requirement.fixtures.json`.
 Requirements belong to a workspace and project. The interface appends a batch of up to 40 requirements when the reader reaches the end of the loaded list or presses **Load more**.
 
-Each change increments the version. Updates and deletion check the expected
-version and do not overwrite a newer edit. On conflict, the interface reloads the
-list and allows the saved draft to be applied on top of the current version. A
-complete history of all revisions is not available yet, but the index and analysis
-attempts preserve versions and snapshots of the sources used. Editing a requirement
-requires reindexing and makes previous analyses stale. These mechanisms are
-implemented and described in the [search and analysis guide](requirement-analysis.md).
+The update mutation checks the expected version and requires `input.changeReason`. A missing, empty or whitespace-only reason returns a field error at that path. Both validators use the examples in `contracts/revision-reason.fixtures.json`. PostgreSQL saves the new text, version, reason and timestamp atomically. On a version conflict the interface keeps the draft text and reason. Deletion also checks the expected version.
+
+The requirement card shows text revisions recorded since upgrade. Indexing and analysis retain their own source snapshots. Editing triggers reindexing and marks previous analyses stale. See the [search and analysis guide](requirement-analysis.md).
 
 Editing opens a modal dialog; saving closes it, while Cancel and Escape discard
 the edit draft. Clicking the backdrop does not close the dialog, and an in-flight

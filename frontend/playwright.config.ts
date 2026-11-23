@@ -23,6 +23,7 @@ export default defineConfig({
         PROJECT_CREATOR_TOKEN: token,
         PROJECT_CREATOR_DATABASE_URL: process.env.E2E_DATABASE_URL,
         PROJECT_CREATOR_ANALYSIS_DEFAULT_THRESHOLD: '0.735',
+        ANALYSIS_HISTORY_RETENTION_DAYS: '2',
       },
       reuseExistingServer: false,
       timeout: 120000,

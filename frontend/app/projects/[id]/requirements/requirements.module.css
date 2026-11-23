@@ -5,15 +5,8 @@
   gap: var(--space-4);
 }
 .contents {
-  border-inline-start: var(--line) solid var(--border);
-  padding-inline-start: var(--space-4);
   color: var(--text-muted);
   font-size: var(--text-small);
-}
-.contents summary {
-  cursor: pointer;
-  color: var(--text);
-  font-weight: 600;
 }
 .contents a {
   display: block;
@@ -29,7 +22,6 @@
 
 /* Keep one surface around each record so nested source sections retain the reading width. */
 .layout > section,
-.layout :global(#requirements-list),
 .layout article > section {
   border: 0;
   padding: 0;
@@ -37,7 +29,3 @@
 }
 .layout > section { margin-block-start: 0; }
 .layout article > section { margin-block: 0 var(--space-4); }
-.layout :global(#requirements-list) > summary {
-  padding-block: var(--space-3);
-  border-block-end: var(--line) solid var(--border);
-}

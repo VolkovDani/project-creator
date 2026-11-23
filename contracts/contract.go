@@ -17,8 +17,9 @@ var translations embed.FS
 
 // Rule describes the supported constraints for one string field.
 type Rule struct {
-	Required  bool `json:"required"`
-	MaxLength int  `json:"maxLength"`
+	Required  bool   `json:"required"`
+	MaxLength int    `json:"maxLength"`
+	Blank     string `json:"blank,omitempty"`
 }
 
 type contract struct {
@@ -46,7 +47,7 @@ func parse(data []byte) (contract, error) {
 	}
 	for _, field := range []string{"name", "goal", "description"} {
 		r, ok := c.Fields[field]
-		if !ok || r.MaxLength <= 0 || r.Required != (field != "description") {
+		if !ok || r.Blank != "" || r.MaxLength <= 0 || r.Required != (field != "description") {
 			return c, fmt.Errorf("invalid constraints for %s", field)
 		}
 	}
@@ -66,7 +67,7 @@ func ProjectRules() map[string]Rule {
 //go:embed requirement.json
 var requirementJSON []byte
 
-// RequirementRules returns the shared requirement text constraint.
+// RequirementRules returns the shared requirement text and revision reason constraints.
 func RequirementRules() map[string]Rule {
 	var c contract
 	decoder := json.NewDecoder(bytes.NewReader(requirementJSON))
@@ -77,8 +78,9 @@ func RequirementRules() map[string]Rule {
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		panic("invalid requirement contract")
 	}
-	rule, ok := c.Fields["text"]
-	if c.Version != 1 || c.LengthUnit != "unicode-code-points" || c.Trim != "ascii-space-tab-lf-cr" || len(c.Fields) != 1 || !ok || !rule.Required || rule.MaxLength <= 0 {
+	text := c.Fields["text"]
+	reason := c.Fields["changeReason"]
+	if c.Version != 1 || c.LengthUnit != "unicode-code-points" || c.Trim != "ascii-space-tab-lf-cr" || len(c.Fields) != 2 || !text.Required || text.MaxLength <= 0 || text.Blank != "" || !reason.Required || reason.MaxLength <= 0 || reason.Blank != "unicode-white-space" {
 		panic("unsupported requirement contract")
 	}
 	return c.Fields

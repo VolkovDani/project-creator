@@ -52,7 +52,7 @@ function ProjectContent({ id, children }: { id: string; children: React.ReactNod
         <Context.Provider
           value={{ project, locale, analysisDefaultThreshold: data.analysisDefaultThreshold }}
         >
-          {['requirements', 'indexing', 'analysis', 'search'].some(
+          {['requirements', 'indexing', 'analysis', 'search', 'technical/analysis-history'].some(
             (section) => pathname === `${base}/${section}`,
           ) ? (
             <GlossaryActions key={pathname} projectId={id} locale={locale}>

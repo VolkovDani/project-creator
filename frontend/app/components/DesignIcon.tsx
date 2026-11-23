@@ -1,3 +1,4 @@
+import sprite from '../../public/design-icons.svg';
 import styles from './DesignIcon.module.css';
 
 const symbols = {
@@ -37,7 +38,7 @@ export function DesignIcon({
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <use href={`/design-icons.svg#${symbols[name]}`} />
+      <use href={`${sprite.src}#${symbols[name]}`} />
     </svg>
   );
 }

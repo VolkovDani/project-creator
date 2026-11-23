@@ -67,10 +67,7 @@ test('project menu groups sections and keeps diagnostics accessible on a direct 
   ]);
   for (const link of await page.locator('.overview-links a').all()) {
     await expect(link.locator('svg[aria-hidden="true"]')).toHaveCount(2);
-    await expect(link.locator('svg use').last()).toHaveAttribute(
-      'href',
-      '/design-icons.svg#chevron-right',
-    );
+    await expect(link.locator('svg use').last()).toHaveAttribute('href', /#chevron-right$/);
   }
   await expect(page.locator('.overview-links strong').first()).toHaveCSS(
     'text-decoration-line',
@@ -168,17 +165,26 @@ test('pages advertise the browser and Apple icons and serve the supplied sizes',
   await page.goto('/projects/demo/indexing');
   const tabIcons = page.locator('head link[rel="icon"]');
   await expect(tabIcons).toHaveCount(3);
-  for (const size of [16, 32]) {
-    await expect(page.locator(`head link[rel="icon"][sizes="${size}x${size}"]`)).toHaveAttribute(
-      'href',
-      `/favicon-${size}x${size}.png`,
-    );
-  }
   await expect(page.locator('head link[rel="icon"][href^="/favicon.ico"]')).toHaveCount(1);
-  await expect(page.locator('head link[rel="apple-touch-icon"][sizes="180x180"]')).toHaveAttribute(
-    'href',
-    '/apple-touch-icon.png',
-  );
+  const assets = [
+    ['head link[rel="icon"][sizes="16x16"]', 'href', 'favicon-16x16.png'],
+    ['head link[rel="icon"][sizes="32x32"]', 'href', 'favicon-32x32.png'],
+    ['head link[rel="apple-touch-icon"][sizes="180x180"]', 'href', 'apple-touch-icon.png'],
+    ['#project-sidebar img', 'src', 'favicon-48x48.png'],
+    ['svg use', 'href', 'design-icons.svg'],
+  ] as const;
+  for (const [selector, attribute, file] of assets) {
+    const asset = page.locator(selector).first();
+    await expect(asset).toHaveAttribute(attribute, /^\/_next\/static\/media\//);
+    const url = ((await asset.getAttribute(attribute)) ?? '').split('#')[0];
+    const versioned = await request.get(url);
+    expect(versioned.status()).toBe(200);
+    expect(versioned.headers()['cache-control']).toBe('public, max-age=31536000, immutable');
+    const stable = await request.get(`/${file}`);
+    expect(stable.status()).toBe(200);
+    expect(stable.headers()['cache-control']).not.toContain('immutable');
+    expect(await versioned.body()).toEqual(await stable.body());
+  }
   const icon = await request.get('/favicon.ico');
   expect(icon.status()).toBe(200);
   expect(icon.headers()['content-type']).toMatch(/image\/(x-icon|vnd.microsoft.icon)/);

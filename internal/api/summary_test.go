@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -161,6 +162,44 @@ func TestGraphQLSummaryCRUDBatchAuthorizationAndCommittedInvalidation(t *testing
 	}
 	if committedVersion != 2 || after <= before {
 		t.Fatalf("summary invalidation not committed with CRUD: version=%d events %d -> %d", committedVersion, before, after)
+	}
+}
+
+func TestRestoringRequirementDiscardsPreArchiveSummaryAttempt(t *testing.T) {
+	g := &apiSummaryGenerator{first: make(chan struct{}), release: make(chan struct{})}
+	g.text = func(analysis.Source) string { return fmt.Sprintf("Attempt %d", g.calls.Load()) }
+	s, err := NewWithSummaryProviders(testDatabase(t), map[string]string{"token-a": "a"}, nil, nil, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	release := sync.OnceFunc(func() { close(g.release) })
+	defer release()
+	if _, err := s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now');
+		INSERT INTO requirements(id,workspace,project_id,text,version,created_at,updated_at)
+		VALUES('r','a','p','Source text',1,'now','now')`); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-g.first:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first summary did not start")
+	}
+	out := summaryRequest(t, s, "token-a", `mutation{archiveRequirement(id:"r",projectId:"p",version:1)}`)
+	if out["errors"] != nil || out["data"].(map[string]any)["archiveRequirement"] != true {
+		t.Fatal(out)
+	}
+	var stamp string
+	if err := s.db.QueryRow("SELECT archived_at FROM requirements WHERE id='r'").Scan(&stamp); err != nil {
+		t.Fatal(err)
+	}
+	out = summaryRequest(t, s, "token-a", fmt.Sprintf(`mutation{restoreRequirement(id:"r",projectId:"p",version:1,archivedAt:%q)}`, stamp))
+	if out["errors"] != nil || out["data"].(map[string]any)["restoreRequirement"] != true {
+		t.Fatal(out)
+	}
+	release()
+	if got := waitAPISummary(t, s, "token-a", "p", "r", "ready"); got["text"] != "Attempt 2" {
+		t.Fatalf("published result from an attempt started before archive: %v", got)
 	}
 }
 

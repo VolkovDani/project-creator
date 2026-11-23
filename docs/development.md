@@ -519,6 +519,7 @@ bun run e2e
 
 - Use a native button for actions such as **Copy code** or **Save**. Give it a visible boundary or fill so the action is recognizable before hover.
 - Give enabled destructive buttons such as **Delete** a solid 1 px border in the theme’s danger color, visible at rest and on hover. Keep the keyboard focus outline separate from the border.
+- Before permanently deleting saved user data, identify the item and ask for explicit confirmation. Put initial keyboard focus on **Cancel**. Cancel and Escape must leave the item intact.
 - Use a link with an `href` for navigation. Underline links within text by default, including links in rendered Markdown. Keep the underline visible on touch screens.
 - A navigation group such as the project menu can use a consistent row or tab treatment in place of underlines. Make each destination recognizable before hover and mark the current page with a visible indicator and `aria-current="page"`.
 - Keep headings, labels and metadata such as a requirement version or indexing status visually distinct from controls. Reserve the button treatment and pointer cursor for interactive elements.
@@ -531,7 +532,9 @@ Requirements render Markdown headings, paragraphs, lists, tables, quotations, li
 
 The document renderer uses `markdown-to-jsx` for parsing and `sugar-high` for syntax tokens. Both are pinned MIT packages with no additional runtime dependencies. React renders the tokens as text. Raw HTML stays literal, and embedded images display their alternative text to avoid fetching remote assets from a requirement.
 
-Requirements can be added, edited, and deleted on a project card. Text is checked
+Active requirements offer **Archive**. A dialog shows an excerpt and initially focuses **Cancel**. Archiving preserves the full text revision history, including change reasons, and the classification history. Archived requirements are excluded from search and new project analyses. Open **Requirements archive** to restore an entry or choose **Delete permanently** and confirm in a second dialog. Escape and Cancel close either dialog without a mutation. The API permits permanent deletion only with explicit confirmation, the matching archived entry and its version, within the same project and workspace.
+
+Requirement text is checked
 against the shared contract `contracts/requirement.json`, identically in Go and
 TypeScript; shared examples are in `contracts/requirement.fixtures.json`.
 Requirements belong to a workspace and project. The interface appends a batch of up to 40 requirements when the reader reaches the end of the loaded list or presses **Load more**.

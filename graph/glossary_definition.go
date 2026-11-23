@@ -19,7 +19,7 @@ func (r *Resolver) SuggestGlossaryDefinition(ctx context.Context, a SuggestGloss
 		return &GlossaryDefinitionSuggestion{Status: "invalid", FieldErrors: fieldErrors(errs)}, nil
 	}
 
-	const scope = "FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 AND version=$4"
+	const scope = "FROM active_requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 AND version=$4"
 	args := []any{workspace(ctx), in.ProjectId, in.SourceId, in.SourceVersion}
 	var source string
 	err := r.DB.QueryRowContext(ctx, "SELECT text "+scope, args...).Scan(&source)

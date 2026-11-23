@@ -80,6 +80,53 @@ test('project menu groups sections and keeps diagnostics accessible on a direct 
   await expect(nav.getByRole('link', { name: 'Индексация' })).toHaveCount(0);
 });
 
+test('switch projects from the sidebar using the keyboard', async ({ page }, testInfo) => {
+  const other = { ...project, id: 'another', name: 'Другой проект' };
+  await fixture(page, 1);
+  await page.route('**/api/graphql', (route) => {
+    const { operationName, variables } = route.request().postDataJSON();
+    if (operationName === 'ProjectDetail' && variables.id === other.id)
+      return route.fulfill({ json: { data: { project: other, analysisDefaultThreshold: 0.65 } } });
+    if (operationName !== 'ProjectConnection') return route.fallback();
+    const node = variables.after === project.id ? other : project;
+    return route.fulfill({
+      json: {
+        data: {
+          projectsConnection: {
+            edges: [{ node, cursor: node.id }],
+            pageInfo: { endCursor: node.id, hasNextPage: node.id === project.id },
+            totalCount: 2,
+          },
+        },
+      },
+    });
+  });
+  await page.goto('/projects/demo/technical?oldProjectContext=demo');
+  const narrow = testInfo.project.name === 'narrow';
+  const menu = page.locator('button[aria-controls="project-sidebar"]');
+  const sidebar = page.getByRole('complementary');
+  if (narrow) await menu.press('Enter');
+  const switcher = sidebar.getByRole('button', { name: /Сменить проект/ });
+  await expect(switcher).toContainText(project.name);
+  // Start at the first section link and reach the preceding control with the keyboard.
+  await sidebar.getByRole('link', { name: 'Обзор' }).focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(switcher).toBeFocused();
+  await page.keyboard.press('Enter');
+  const destination = sidebar.getByRole('link', { name: other.name, exact: true });
+  await expect(destination).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect(destination).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL('/projects/another/technical');
+  await expect(page.getByRole('main').getByRole('heading', { name: other.name })).toBeVisible();
+  if (narrow) {
+    await expect(sidebar).toBeHidden();
+    await menu.press('Enter');
+  }
+  await expect(switcher).toContainText(other.name);
+});
+
 test('section metadata follows navigation and the saved language', async ({ page }) => {
   await fixture(page, 1);
   await page.goto('/projects/demo/classification');

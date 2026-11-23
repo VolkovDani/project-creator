@@ -483,6 +483,8 @@ The workspace opens in dark mode on the first visit and restores an explicitly s
 
 The project menu follows the working order Overview, Requirements, Search, Classification, Glossary and Analysis. Open the **Technical section** to review analysis history, manage scheduled deletions, check automatic indexing or retry a failed record. The existing indexing URL still opens directly. The menu can be collapsed on desktop and opened when needed on mobile.
 
+To switch projects, choose another project you have access to directly from the desktop sidebar. On mobile, open the project menu to make the same choice. The selected project opens in the current section. With a keyboard, press Tab to reach the project switcher.
+
 The language selector and dark-theme switch are at the bottom of the project menu. On the project list and creation pages they are in the header. Section links use the same Feather icons as the FigCraft design. Their text labels provide the accessible names.
 
 Browser tabs show the current section and the Project Creator name. Titles and page descriptions follow the selected interface language and use only interface strings.

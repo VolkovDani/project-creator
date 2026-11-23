@@ -141,6 +141,7 @@
   "analysis.newRun": "Начать новый анализ",
   "analysis.refresh": "Обновить статус",
   "ui.project": "Проект",
+  "ui.switchProject": "Сменить проект",
   "ui.sections": "Разделы проекта",
   "app.brand": "Project Creator",
   "nav.glossaryShort": "Словарь",

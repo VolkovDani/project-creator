@@ -126,6 +126,22 @@ Explicitly switch devices with:
 
 When switching away from NPU, the managed runtime is stopped; NPU weights are not deleted. An NPU failure does not trigger a switch to CPU/Arc/cloud. By default, the NPU profile uses CPU for Ollama and embeddings. To use Intel Arc for Ollama while generating with Intel NPU, set `--ollama-device arc`; `--gpu-id` selects the Arc Vulkan ID from Ollama logs and is used as in a regular Arc profile. The CLI starts `compose.intel.yml` before `compose.npu.yml`, retaining the NPU generation runtime. The installation stores the two devices separately in private `.project-creator/state.json`; repeated `up` and `setup --device npu` preserve the selected Ollama profile. Changing it requires explicit `--switch-device`. Older state files without `ollama_device` continue to mean NPU generation with CPU Ollama. The embeddings check confirms Ollama offload; the generator check still confirms the NPU profile. Pinned models, their digests, and installation data are preserved when switching.
 
+## Clear analysis history for one project
+
+With Project Creator running, copy the project ID from `/projects/<id>` in the browser URL. Replace `PROJECT_ID` below with that ID. The command uses the local frontend proxy on `APP_PORT` (default `3000`).
+
+```bash
+./project-creator clear-analysis-history --project-id PROJECT_ID
+```
+
+The preview shows how many finished runs are eligible and how many running analyses will be skipped. To permanently delete the finished runs found by the command, including their saved pair results and source snapshots, run it with `--yes`.
+
+```bash
+./project-creator clear-analysis-history --project-id PROJECT_ID --yes
+```
+
+An interruption can leave a run scheduled for deletion. Repeat the preview to see what remains, then repeat the command with `--yes` to finish.
+
 ## GPUs and adapter selection
 
 `arc` means a GPU, including integrated Intel Arc; `npu` is a separate OpenVINO generator. NVIDIA uses CUDA, `amd` uses ROCm, and `amd-vulkan` uses Mesa RADV/Vulkan for AMD dGPU/iGPU without ROCm. Each CLI profile attaches exactly one override; do not combine different GPU overrides.

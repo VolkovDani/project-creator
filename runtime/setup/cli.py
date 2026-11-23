@@ -32,6 +32,12 @@ MESSAGES = {
         'title': 'Install and run Project Creator on native Linux x86_64.',
         'setup': 'Check prerequisites, prepare the selected model providers and start the application.',
         'up': 'Start an installation already prepared by setup; no model downloads.',
+        'clear-analysis-history': 'Preview or permanently clear finished analysis runs for one project.',
+        'history_project': 'Project ID from the application URL /projects/<id>.',
+        'history_confirm': 'Permanently delete the finished runs and their saved results.',
+        'history_counts': 'Project {project}: finished runs eligible for deletion: {eligible}. Skipped: {skipped}.',
+        'history_preview': 'Preview only. Repeat with --yes to permanently delete the finished runs and their results.',
+        'history_deleted': 'Confirmed deletions: {deleted} of {eligible}.',
         'down': 'Stop containers and the managed NPU runtime; preserve all data and weights.',
         'doctor': 'Check prerequisites and an existing installation; no downloads or changes.',
         'device': 'Select none (fresh-install default), a generator device or remote API mode (NPU uses CPU embeddings by default; --ollama-device can select Arc).',
@@ -64,6 +70,12 @@ MESSAGES = {
         'title': 'Установка и запуск Project Creator на нативном Linux x86_64.',
         'setup': 'Проверить окружение, подготовить выбранные провайдеры моделей и запустить приложение.',
         'up': 'Запустить подготовленную установку без скачивания моделей.',
+        'clear-analysis-history': 'Показать или безвозвратно удалить завершённые запуски анализа одного проекта.',
+        'history_project': 'ID проекта из адреса приложения /projects/<id>.',
+        'history_confirm': 'Безвозвратно удалить завершённые запуски и их сохранённые результаты.',
+        'history_counts': 'Проект {project}. Завершённых запусков для удаления: {eligible}. Пропущено: {skipped}.',
+        'history_preview': 'Предпросмотр. Для безвозвратного удаления запусков и их результатов повторите команду с --yes.',
+        'history_deleted': 'Подтверждено удалений: {deleted} из {eligible}.',
         'down': 'Остановить контейнеры и управляемый NPU runtime, сохранить данные и веса.',
         'doctor': 'Проверить окружение и текущую установку без скачивания и изменений.',
         'device': 'Выберите none (новая установка), устройство генератора или режим удалённых API (для NPU embeddings по умолчанию работают на CPU; --ollama-device может выбрать Arc).',
@@ -928,10 +940,52 @@ class Installer:
             with urllib.request.urlopen(request, timeout=210) as response:
                 value = json.load(response)
             if value.get('errors') or not value.get('data'):
-                raise Failure('API', 'GraphQL rejected the diagnostic operation; inspect backend logs without publishing secrets.')
+                raise Failure('API', 'GraphQL rejected the operation; inspect backend logs without publishing secrets.')
             return value['data']
         except (OSError, ValueError, urllib.error.URLError):
             raise Failure('API', 'Frontend GraphQL proxy is unavailable or returned invalid JSON.') from None
+
+    def clear_analysis_history(self, project, confirmed):
+        page_size = 100
+        offset = 0
+        runs = {}
+        # Collect IDs before deleting. Deleting while paging shifts subsequent offsets.
+        while True:
+            page = self.graphql(
+                'query($projectId:ID!,$limit:Int!,$offset:Int!){'
+                'analysisHistory(projectId:$projectId,limit:$limit,offset:$offset){id status deletionScheduledFor}}',
+                {'projectId': project, 'limit': page_size, 'offset': offset},
+            )['analysisHistory']
+            runs.update((run['id'], run) for run in page)
+            if len(page) < page_size:
+                break
+            offset += len(page)
+
+        eligible = [run for run in runs.values() if run['status'] in ('completed', 'failed')]
+        self.say('history_counts', project=project, eligible=len(eligible), skipped=len(runs)-len(eligible))
+        if not confirmed:
+            if eligible:
+                self.say('history_preview')
+            return
+
+        deleted = 0
+        try:
+            for run in eligible:
+                variables = {'projectId': project, 'analysisId': run['id']}
+                if run['deletionScheduledFor'] is None:
+                    result = self.graphql(
+                        'mutation($projectId:ID!,$analysisId:ID!){'
+                        'scheduleAnalysisDeletion(projectId:$projectId,analysisId:$analysisId)}', variables)
+                    if result['scheduleAnalysisDeletion'] is not True:
+                        raise Failure('API', 'Scheduling analysis deletion was not confirmed.')
+                result = self.graphql(
+                    'mutation($projectId:ID!,$analysisId:ID!){'
+                    'deleteMarkedAnalysis(projectId:$projectId,analysisId:$analysisId)}', variables)
+                if result['deleteMarkedAnalysis'] is not True:
+                    raise Failure('API', 'Permanent analysis deletion was not confirmed.')
+                deleted += 1
+        finally:
+            self.say('history_deleted', deleted=deleted, eligible=len(eligible))
 
     def fixture(self, name, texts):
         records = self.config.state.setdefault('fixtures', {})
@@ -1170,11 +1224,17 @@ def main(root=None, argv=None):
             command.add_argument('--switch-device', action='store_true', help=messages['switch'])
             command.add_argument('--gpu-id', help=messages['gpu_id'])
             command.add_argument('--ollama-device', choices=('cpu', 'arc'), help=messages['ollama_device'])
+    history = sub.add_parser('clear-analysis-history', help=messages['clear-analysis-history'],
+                             description=messages['clear-analysis-history'], allow_abbrev=False)
+    history.add_argument('--project-id', required=True, help=messages['history_project'])
+    history.add_argument('--yes', action='store_true', help=messages['history_confirm'])
     args = parser.parse_args(argv)
     try:
         app = Installer(root, lang=args.lang)
         if args.command == 'doctor':
             app.doctor(args.device)
+        elif args.command == 'clear-analysis-history':
+            app.clear_analysis_history(args.project_id, args.yes)
         else:
             with locked(root):
                 if args.command == 'setup':

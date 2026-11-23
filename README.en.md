@@ -5,9 +5,10 @@
 [Русская версия](README.md)
 
 Project Creator helps you find conflicts in a project's business requirements.
-You record requirements, search them by meaning, and run pairwise comparisons.
-A local model explains potential conflicts and shows the versions of both
-requirements it used. You decide whether to make a change.
+You can create and edit projects and requirements without a model. Connect an
+embedding model to search by meaning, or a generation model to compare requirements.
+Project Creator shows each potential conflict alongside the source versions so you
+can decide whether to make a change.
 
 The application runs locally for one user and needs no cloud API keys.
 
@@ -16,16 +17,20 @@ The application runs locally for one user and needs no cloud API keys.
 Use native x86_64 Linux, Python 3 and Docker Engine with Compose 2.20 or later.
 
 ```bash
-git clone https://github.com/VolkovDani/project-creator.git
+git clone --branch develop https://github.com/VolkovDani/project-creator.git
 cd project-creator
 ./project-creator setup
 ```
 
 Setup starts PostgreSQL, the backend and the web interface. Open the URL it prints (by default [127.0.0.1:3000](http://127.0.0.1:3000)) to create projects and requirements.
 
-For model-assisted comparisons, rerun `./project-creator setup --device cpu --switch-device` (allow 24 GiB free disk for the first CPU installation), select a GPU/NPU, or configure a compatible API for generation, embeddings, or both. [Installation and provider options](docs/setup-cli.en.md)
-
 Use **Dark theme** beside the language selector in the header to switch themes. The browser remembers your choice for future visits.
+
+## Connect models
+
+[Models Configurator](https://github.com/VolkovDani/models-configurator/tree/develop) is a separate application for connecting local and external models. Its read-only panel shows the configured profiles, provider availability and which local models are loaded. Multiple applications on the same host can share one manager.
+
+Start the manager, copy the profile ID for each role you need and set it in Project Creator’s private `.env`. Generation and embeddings can use different providers. Once configured, run `./project-creator setup --device remote --switch-device`. The same mode supports a direct OpenAI-compatible endpoint. Existing CPU, GPU and NPU installations can continue using their saved setup during migration. [Connection example](docs/adr/012-standalone-model-manager.md) · [Installation and provider options](docs/setup-cli.en.md)
 
 ## Try a first comparison
 

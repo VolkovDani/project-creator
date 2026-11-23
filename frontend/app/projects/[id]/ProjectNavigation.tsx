@@ -3,6 +3,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { type Locale, t } from '../../../lib/i18n';
+import brandIcon from '../../../public/favicon-48x48.png';
 import { DesignIcon } from '../../components/DesignIcon';
 import { InterfacePreferences } from '../../components/LocaleProvider';
 import styles from './ProjectShell.module.css';
@@ -118,7 +119,7 @@ export function ProjectNavigation({
       {name && (
         <aside id="project-sidebar" ref={sidebar} hidden={!expanded} className={styles.sidebar}>
           <div className={styles.brand}>
-            <Image src="/favicon-48x48.png" alt="" width={36} height={36} unoptimized />
+            <Image src={brandIcon} alt="" width={36} height={36} unoptimized />
             <strong>{t(locale, 'app.brand')}</strong>
           </div>
           {expanded && (

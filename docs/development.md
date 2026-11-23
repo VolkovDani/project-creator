@@ -491,6 +491,8 @@ Browser tabs show the current section and the Project Creator name. Titles and p
 
 Next.js serves the multi-size browser icon from `frontend/app/favicon.ico`. The standalone image also ships the supplied PNG variants from `frontend/public/`, including the 180 px Apple touch icon.
 
+Use static imports for interface images. Pass the import to `next/image`, or use its `.src` when a URL is required, such as an icon link. If you add a local font, load it with `next/font/local`. The production build includes a content hash in each generated asset URL, so browsers can cache it as `immutable` and fetch a new URL when the file changes. Keep existing root URLs available for compatibility and allow browsers to revalidate them.
+
 After changing the GraphQL schema and operations, run:
 
 The generator reads the local SDL and `operations/*.graphql` with GraphQL Code Generator Core and the two pinned TypeScript plugins. CI validates the operations and compares the generated file with Git.

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 )
@@ -26,6 +27,14 @@ VALUES ('r','a','p','completed','g','e','sig','[]','now')`); err != nil {
 	if before["errors"] != nil {
 		t.Fatal(before)
 	}
+	checkHistoryTag := func(result map[string]any) {
+		t.Helper()
+		tags := result["extensions"].(map[string]any)["cacheTags"].([]any)
+		if !slices.Contains(tags, "project:p:analysis-history") {
+			t.Fatalf("missing scoped history tag: %v", tags)
+		}
+	}
+	checkHistoryTag(before)
 	data := before["data"].(map[string]any)
 	if data["analysisDeletionRetentionDays"] != float64(30) || data["projectAnalysisSummary"].(map[string]any)["deletionScheduledFor"] != nil {
 		t.Fatal(data)
@@ -35,9 +44,11 @@ VALUES ('r','a','p','completed','g','e','sig','[]','now')`); err != nil {
 	if request("token-b", mark)["errors"] == nil || request("token-a", remove)["errors"] == nil {
 		t.Fatal("deletion safeguards bypassed")
 	}
-	if result := request("token-a", mark); result["errors"] != nil {
-		t.Fatal(result)
+	markedResult := request("token-a", mark)
+	if markedResult["errors"] != nil {
+		t.Fatal(markedResult)
 	}
+	checkHistoryTag(markedResult)
 	marked := request("token-a", query)["data"].(map[string]any)
 	deadline := marked["analysisHistory"].([]any)[0].(map[string]any)["deletionScheduledFor"].(string)
 	if _, err := time.Parse(time.RFC3339Nano, deadline); err != nil || marked["projectAnalysisSummary"].(map[string]any)["deletionScheduledFor"] != deadline {

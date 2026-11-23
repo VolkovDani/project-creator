@@ -41,7 +41,7 @@ BEGIN
  ELSE ws := NEW.workspace; project_id := NEW.project_id; END IF;
  IF TG_OP = 'UPDATE' AND NEW.revision = OLD.revision THEN RETURN NULL; END IF;
  event_keys := ARRAY['project:' || project_id || ':analysis'];
- IF TG_OP='DELETE' OR (TG_OP='UPDATE' AND NEW.deletion_scheduled_for IS DISTINCT FROM OLD.deletion_scheduled_for) THEN
+ IF TG_OP IN ('INSERT','DELETE') OR (TG_OP='UPDATE' AND NEW.deletion_scheduled_for IS DISTINCT FROM OLD.deletion_scheduled_for) THEN
   event_keys := array_append(event_keys,'project:' || project_id || ':analysis-history');
  END IF;
  INSERT INTO cache_events(id,workspace,keys)

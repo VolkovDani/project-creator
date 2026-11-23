@@ -69,8 +69,20 @@ func TestHistoryRetentionDeadlineAndScope(t *testing.T) {
 		t.Fatalf("manually deleted run remains: %v", err)
 	}
 	var events int
-	if err = db.QueryRow(`SELECT count(*) FROM cache_events WHERE workspace='a' AND keys @> ARRAY['project:p:analysis-history']`).Scan(&events); err != nil || events != 2 {
-		t.Fatalf("retention event count = %d, want 2: %v", events, err)
+	if err = db.QueryRow(`SELECT count(*) FROM cache_events WHERE workspace='a' AND keys @> ARRAY['project:p:analysis-history']`).Scan(&events); err != nil || events != 3 {
+		t.Fatalf("retention event count = %d, want 3: %v", events, err)
+	}
+}
+
+func TestNewRunInvalidatesEvenAnEmptyHistory(t *testing.T) {
+	db, _, _ := analysisDB(t)
+	s := &Service{db: db}
+	if _, err := s.Start(t.Context(), "a", "p"); err != nil {
+		t.Fatal(err)
+	}
+	var notified bool
+	if err := db.QueryRow(`SELECT EXISTS(SELECT FROM cache_events WHERE workspace='a' AND keys @> ARRAY['project:p:analysis-history'])`).Scan(&notified); err != nil || !notified {
+		t.Fatalf("new history entry has no list invalidation: %v", err)
 	}
 }
 

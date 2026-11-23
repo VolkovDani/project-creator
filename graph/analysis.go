@@ -240,6 +240,7 @@ func (r *Resolver) AnalysisHistory(ctx context.Context, args AnalysisHistoryArgs
 	if err != nil {
 		return nil, errors.New("analysis unavailable")
 	}
+	addCacheDependency(ctx, "project:"+string(args.ProjectId)+":analysis-history")
 	out := []*ProjectAnalysis{}
 	for _, run := range runs {
 		out = append(out, projectAnalysis(run))
@@ -293,6 +294,7 @@ func (r *Resolver) ScheduleAnalysisDeletion(ctx context.Context, args ScheduleAn
 	if err := r.Analysis.ScheduleDeletion(ctx, workspace(ctx), string(args.ProjectId), string(args.AnalysisId)); err != nil {
 		return false, errors.New("analysis deletion unavailable")
 	}
+	addCacheDependency(ctx, "project:"+string(args.ProjectId)+":analysis-history")
 	return true, nil
 }
 
@@ -303,5 +305,6 @@ func (r *Resolver) DeleteMarkedAnalysis(ctx context.Context, args DeleteMarkedAn
 	if err := r.Analysis.DeleteMarked(ctx, workspace(ctx), string(args.ProjectId), string(args.AnalysisId)); err != nil {
 		return false, errors.New("analysis deletion unavailable")
 	}
+	addCacheDependency(ctx, "project:"+string(args.ProjectId)+":analysis-history")
 	return true, nil
 }

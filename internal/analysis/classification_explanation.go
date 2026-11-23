@@ -84,7 +84,7 @@ var explanationFitTexts = sync.OnceValue(func() map[string]explanationFitText {
 
 var explanationContractDigest = sync.OnceValue(func() string {
 	return explanationHash(map[string]any{
-		"adapter": "ollama-classification-explanation-v4", "prompt": classificationExplanationPrompt,
+		"adapter": "ollama-classification-explanation-v5", "prompt": classificationExplanationPrompt,
 		"fitText": explanationFitTexts(), "languages": explanationLanguageInstructions, "criteriaOrder": explanationCriteria, "taxonomy": contracts.ClassificationRules(), "guides": explanationGuides(),
 		"schemas": []any{classificationExplanationSchema([]string{"criterion"}, []string{"acceptance"}, "en"), classificationExplanationSchema([]string{"criterion"}, []string{"acceptance"}, "ru")}, "parameters": ollamaParameters(),
 	})
@@ -136,18 +136,22 @@ func (o *Ollama) ExplainClassification(ctx context.Context, src explanation.Sour
 	messages := []map[string]string{{"role": "system", "content": classificationExplanationPrompt + "\n" + string(selected) + "\n" + explanationLanguageInstructions[target.Locale]}, {"role": "user", "content": string(data)}}
 	rawSchema, _ := json.Marshal(schema)
 	if !summaryRequestFits(messages, len(rawSchema)) {
-		return empty, errors.New("classification explanation exceeds model context")
+		return empty, explanation.ErrInputTooLong
 	}
 	if err := o.verify(ctx); err != nil {
 		return empty, err
 	}
 	content, err := o.chat(ctx, messages, schema)
 	if err != nil {
+		var rejected invalidModelOutput
+		if errors.As(err, &rejected) {
+			return empty, explanation.ErrInvalidOutput
+		}
 		return empty, err
 	}
 	result, err := decodeClassificationExplanation(content, src.Text, target)
 	if err != nil {
-		return empty, err
+		return empty, explanation.ErrInvalidOutput
 	}
 	if err := o.verify(ctx); err != nil {
 		return empty, err

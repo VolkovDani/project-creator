@@ -578,3 +578,44 @@ test('cancels a pending explanation on target change or close and shows a recove
   await expect(busy).toBeVisible();
   await expect(request).toBeEnabled();
 });
+
+test('distinguishes an invalid model assessment from a failed request and allows an explicit retry', async ({
+  page,
+}) => {
+  await fixture(page);
+  let attempts = 0;
+  await page.route('**/api/graphql', async (route) => {
+    if (route.request().postDataJSON().operationName !== 'ExplainRequirementClassification')
+      return route.fallback();
+    attempts++;
+    if (attempts === 1)
+      return route.fulfill({
+        json: {
+          data: {
+            explainRequirementClassification: {
+              status: 'invalid_output',
+              result: null,
+              fieldErrors: [],
+            },
+          },
+        },
+      });
+    if (attempts === 2) return route.abort('failed');
+    return route.fallback();
+  });
+  await page.goto('/projects/demo/classification');
+  const card = page.locator('[data-classification-id="1"]');
+  await card.getByText('Независимая оценка ИИ', { exact: true }).click();
+  const request = card.getByRole('button', { name: 'Объяснить классификацию' });
+  await request.click();
+  await expect(
+    card.getByText('Ответ модели не прошёл проверку. Запросите объяснение ещё раз.'),
+  ).toBeVisible();
+  await request.click();
+  await expect(
+    card.getByText('Не удалось выполнить запрос объяснения. Повторите запрос.'),
+  ).toBeVisible();
+  await request.click();
+  await expect(card.getByText('Предлагаемая редакция записи.')).toBeVisible();
+  expect(attempts).toBe(3);
+});

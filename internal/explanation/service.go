@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"slices"
 	"sync"
 	"time"
@@ -87,8 +88,11 @@ func (s *Service) Explain(ctx context.Context, workspace string, req Request) (*
 	call, cancel := context.WithTimeout(ctx, inferenceTimeout)
 	defer cancel()
 	result, err := s.generator.ExplainClassification(call, source, req.Target)
-	if err != nil || call.Err() != nil {
-		return nil, "unavailable", nil, nil
+	if call.Err() != nil {
+		return nil, failureStatus(call.Err()), nil, nil
+	}
+	if err != nil {
+		return nil, failureStatus(err), nil, nil
 	}
 
 	// The model can outlive an edit, archive or same-version reclassification.
@@ -105,6 +109,21 @@ func (s *Service) Explain(ctx context.Context, workspace string, req Request) (*
 	}
 	s.store(key, result)
 	return &result, "ready", nil, nil
+}
+
+func failureStatus(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "cancelled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, ErrInputTooLong):
+		return "input_too_long"
+	case errors.Is(err, ErrInvalidOutput):
+		return "invalid_output"
+	default:
+		return "unavailable"
+	}
 }
 
 func cloneResult(result Result) *Result {

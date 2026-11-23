@@ -3,6 +3,7 @@ package analysis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -98,7 +99,7 @@ func TestClassificationExplanationRejectsInvalidEvidenceAndCriteria(t *testing.T
 	target := explanation.Target{Semantic: "functional_requirement", Representation: "user_story", Locale: "en"}
 	for _, tc := range []struct{ from, to string }{
 		{`"export a file"`, `"invented"`},
-		{`"status":"missing","evidence":""`, `"status":"missing","evidence":"export"`},
+		{`"status":"missing","evidence":""`, `"status":"missing","evidence":"not in the source"`},
 		{`"verdict":"partial"`, `"verdict":"fits"`},
 		{`"verdict":"fits"`, `"verdict":"certain"`},
 		{`"acceptance":`, `"newCriterion":`},
@@ -304,5 +305,62 @@ func TestClassificationExplanationHidesDraftRepeatingEntireSource(t *testing.T) 
 	got, err := decodeClassificationExplanation(raw, source, explanation.Target{Semantic: "functional_requirement", Representation: "user_story", Locale: "en"})
 	if err != nil || got.Wording != "" || len(got.Questions) == 0 {
 		t.Errorf("redundant draft on partial fit: %+v %v", got, err)
+	}
+}
+
+func TestExplanationClassifiesAdapterFailures(t *testing.T) {
+	target := explanation.Target{Semantic: "functional_requirement", Representation: "user_story", Locale: "en"}
+	for _, tc := range []struct {
+		name, source, reply string
+		want                error
+	}{
+		{"ungrounded quote", "Different text", explanationSample, explanation.ErrInvalidOutput},
+		{"incomplete generation", "export a file", "", explanation.ErrInvalidOutput},
+		{"context budget", strings.Repeat("\n", 9998) + "x", explanationSample, explanation.ErrInputTooLong},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/tags" {
+					modelTags(w)
+					return
+				}
+				calls++
+				if tc.reply == "" {
+					w.Write([]byte(`{"done":true,"done_reason":"length","message":{"role":"assistant","content":"{}"}}`))
+					return
+				}
+				chatEnvelope(w, tc.reply)
+			}))
+			defer server.Close()
+			model, err := NewOllama(server.URL, "qwen2.5:7b", pinnedDigest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = model.ExplainClassification(t.Context(), explanation.Source{Text: tc.source, Suggestion: &classification.Entry{}}, target)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("got %v, want %v", err, tc.want)
+			}
+			if tc.want == explanation.ErrInputTooLong && calls != 0 {
+				t.Fatal("oversize input reached inference")
+			}
+		})
+	}
+}
+
+func TestExplanationOmitsContextQuotedForAbsentCriterion(t *testing.T) {
+	target := explanation.Target{Semantic: "functional_requirement", Representation: "user_story", Locale: "en"}
+	for _, status := range []string{"missing", "not_applicable"} {
+		before := `"acceptance":{"status":"missing","evidence":""`
+		after := `"acceptance":{"status":"` + status + `","evidence":"export a file"`
+		answer := strings.Replace(explanationSample, before, after, 1)
+		result, err := decodeClassificationExplanation(answer, "Please export a file.", target)
+		if err != nil {
+			t.Fatal(status, err)
+		}
+		criterion := result.Form.Criteria[3]
+		if criterion.Status != status || criterion.Evidence != "" || result.Form.Verdict != "partial" || result.Meaning.Criteria[0].Evidence != "export a file" {
+			t.Fatalf("unexpected restored assessment: %+v", result)
+		}
 	}
 }

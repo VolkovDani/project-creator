@@ -21,6 +21,17 @@ function proseChildren(node: Node): Node[][] {
   }
 }
 
+// Tagging a URL scheme, an entity, or a block prefix can change the parse of
+// surrounding prose. Keep these delimiters literal in the auxiliary input.
+function markdownDelimiters(text: string) {
+  const protectedChars = new Uint8Array(text.length);
+  const delimiters =
+    /\b(?:https?:\/\/|mailto:|www\.(?=\S))|&(?:[a-z][a-z\d]*|#(?:\d+|x[\da-f]+));|^[ \t>]*(?:\d{1,9}[.)]|#{1,6}|[*+-])(?=\s|$)/gim;
+  for (const match of text.matchAll(delimiters))
+    protectedChars.fill(1, match.index, match.index + match[0].length);
+  return protectedChars;
+}
+
 // The Markdown parser exposes no source offsets. Parse a marked copy to locate
 // confirmed source ranges in prose, but always render the original tree (URLs,
 // heading IDs, code, and Markdown syntax must retain their original meaning).
@@ -38,24 +49,28 @@ export function markdownGlossary(
   // Alphanumeric delimiters also remain inside an autolink at the end of its URL.
   let marker = `pcglossary${nonce}x`;
   while (text.includes(marker)) marker = `pcglossary${++nonce}x`;
+  const delimiters = markdownDelimiters(text);
   const byTerms = new Map<string, number>();
   const chunks: string[] = [];
   let cursor = 0;
+  let utf16Offset = 0;
   for (const [index, match] of matches.entries()) {
+    const prefix = chars.slice(cursor, match.start).join('');
     const label = chars.slice(match.start, match.end).join('');
+    chunks.push(prefix);
+    utf16Offset += prefix.length;
+    const inSyntax = delimiters.subarray(utf16Offset, utf16Offset + label.length).includes(1);
+    utf16Offset += label.length;
+    cursor = match.end;
+    if (inSyntax) {
+      chunks.push(label);
+      continue;
+    }
     // Reference labels and definitions must still agree after case folding.
     const termsKey = JSON.stringify(match.terms.map((term) => term.id));
     const slot = byTerms.get(termsKey) ?? index;
     byTerms.set(termsKey, slot);
-    chunks.push(
-      chars.slice(cursor, match.start).join(''),
-      marker,
-      String(slot),
-      'x',
-      label,
-      marker,
-    );
-    cursor = match.end;
+    chunks.push(marker, String(slot), 'x', label, marker);
   }
   chunks.push(chars.slice(cursor).join(''));
   const marked = parser(chunks.join(''), options);

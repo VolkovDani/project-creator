@@ -11,6 +11,7 @@ import { validateGlossary } from '../../../lib/glossaryValidation';
 import { fieldErrorMessage, type Locale, t } from '../../../lib/i18n';
 import { useResource } from '../../../lib/useResource';
 import CandidateDefinition, { type Candidate } from './CandidateDefinition';
+import CandidateExcerpt from './glossary/CandidateExcerpt';
 export type GlossaryDraft = {
   name: string;
   variant?: string;
@@ -148,9 +149,7 @@ export default function GlossaryEditor({
           <legend>{t(locale, 'glossary.editor')}</legend>
           {draft.candidate && (
             <blockquote className="user-content">
-              {draft.candidate.before}
-              <mark>{draft.candidate.abbreviation}</mark>
-              {draft.candidate.after}
+              <CandidateExcerpt candidate={draft.candidate} />
             </blockquote>
           )}
           {(draft.name || draft.variant) && !draft.term && (

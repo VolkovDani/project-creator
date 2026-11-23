@@ -30,6 +30,7 @@ async function fixture(page: Page, configured = true, olderDecisions = 0) {
     text: 'Исходная запись ' + (i + 1),
     textVersion: 1,
     revision: 1,
+    suggestionRevision: i === 1 ? 0 : 1,
     status: i === 1 ? 'failed' : 'needs_review',
     semanticType: 'unknown',
     representationType: 'unknown',
@@ -51,6 +52,7 @@ async function fixture(page: Page, configured = true, olderDecisions = 0) {
   const reads: string[] = [];
   const saves: unknown[] = [];
   const actions: string[] = [];
+  const explanations: unknown[] = [];
   await page.route('**/api/graphql', async (route) => {
     const { operationName: name, variables: v } = route.request().postDataJSON();
     if (!allowed) {
@@ -103,11 +105,51 @@ async function fixture(page: Page, configured = true, olderDecisions = 0) {
       const r = records.find((r) => r.requirementId === v.requirementId);
       data = {
         requirementClassification: r,
+        classificationExplanationSuggestionRevision: r?.suggestionRevision ?? 0,
         classificationListByIds: r ? [{ text: r.text, textVersion: r.textVersion }] : [],
       };
     } else if (name === 'RequirementClassification') {
+      const r = records.find((r) => r.requirementId === v.requirementId);
       data = {
-        requirementClassification: records.find((r) => r.requirementId === v.requirementId) ?? null,
+        requirementClassification: r ?? null,
+        classificationExplanationSuggestionRevision: r?.suggestionRevision ?? 0,
+      };
+    } else if (name === 'ExplainRequirementClassification') {
+      explanations.push(v.input);
+      data = {
+        explainRequirementClassification: {
+          status: 'ready',
+          fieldErrors: [],
+          result: {
+            meaning: {
+              verdict: 'fits',
+              reason: 'Запись описывает поведение системы.',
+              criteria: [
+                {
+                  name: 'Действие системы',
+                  status: 'present',
+                  evidence: 'Исходная запись',
+                  note: '',
+                },
+              ],
+            },
+            form: {
+              verdict: 'partial',
+              reason: 'Шаги проверки отсутствуют.',
+              criteria: [
+                {
+                  name: 'Шаги проверки',
+                  status: 'missing',
+                  evidence: '',
+                  note: 'Нужно описать действия.',
+                },
+              ],
+            },
+            questions: ['Как воспроизвести проверку?'],
+            wording: 'Предлагаемая редакция записи.',
+            limitations: 'Оценка основана на одной записи.',
+          },
+        },
       };
     } else if (name === 'ConfirmClassification') {
       saves.push(v.input);
@@ -169,6 +211,7 @@ async function fixture(page: Page, configured = true, olderDecisions = 0) {
     reads,
     saves,
     actions,
+    explanations,
     revoke: () => {
       allowed = false;
     },
@@ -415,4 +458,123 @@ test('scrolling inside an open decision history appends the remaining revisions'
   await expect(revisions.first()).toContainText('ревизия решения 13');
   await expect(revisions.last()).toContainText('ревизия решения 1');
   await expect(card.getByRole('button', { name: 'Загрузить ещё' })).toHaveCount(0);
+});
+
+test('requests an independent explanation only on demand for a saved proposal and clears outdated evidence', async ({
+  page,
+}) => {
+  const { records, saves, explanations, revoke } = await fixture(page, false);
+  const entry = records[0];
+  if (!entry) throw Error('missing fixture');
+  Object.assign(entry, {
+    source: 'user',
+    status: 'confirmed',
+    revision: 3,
+    semanticType: 'business_rule',
+  });
+  await page.goto('/projects/demo/classification');
+  const first = page.locator('[data-classification-id="1"]');
+  const second = page.locator('[data-classification-id="2"]');
+  await expect(second).toContainText('CLASSIFIER_UNAVAILABLE');
+  const title = 'Независимая оценка ИИ';
+  await expect(second.getByText(title, { exact: true })).toHaveCount(0);
+  const toggle = first.getByText(title, { exact: true });
+  await expect(toggle).toBeVisible({ timeout: 2500 });
+  await toggle.click();
+  const meaning = first.getByRole('combobox', { name: 'Целевой смысл' });
+  const form = first.getByRole('combobox', { name: 'Целевая форма' });
+  await meaning.selectOption('functional_requirement');
+  await form.selectOption('test_case');
+  expect(explanations).toHaveLength(0);
+  const request = first.getByRole('button', { name: 'Объяснить классификацию' });
+  await request.click();
+  await expect(first.getByText('Запись описывает поведение системы.')).toBeVisible();
+  await expect(first.getByText('Шаги проверки отсутствуют.')).toBeVisible();
+  await expect(first.getByText('Нужно описать действия.')).toBeVisible();
+  await expect(first.getByText('Как воспроизвести проверку?')).toBeVisible();
+  await expect(first.getByText('Предлагаемая редакция записи.')).toBeVisible();
+  await expect(first.getByText('Оценка основана на одной записи.')).toBeVisible();
+  await expect(first.getByText('Версия текста 1 · ревизия предложения модели 1')).toBeVisible();
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await first.getByRole('button', { name: 'Скопировать формулировку' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    'Предлагаемая редакция записи.',
+  );
+  expect(explanations).toEqual([
+    {
+      projectId: 'demo',
+      requirementId: '1',
+      textVersion: 1,
+      revision: 3,
+      suggestionRevision: 1,
+      semanticType: 'functional_requirement',
+      representationType: 'test_case',
+      locale: 'ru',
+    },
+  ]);
+  await form.selectOption('statement');
+  await expect(first.getByText('Предлагаемая редакция записи.')).toHaveCount(0);
+  expect(explanations).toHaveLength(1);
+  await request.click();
+  await expect(first.getByText('Предлагаемая редакция записи.')).toBeVisible();
+  entry.suggestionRevision = 4;
+  await page.evaluate(() =>
+    (window as unknown as PushWindow).pushClassification(['project:demo:classification:1']),
+  );
+  await expect(first.getByText('Предлагаемая редакция записи.')).toHaveCount(0);
+  await request.click();
+  await expect(first.getByText('Предлагаемая редакция записи.')).toBeVisible();
+  revoke();
+  await page.evaluate(() =>
+    (window as unknown as PushWindow).pushClassification(['project:demo:classification:1']),
+  );
+  await expect(page.getByText('Предлагаемая редакция записи.')).toHaveCount(0);
+  expect(saves).toHaveLength(0);
+});
+
+test('cancels a pending explanation on target change or close and shows a recoverable model failure', async ({
+  page,
+}) => {
+  await fixture(page);
+  const releases: (() => void)[] = [];
+  await page.route('**/api/graphql', async (route) => {
+    if (route.request().postDataJSON().operationName !== 'ExplainRequirementClassification')
+      return route.fallback();
+    if (releases.length < 2) {
+      await new Promise<void>((resolve) => releases.push(resolve));
+    }
+    await route.fulfill({
+      json: {
+        data: {
+          explainRequirementClassification: { status: 'busy', result: null, fieldErrors: [] },
+        },
+      },
+    });
+  });
+  await page.goto('/projects/demo/classification');
+  const card = page.locator('[data-classification-id="1"]');
+  const title = card.getByText('Независимая оценка ИИ', { exact: true });
+  await title.click();
+  const request = card.getByRole('button', { name: 'Объяснить классификацию' });
+  const busy = card.getByText('Модель занята. Повторите запрос позже.');
+  async function cancelPending(index: number, change: () => Promise<unknown>) {
+    await request.click();
+    await expect.poll(() => releases.length).toBe(index + 1);
+    const failed = page.waitForEvent(
+      'requestfailed',
+      (req) => req.postDataJSON()?.operationName === 'ExplainRequirementClassification',
+    );
+    await change();
+    releases[index]?.();
+    await failed;
+    await expect(busy).toHaveCount(0);
+  }
+  await cancelPending(0, () =>
+    card.getByRole('combobox', { name: 'Целевая форма' }).selectOption('test_case'),
+  );
+  await cancelPending(1, () => title.click());
+  await title.click();
+  await request.click();
+  await expect(busy).toBeVisible();
+  await expect(request).toBeEnabled();
 });

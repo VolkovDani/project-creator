@@ -16,14 +16,15 @@ WHERE h.workspace=r.workspace AND h.project_id=r.project_id AND h.requirement_id
  AND (h.semantic_type<>'unknown' OR h.representation_type<>'unknown' OR jsonb_array_length(h.alternatives)>0)
 ORDER BY h.revision DESC LIMIT 1`
 
-func (s *Service) SuggestionRevision(ctx context.Context, w, p, id string) (int32, error) {
+// SuggestionRevision also reports whether the active source belongs to this scope.
+func (s *Service) SuggestionRevision(ctx context.Context, w, p, id string) (int32, bool, error) {
 	var revision int32
 	err := s.db.QueryRowContext(ctx, `SELECT coalesce((`+latestSuggestion+`),0) FROM active_requirements r
  WHERE r.workspace=$1 AND r.project_id=$2 AND r.id=$3`, w, p, id).Scan(&revision)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, nil
+		return 0, false, nil
 	}
-	return revision, err
+	return revision, err == nil, err
 }
 
 // The projection uses the Go entry field names so the manual decision and the

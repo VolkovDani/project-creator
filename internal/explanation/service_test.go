@@ -92,7 +92,7 @@ func TestExplainRequiresScopedCurrentModelEvidence(t *testing.T) {
 	}
 	revision := func(w string, expected int32) {
 		t.Helper()
-		got, err := service.SuggestionRevision(context.Background(), w, "p", "r")
+		got, _, err := service.SuggestionRevision(context.Background(), w, "p", "r")
 		if got != expected || err != nil {
 			t.Fatalf("eligibility revision=%d, want %d: %v", got, expected, err)
 		}

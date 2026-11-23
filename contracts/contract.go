@@ -85,3 +85,19 @@ func RequirementRules() map[string]Rule {
 	}
 	return c.Fields
 }
+
+// Dictionary loads the shared interface and taxonomy strings for a supported locale.
+func Dictionary(locale string) map[string]string {
+	if locale != "ru" && locale != "en" {
+		return nil
+	}
+	data, err := translations.ReadFile("i18n/" + locale + ".json")
+	if err != nil {
+		panic(err)
+	}
+	var messages map[string]string
+	if err := json.Unmarshal(data, &messages); err != nil {
+		panic(err)
+	}
+	return messages
+}

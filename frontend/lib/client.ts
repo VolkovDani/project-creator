@@ -30,7 +30,13 @@ function fallbackTags(variables: unknown) {
 export async function query<T, V>(
   document: TypedDocumentNode<T, V>,
   variables: V,
-  options?: { tags?: string[]; version?: string; notify?: boolean; cache?: boolean },
+  options?: {
+    tags?: string[];
+    version?: string;
+    notify?: boolean;
+    cache?: boolean;
+    signal?: AbortSignal;
+  },
 ): Promise<T> {
   const epoch = sessionEpoch;
   const source = print(document);
@@ -47,6 +53,7 @@ export async function query<T, V>(
           operation?.kind === 'OperationDefinition' ? operation.name?.value : undefined,
       }),
       cache: 'no-store',
+      signal: options?.signal,
     });
     ensureSession(epoch);
     if (response.status === 401 || response.status === 403) {
@@ -70,7 +77,8 @@ export async function query<T, V>(
     else clientCache.invalidate(result.tags);
     return result.data;
   }
-  if (options?.cache === false) {
+  // A caller-owned cancellation signal must not abort another caller’s shared read.
+  if (options?.cache === false || options?.signal) {
     const result = await load();
     ensureSession(epoch);
     return result.data;

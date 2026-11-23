@@ -5,6 +5,7 @@ fragment ClassificationFields on RequirementClassification {
 }
 query RequirementClassification($projectId: ID!, $requirementId: ID!) {
   requirementClassification(projectId: $projectId, requirementId: $requirementId) { ...ClassificationFields }
+  classificationExplanationSuggestionRevision(projectId: $projectId, requirementId: $requirementId)
 }
 query ClassificationHistory($projectId: ID!, $requirementId: ID!, $limit: Int!, $offset: Int!) {
   requirementClassificationHistory(projectId: $projectId, requirementId: $requirementId, limit: $limit, offset: $offset) { ...ClassificationFields }

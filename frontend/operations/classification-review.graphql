@@ -2,8 +2,23 @@ query ClassificationReviewCard($projectId: ID!, $requirementId: ID!) {
   requirementClassification(projectId: $projectId, requirementId: $requirementId) {
     ...ClassificationFields
   }
+  classificationExplanationSuggestionRevision(projectId: $projectId, requirementId: $requirementId)
   classificationListByIds(projectId: $projectId, requirementIds: [$requirementId]) {
     text
     textVersion
+  }
+}
+
+mutation ExplainRequirementClassification($input: ExplainClassificationInput!) {
+  explainRequirementClassification(input: $input) {
+    status
+    fieldErrors { path code messageKey params { key value } }
+    result {
+      meaning { verdict reason criteria { name status evidence note } }
+      form { verdict reason criteria { name status evidence note } }
+      questions
+      wording
+      limitations
+    }
   }
 }

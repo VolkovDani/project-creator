@@ -14,7 +14,7 @@ import (
 )
 
 func projectAnalysis(value analysis.Run) *ProjectAnalysis {
-	out := &ProjectAnalysis{ClassifierProfile: value.ClassifierProfile, LayaPendingPairs: int32(value.LayaPendingPairs), LayaRunningPairs: int32(value.LayaRunningPairs), LayaCompletedPairs: int32(value.LayaCompletedPairs), LayaFailedPairs: int32(value.LayaFailedPairs), LayaSkippedPairs: int32(value.LayaSkippedPairs), Revision: value.Revision, Mode: value.Mode, SimilarityThreshold: value.SimilarityThreshold, SelectionProfile: value.SelectionProfile, DuplicatePairs: int32(value.DuplicatePairs), ReusedPairs: int32(value.ReusedPairs), NewPairs: int32(value.NewPairs), CompletedPairs: int32(value.CompletedPairs), PendingPairs: int32(value.PendingPairs), RunningPairs: int32(value.RunningPairs), FailedPairs: int32(value.FailedPairs), CollisionPairs: int32(value.CollisionPairs), CompatiblePairs: int32(value.CompatiblePairs), InsufficientPairs: int32(value.InsufficientPairs), GeneratorProvenance: value.GeneratorProvenance, Stage: value.Stage, ProcessedPairs: int32(value.ProcessedPairs), ActivePairId: graphql.ID(value.ActivePairID), Pairs: []*AnalysisPair{}, ReasonCode: value.ReasonCode, MissingRequirementIds: []graphql.ID{}, ID: graphql.ID(value.ID), ProjectId: graphql.ID(value.ProjectID), Status: value.Status, Outcome: value.Outcome, ErrorCode: value.ErrorCode, CreatedAt: value.CreatedAt, CompletedAt: value.CompletedAt, Stale: value.Stale, GeneratorProfile: value.GeneratorProfile, EmbeddingProfile: value.EmbeddingProfile, Sources: []*AnalysisSource{}, Findings: []*AnalysisFinding{}}
+	out := &ProjectAnalysis{DeletionScheduledFor: value.DeletionScheduledFor, ClassifierProfile: value.ClassifierProfile, LayaPendingPairs: int32(value.LayaPendingPairs), LayaRunningPairs: int32(value.LayaRunningPairs), LayaCompletedPairs: int32(value.LayaCompletedPairs), LayaFailedPairs: int32(value.LayaFailedPairs), LayaSkippedPairs: int32(value.LayaSkippedPairs), Revision: value.Revision, Mode: value.Mode, SimilarityThreshold: value.SimilarityThreshold, SelectionProfile: value.SelectionProfile, DuplicatePairs: int32(value.DuplicatePairs), ReusedPairs: int32(value.ReusedPairs), NewPairs: int32(value.NewPairs), CompletedPairs: int32(value.CompletedPairs), PendingPairs: int32(value.PendingPairs), RunningPairs: int32(value.RunningPairs), FailedPairs: int32(value.FailedPairs), CollisionPairs: int32(value.CollisionPairs), CompatiblePairs: int32(value.CompatiblePairs), InsufficientPairs: int32(value.InsufficientPairs), GeneratorProvenance: value.GeneratorProvenance, Stage: value.Stage, ProcessedPairs: int32(value.ProcessedPairs), ActivePairId: graphql.ID(value.ActivePairID), Pairs: []*AnalysisPair{}, ReasonCode: value.ReasonCode, MissingRequirementIds: []graphql.ID{}, ID: graphql.ID(value.ID), ProjectId: graphql.ID(value.ProjectID), Status: value.Status, Outcome: value.Outcome, ErrorCode: value.ErrorCode, CreatedAt: value.CreatedAt, CompletedAt: value.CompletedAt, Stale: value.Stale, GeneratorProfile: value.GeneratorProfile, EmbeddingProfile: value.EmbeddingProfile, Sources: []*AnalysisSource{}, Findings: []*AnalysisFinding{}}
 	if value.PossiblePairs != nil {
 		n := int32(*value.PossiblePairs)
 		out.PossiblePairs = &n
@@ -107,7 +107,7 @@ func (r *Resolver) ProjectAnalysisSummary(ctx context.Context, args ProjectAnaly
 		return nil, nil
 	}
 	full := projectAnalysis(*run)
-	return &ProjectAnalysisSummary{ClassifierProfile: full.ClassifierProfile, LayaPendingPairs: full.LayaPendingPairs, LayaRunningPairs: full.LayaRunningPairs, LayaCompletedPairs: full.LayaCompletedPairs, LayaFailedPairs: full.LayaFailedPairs, LayaSkippedPairs: full.LayaSkippedPairs,
+	return &ProjectAnalysisSummary{DeletionScheduledFor: full.DeletionScheduledFor, ClassifierProfile: full.ClassifierProfile, LayaPendingPairs: full.LayaPendingPairs, LayaRunningPairs: full.LayaRunningPairs, LayaCompletedPairs: full.LayaCompletedPairs, LayaFailedPairs: full.LayaFailedPairs, LayaSkippedPairs: full.LayaSkippedPairs,
 		Revision: full.Revision, Mode: full.Mode, SimilarityThreshold: full.SimilarityThreshold, PossiblePairs: full.PossiblePairs,
 		NotSelectedPairs: full.NotSelectedPairs, DuplicatePairs: full.DuplicatePairs, ReusedPairs: full.ReusedPairs, NewPairs: full.NewPairs,
 		CompletedPairs: full.CompletedPairs, PendingPairs: full.PendingPairs, RunningPairs: full.RunningPairs, FailedPairs: full.FailedPairs,
@@ -277,4 +277,31 @@ func (r *Resolver) CancelProjectAnalysis(ctx context.Context, args CancelProject
 		return nil, errors.New("analysis cancellation unavailable")
 	}
 	return r.projectAnalysisWithMatches(ctx, run)
+}
+
+func (r *Resolver) AnalysisDeletionRetentionDays(ctx context.Context) (int32, error) {
+	if err := consume(ctx); err != nil {
+		return 0, err
+	}
+	return int32(r.Analysis.RetentionDays()), nil
+}
+
+func (r *Resolver) ScheduleAnalysisDeletion(ctx context.Context, args ScheduleAnalysisDeletionArgs) (bool, error) {
+	if err := consume(ctx); err != nil {
+		return false, err
+	}
+	if err := r.Analysis.ScheduleDeletion(ctx, workspace(ctx), string(args.ProjectId), string(args.AnalysisId)); err != nil {
+		return false, errors.New("analysis deletion unavailable")
+	}
+	return true, nil
+}
+
+func (r *Resolver) DeleteMarkedAnalysis(ctx context.Context, args DeleteMarkedAnalysisArgs) (bool, error) {
+	if err := consume(ctx); err != nil {
+		return false, err
+	}
+	if err := r.Analysis.DeleteMarked(ctx, workspace(ctx), string(args.ProjectId), string(args.AnalysisId)); err != nil {
+		return false, errors.New("analysis deletion unavailable")
+	}
+	return true, nil
 }

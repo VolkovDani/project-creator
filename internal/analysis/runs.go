@@ -372,7 +372,7 @@ func (s *Service) Retry(ctx context.Context, workspace, project, id string) (Run
 		return Run{}, err
 	}
 	r, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM analysis_runs WHERE workspace=$1 AND project_id=$2 ORDER BY seq DESC LIMIT 1 FOR UPDATE`, workspace, project))
-	if err != nil || r.ID != id {
+	if err != nil || r.ID != id || r.DeletionScheduledFor != nil {
 		return Run{}, ErrRetryUnavailable
 	}
 	if r.Status == "running" {

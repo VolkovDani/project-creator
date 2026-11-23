@@ -342,6 +342,14 @@ type ProjectsConnectionArgs struct {
 	First *int32
 	After *string
 }
+type ScheduleAnalysisDeletionArgs struct {
+	ProjectId  graphql.ID
+	AnalysisId graphql.ID
+}
+type DeleteMarkedAnalysisArgs struct {
+	ProjectId  graphql.ID
+	AnalysisId graphql.ID
+}
 type BackfillClassificationsArgs struct {
 	ProjectId graphql.ID
 }
@@ -485,6 +493,7 @@ type AnalysisPair struct {
 	ErrorCode          string
 }
 type ProjectAnalysis struct {
+	DeletionScheduledFor  *string
 	ClassifierProfile     string
 	LayaPendingPairs      int32
 	LayaRunningPairs      int32
@@ -547,6 +556,7 @@ type AnalysisRunMetadata struct {
 	SelectionProfile    string
 }
 type ProjectAnalysisSummary struct {
+	DeletionScheduledFor  *string
 	ClassifierProfile     string
 	LayaPendingPairs      int32
 	LayaRunningPairs      int32

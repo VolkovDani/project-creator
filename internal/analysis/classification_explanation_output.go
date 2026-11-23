@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"maps"
 	"slices"
@@ -24,7 +25,7 @@ const (
 var explanationVerdicts = []string{"fits", "partial", "insufficient", "does_not_fit"}
 var explanationStatuses = []string{"present", "missing", "uncertain", "not_applicable"}
 
-func classificationExplanationSchema(meaning, form []string, locale string) map[string]any {
+func classificationExplanationSchema(meaning, form []string, locale string, lastPassage int) map[string]any {
 	object := func(props map[string]any) map[string]any {
 		return map[string]any{"type": "object", "properties": props, "required": slices.Sorted(maps.Keys(props)), "additionalProperties": false}
 	}
@@ -32,12 +33,15 @@ func classificationExplanationSchema(meaning, form []string, locale string) map[
 		return map[string]any{"type": "string", "minLength": minLen, "maxLength": maxLen}
 	}
 	narrative := func(minLen, maxLen int) map[string]any {
+		// The local grammar engine consumes the pattern when one is present.
+		// Bound it directly and keep JSON delimiters outside the narrative.
+		maxLen = min(maxLen, 180)
 		field := text(minLen, maxLen)
 		alphabet := "[A-Za-z]"
 		if locale == "ru" {
 			alphabet = "[А-Яа-яЁё]"
 		}
-		pattern := alphabet + ".*"
+		pattern := alphabet + fmt.Sprintf(`[^"\\\r\n]{0,%d}`, maxLen-1)
 		if minLen == 0 {
 			pattern = "(" + pattern + ")?"
 		}
@@ -47,7 +51,8 @@ func classificationExplanationSchema(meaning, form []string, locale string) map[
 	criterion := func(statuses []string) map[string]any {
 		return object(map[string]any{
 			"status":   map[string]any{"type": "string", "enum": statuses},
-			"evidence": text(0, explanationQuoteMax), "note": narrative(1, explanationNoteMax),
+			"evidence": map[string]any{"type": "integer", "minimum": 0, "maximum": lastPassage},
+			"note":     narrative(1, explanationNoteMax),
 		})
 	}
 	axis := func(keys []string) map[string]any {
@@ -66,12 +71,47 @@ func classificationExplanationSchema(meaning, form []string, locale string) map[
 		"wording": narrative(0, explanationWordingMax), "questions": map[string]any{"type": "array", "maxItems": explanationQuestionsMax, "items": narrative(1, explanationQuestionMax)}})
 }
 
+// Each nonzero index identifies one contiguous source passage. Keep separators
+// so the model can read the whole source in order. Trim only the
+// outside whitespace when displaying a selected passage.
+func explanationPassages(source string) []string {
+	passages := []string{""}
+	text := []rune(source)
+	for len(text) > 0 {
+		start := 0
+		for start < len(text) && unicode.IsSpace(text[start]) {
+			start++
+		}
+		end := min(start+explanationQuoteMax, len(text))
+		lastSpace := -1
+		for i := start; i < end; i++ {
+			r := text[i]
+			if r == '\n' || (strings.ContainsRune(".!?;。！？", r) && i+1 < len(text) && unicode.IsSpace(text[i+1])) {
+				end = i + 1
+				break
+			}
+			if unicode.IsSpace(r) {
+				lastSpace = i
+			}
+			if i+1 == end && end < len(text) && !unicode.IsSpace(text[end]) && lastSpace > start {
+				end = lastSpace
+			}
+		}
+		for end < len(text) && unicode.IsSpace(text[end]) {
+			end++
+		}
+		passages = append(passages, string(text[:end]))
+		text = text[end:]
+	}
+	return passages
+}
+
 const errClassificationOutput invalidModelOutput = "classification explanation does not match the selected criteria or source"
 
 type explanationOutputCriterion struct {
-	Status   string  `json:"status"`
-	Evidence *string `json:"evidence"`
-	Note     string  `json:"note"`
+	Status   string `json:"status"`
+	Evidence *int   `json:"evidence"`
+	Note     string `json:"note"`
 }
 type explanationOutputAxis struct {
 	Verdict  string                                `json:"verdict"`
@@ -79,7 +119,7 @@ type explanationOutputAxis struct {
 	Criteria map[string]explanationOutputCriterion `json:"criteria"`
 }
 
-func (axis explanationOutputAxis) assessment(source, category, locale string) (explanation.Assessment, error) {
+func (axis explanationOutputAxis) assessment(passages []string, category, locale string) (explanation.Assessment, error) {
 	keys := explanationCriteria[category]
 	if len(keys) == 0 || len(axis.Criteria) != len(keys) || !slices.Contains(explanationVerdicts, axis.Verdict) || !explanationNarrative(axis.Reason, locale, 1, explanationReasonMax) {
 		return explanation.Assessment{}, errClassificationOutput
@@ -87,11 +127,11 @@ func (axis explanationOutputAxis) assessment(source, category, locale string) (e
 	result := explanation.Assessment{Reason: axis.Reason, Verdict: axis.Verdict}
 	for _, key := range keys {
 		c, ok := axis.Criteria[key]
-		if !ok || !slices.Contains(explanationStatuses, c.Status) || !explanationNarrative(c.Note, locale, 1, explanationNoteMax) || c.Evidence == nil || !explanationString(*c.Evidence, 0, explanationQuoteMax) {
+		if !ok || !slices.Contains(explanationStatuses, c.Status) || !explanationNarrative(c.Note, locale, 1, explanationNoteMax) || c.Evidence == nil || *c.Evidence < 0 || *c.Evidence >= len(passages) {
 			return explanation.Assessment{}, errClassificationOutput
 		}
-		quote := *c.Evidence
-		if (quote != "" && !strings.Contains(source, quote)) || (quote == "" && c.Status == "present") {
+		quote := strings.TrimSpace(passages[*c.Evidence])
+		if quote == "" && c.Status == "present" {
 			return explanation.Assessment{}, errClassificationOutput
 		}
 		// A model may quote actual context while explaining an absent criterion.
@@ -111,7 +151,7 @@ func (axis explanationOutputAxis) assessment(source, category, locale string) (e
 	return result, nil
 }
 
-func decodeClassificationExplanation(content, source string, target explanation.Target) (explanation.Result, error) {
+func decodeClassificationExplanation(content, source string, target explanation.Target, passages []string) (explanation.Result, error) {
 	empty := explanation.Result{}
 	var raw struct {
 		Meaning     explanationOutputAxis `json:"content"`
@@ -131,11 +171,11 @@ func decodeClassificationExplanation(content, source string, target explanation.
 			return empty, errClassificationOutput
 		}
 	}
-	meaning, err := raw.Meaning.assessment(source, target.Semantic, target.Locale)
+	meaning, err := raw.Meaning.assessment(passages, target.Semantic, target.Locale)
 	if err != nil {
 		return empty, err
 	}
-	form, err := raw.Form.assessment(source, target.Representation, target.Locale)
+	form, err := raw.Form.assessment(passages, target.Representation, target.Locale)
 	if err != nil {
 		return empty, err
 	}

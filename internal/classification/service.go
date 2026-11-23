@@ -120,7 +120,7 @@ type job struct {
 // Stage a small batch of older sources between claims. New edits are queued by their transaction.
 const seedMissing = `
  INSERT INTO classification_jobs(workspace,project_id,requirement_id,version,profile)
- SELECT r.workspace,r.project_id,r.id,r.version,p.profile FROM requirements r JOIN classification_profiles p ON p.workspace=r.workspace
+ SELECT r.workspace,r.project_id,r.id,r.version,p.profile FROM active_requirements r JOIN classification_profiles p ON p.workspace=r.workspace
  WHERE r.workspace=$1 AND p.profile=$2 AND ($3::text='' OR r.project_id=$3)
  AND NOT EXISTS (SELECT FROM requirement_classifications c WHERE c.requirement_id=r.id AND c.text_version=r.version AND c.status='confirmed')
  AND NOT EXISTS (SELECT FROM classification_jobs j WHERE j.requirement_id=r.id AND j.version=r.version AND j.profile=p.profile AND j.status<>'stale')
@@ -164,13 +164,13 @@ func (s *Service) claim(ctx context.Context, ws []string) (*job, error) {
 	}
 	var j job
 	e = tx.QueryRowContext(ctx, `WITH candidate AS (
- SELECT j.requirement_id,j.version,j.profile FROM classification_jobs j JOIN requirements r ON r.id=j.requirement_id AND r.version=j.version
+ SELECT j.requirement_id,j.version,j.profile FROM classification_jobs j JOIN active_requirements r ON r.id=j.requirement_id AND r.version=j.version
  JOIN classification_profiles p ON p.workspace=j.workspace AND p.profile=j.profile
  WHERE j.workspace=ANY($1) AND j.profile=$2 AND j.status IN ('queued','classifying') AND j.available_at<=clock_timestamp()
  AND NOT EXISTS (SELECT FROM classification_call WHERE lease_until>clock_timestamp())
  ORDER BY j.available_at,j.requirement_id LIMIT 1 FOR UPDATE OF j SKIP LOCKED)
  UPDATE classification_jobs j SET status='classifying', attempts=attempts+1,attempt=gen_random_uuid()::text,
- available_at=clock_timestamp()+interval '2 minutes',error_code='' FROM candidate c,requirements r
+ available_at=clock_timestamp()+interval '2 minutes',error_code='' FROM candidate c,active_requirements r
  WHERE (j.requirement_id,j.version,j.profile)=(c.requirement_id,c.version,c.profile) AND r.id=j.requirement_id
  RETURNING j.requirement_id,j.workspace,j.project_id,j.version,j.attempt,j.attempts,j.reanalysis,r.text`, ws, profile).Scan(&j.id, &j.w, &j.p, &j.version, &j.attempt, &j.attempts, &j.reanalysis, &j.text)
 	if errors.Is(e, sql.ErrNoRows) {
@@ -249,7 +249,7 @@ func (s *Service) finish(ctx context.Context, j job, v Prediction, code string) 
 		return e
 	}
 	var present bool
-	e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM classification_jobs j JOIN requirements r ON r.id=j.requirement_id AND r.workspace=j.workspace AND r.project_id=j.project_id AND r.version=j.version
+	e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM classification_jobs j JOIN active_requirements r ON r.id=j.requirement_id AND r.workspace=j.workspace AND r.project_id=j.project_id AND r.version=j.version
  JOIN classification_profiles p ON p.workspace=j.workspace AND p.profile=j.profile
  WHERE j.requirement_id=$1 AND j.version=$2 AND j.profile=$3 AND j.attempt=$4 AND j.status='classifying' AND j.available_at>clock_timestamp())`, j.id, j.version, s.classifier.Profile(), j.attempt).Scan(&present)
 	if e != nil {

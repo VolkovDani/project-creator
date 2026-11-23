@@ -69,7 +69,7 @@ func (r *Resolver) RequirementClassificationHistory(ctx context.Context, a Requi
 	rows, err := classification.History(ctx, r.DB, workspace(ctx), string(a.ProjectId), string(a.RequirementId), a.Limit, a.Offset)
 	authorized := len(rows) > 0
 	if err == nil && !authorized {
-		err = r.DB.QueryRowContext(ctx, "SELECT EXISTS(SELECT FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3)", workspace(ctx), a.ProjectId, a.RequirementId).Scan(&authorized)
+		err = r.DB.QueryRowContext(ctx, "SELECT EXISTS(SELECT FROM active_requirements WHERE workspace=$1 AND project_id=$2 AND id=$3)", workspace(ctx), a.ProjectId, a.RequirementId).Scan(&authorized)
 	}
 	if authorized {
 		addCacheDependency(ctx, classificationItemTag(a.ProjectId, string(a.RequirementId)))

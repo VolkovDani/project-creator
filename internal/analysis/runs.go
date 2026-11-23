@@ -335,7 +335,7 @@ func (s *Service) startWithOptions(ctx context.Context, workspace, project strin
 	if err != nil {
 		return empty, errStorage
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO analysis_sources(run_id,requirement_id,source) SELECT $1,id,jsonb_build_object('id',id,'version',version,'text',text) FROM requirements WHERE workspace=$2 AND project_id=$3`, id, workspace, project)
+	_, err = tx.ExecContext(ctx, `INSERT INTO analysis_sources(run_id,requirement_id,source) SELECT $1,id,jsonb_build_object('id',id,'version',version,'text',text) FROM active_requirements WHERE workspace=$2 AND project_id=$3`, id, workspace, project)
 	if err != nil {
 		return empty, errStorage
 	}

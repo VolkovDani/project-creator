@@ -31,12 +31,13 @@ type CreateProjectPayload struct {
 	FieldErrors []*FieldError
 }
 type Requirement struct {
-	ID        graphql.ID
-	ProjectId graphql.ID
-	Text      string
-	Version   int32
-	CreatedAt string
-	UpdatedAt string
+	ArchivedAt *string
+	ID         graphql.ID
+	ProjectId  graphql.ID
+	Text       string
+	Version    int32
+	CreatedAt  string
+	UpdatedAt  string
 }
 type CreateRequirementInput struct {
 	ProjectId graphql.ID
@@ -326,6 +327,7 @@ type RequirementsArgs struct {
 }
 type RequirementsConnectionArgs struct {
 	ProjectId graphql.ID
+	Archived  *bool
 	First     *int32
 	After     *string
 }
@@ -407,10 +409,23 @@ type CreateRequirementArgs struct {
 type UpdateRequirementArgs struct {
 	Input UpdateRequirementInput
 }
-type DeleteRequirementArgs struct {
+type ArchiveRequirementArgs struct {
 	ID        graphql.ID
 	ProjectId graphql.ID
 	Version   int32
+}
+type RestoreRequirementArgs struct {
+	ID         graphql.ID
+	ProjectId  graphql.ID
+	Version    int32
+	ArchivedAt string
+}
+type DeleteRequirementArgs struct {
+	ID         graphql.ID
+	ProjectId  graphql.ID
+	Version    int32
+	ArchivedAt *string
+	Confirmed  *bool
 }
 type CreateProjectArgs struct {
 	Input ProjectInput

@@ -163,7 +163,7 @@ func (s *Service) authorize(ctx context.Context, q queryer, workspace, project s
 // result commits by the project lock; versions and exact text both participate.
 func sourceSignature(ctx context.Context, q queryer, workspace, project string) (string, error) {
 	var signature string
-	err := q.QueryRowContext(ctx, `SELECT md5(coalesce(string_agg(md5(jsonb_build_array(id,version,text)::text),'' ORDER BY id),'')) FROM requirements WHERE workspace=$1 AND project_id=$2`, workspace, project).Scan(&signature)
+	err := q.QueryRowContext(ctx, `SELECT md5(coalesce(string_agg(md5(jsonb_build_array(id,version,text)::text),'' ORDER BY id),'')) FROM active_requirements WHERE workspace=$1 AND project_id=$2`, workspace, project).Scan(&signature)
 	if err != nil {
 		return "", errStorage
 	}

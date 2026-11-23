@@ -56,6 +56,10 @@ export class AnalysisChannel<T extends AnalysisVersion = AnalysisVersion> {
     for (const [projectId, snapshot] of pending)
       for (const listener of this.listeners.get(projectId) ?? []) listener(snapshot);
   }
+  forgetProject(projectId: string) {
+    this.current.delete(projectId);
+    this.pending.delete(projectId);
+  }
   clear() {
     this.current.clear();
     this.pending.clear();

@@ -596,6 +596,9 @@ async function liveFixture(
 const analysisRegion = (page: Page) =>
   page.getByRole('region', { name: 'Анализ возможных коллизий' });
 
+const historyRegion = (page: Page) =>
+  page.getByRole('region', { name: 'История запусков', exact: true });
+
 test('preparation stages do not invent a total and candidates expose numeric progress', async ({
   page,
   context,
@@ -1030,8 +1033,8 @@ test('history preserves the original generator profile and reused comparison pro
       },
     });
   });
-  await page.goto('/projects/demo/analysis');
-  const area = analysisRegion(page);
+  await page.goto('/projects/demo/technical/analysis-history');
+  const area = historyRegion(page);
   await expect(
     area.getByText('В проверенных парах коллизий не найдено', { exact: true }),
   ).toBeVisible();
@@ -1227,11 +1230,11 @@ test('revoked access clears saved pair texts and history after invalidation', as
   context,
 }) => {
   const live = await liveFixture(context, complete());
-  await page.goto('/projects/demo/analysis');
-  const collision = analysisRegion(page).getByRole('group', { name: /^Возможные противоречия/ });
+  await page.goto('/projects/demo/technical/analysis-history');
+  const collision = historyRegion(page).getByRole('group', { name: /^Возможные противоречия/ });
   await expandGroup(collision);
   await expandPair(collision);
-  await expect(analysisRegion(page).getByText(sources[0].text, { exact: true })).toBeVisible();
+  await expect(historyRegion(page).getByText(sources[0].text, { exact: true })).toBeVisible();
   await expect.poll(() => live.stats().waiting).toBeGreaterThan(0);
   live.deny();
   live.send('access-revoked', false, ['project:demo:requirements']);
@@ -1256,8 +1259,8 @@ test('scrolling through analysis history appends runs and stops at the final bat
     const history = runs.slice(variables.offset, variables.offset + variables.limit);
     await route.fulfill({ json: { data: { analysisHistory: history } } });
   });
-  await page.goto('/projects/demo/analysis');
-  const history = analysisRegion(page).getByLabel('История запусков');
+  await page.goto('/projects/demo/technical/analysis-history');
+  const history = historyRegion(page).getByLabel('История запусков');
   await expect(history.locator('option')).toHaveCount(21);
   await expect(history).toBeVisible();
   await history.evaluate((el) => el.scrollTo(0, el.scrollHeight));
@@ -1267,7 +1270,7 @@ test('scrolling through analysis history appends runs and stops at the final bat
   await expect(history.locator('option')).toHaveCount(43);
   expect(offsets).toEqual([0, 20, 40]);
   await expect(
-    analysisRegion(page).getByRole('button', { name: 'Загрузить ещё', exact: true }),
+    historyRegion(page).getByRole('button', { name: 'Загрузить ещё', exact: true }),
   ).toHaveCount(0);
   await expect(history.locator('option[value="history-41"]')).toHaveCount(1);
 });
@@ -1295,14 +1298,18 @@ test('historical failures cannot retry work after a newer run exists', async ({ 
     } else await route.fallback();
   });
   await page.goto('/projects/demo/analysis');
-  const area = analysisRegion(page);
+  await expect(
+    analysisRegion(page).getByRole('button', { name: 'Повторить неудавшиеся пары', exact: true }),
+  ).toBeVisible();
+  await page.goto('/projects/demo/technical/analysis-history');
+  const area = historyRegion(page);
   const retry = area.getByRole('button', { name: 'Повторить неудавшиеся пары', exact: true });
-  await expect(retry).toBeVisible();
+  await expect(retry).toHaveCount(0);
   await area.getByRole('combobox', { name: 'История запусков' }).selectOption('old');
   await expect(area.getByText('Ошибки обработки: 1', { exact: true })).toBeVisible();
   await expect(retry).toHaveCount(0);
   await area.getByRole('combobox', { name: 'История запусков' }).selectOption('');
-  await expect(retry).toBeVisible();
+  await expect(retry).toHaveCount(0);
 });
 
 test('cancel stops the whole run, preserves results and persists across reload', async ({
@@ -1427,3 +1434,134 @@ for (const { width, zoom } of layoutCases) {
     }
   });
 }
+
+test('selected history can be marked and deleted only after confirmation', async ({ page }) => {
+  const latest = complete({ id: 'active', status: 'running' });
+  const old = complete({ id: 'older', createdAt: '2026-01-01T00:00:00Z', stale: true });
+  const deadline = '2026-12-03T12:00:00Z';
+  let scheduled = false;
+  let deleted = false;
+  await fixture(page, latest);
+  await page.route('**/api/graphql', async (route) => {
+    const { operationName, variables } = route.request().postDataJSON();
+    const saved = {
+      ...old,
+      revision: scheduled ? '99' : old.revision,
+      deletionScheduledFor: scheduled ? deadline : null,
+    };
+    if (operationName === 'AnalysisHistory') {
+      return route.fulfill({
+        json: { data: { analysisHistory: deleted ? [latest] : [latest, saved] } },
+      });
+    }
+    if (operationName === 'ProjectAnalysisSummary') {
+      return route.fulfill({
+        json: {
+          data: {
+            analysisDeletionRetentionDays: 12,
+            projectAnalysis: variables.analysisId === old.id ? (deleted ? null : saved) : latest,
+          },
+        },
+      });
+    }
+    if (operationName === 'ScheduleAnalysisDeletion' || operationName === 'DeleteMarkedAnalysis') {
+      expect(variables).toEqual({ projectId: 'demo', analysisId: old.id });
+      if (operationName === 'ScheduleAnalysisDeletion') {
+        scheduled = true;
+        return route.fulfill({ json: { data: { scheduleAnalysisDeletion: true } } });
+      }
+      expect(scheduled).toBe(true);
+      deleted = true;
+      return route.fulfill({ json: { data: { deleteMarkedAnalysis: true } } });
+    }
+    return route.fallback();
+  });
+  const names: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/graphql')) names.push(request.postDataJSON().operationName);
+  });
+  await page.goto('/projects/demo/analysis');
+  await expect(analysisRegion(page).getByText('Анализ выполняется', { exact: true })).toBeVisible();
+  await expect(analysisRegion(page).getByLabel('История запусков')).toHaveCount(0);
+  expect(names).not.toContain('AnalysisHistory');
+  await page.getByRole('link', { name: 'Технический раздел', exact: true }).click();
+  await page.getByRole('main').getByRole('link', { name: 'История запусков', exact: true }).click();
+  await expect(page).toHaveTitle('История запусков — Project Creator');
+  const area = historyRegion(page);
+  const mark = area.getByRole('button', { name: 'Удалить через 12 дней' });
+  const purge = area.getByRole('button', { name: 'Удалить безвозвратно', exact: true });
+  await expect(mark).toHaveCount(0);
+  const history = area.getByLabel('История запусков');
+  await history.selectOption(old.id);
+  await expect(area.getByText('Возможная коллизия найдена', { exact: true })).toBeVisible();
+  await expect(mark).toBeVisible();
+  await expect(purge).toHaveCount(0);
+  await mark.click();
+  await expect(area.locator('time')).toHaveAttribute('datetime', deadline);
+  await expect(history.locator('option:checked')).toContainText('Удаление');
+  await purge.click();
+  const dialog = page.getByRole('dialog', { name: 'Удалить запуск безвозвратно?' });
+  await expect(dialog.getByText(old.id, { exact: false })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Отмена' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  expect(deleted).toBe(false);
+  await purge.click();
+  await dialog.getByRole('button', { name: 'Удалить безвозвратно' }).click();
+  await expect(history).toHaveValue('');
+  await expect(history.locator('option[value="older"]')).toHaveCount(0);
+  await expect(area.getByText('Анализ выполняется', { exact: true })).toBeVisible();
+  expect(deleted).toBe(true);
+});
+
+test('history invalidation replaces a deleted latest run and clears a deleted selection', async ({
+  page,
+  context,
+}) => {
+  const old = complete({
+    id: 'old',
+    createdAt: '2025-01-01T00:00:00Z',
+    outcome: 'no_collisions_found',
+  });
+  const latest = complete({ id: 'new' });
+  const live = await liveFixture(context, latest);
+  let runs = [latest, old];
+  await page.route('**/api/graphql', (route) => {
+    const { operationName, variables } = route.request().postDataJSON();
+    if (operationName === 'AnalysisHistory')
+      return route.fulfill({ json: { data: { analysisHistory: runs } } });
+    if (operationName === 'ProjectAnalysisSummary')
+      return route.fulfill({
+        json: {
+          data: {
+            analysisDeletionRetentionDays: 12,
+            projectAnalysis:
+              (variables.analysisId
+                ? runs.find((item) => item.id === variables.analysisId)
+                : runs[0]) ?? null,
+          },
+        },
+      });
+    return route.fallback();
+  });
+  await page.goto('/projects/demo/technical/analysis-history');
+  const area = historyRegion(page);
+  const history = area.getByLabel('История запусков');
+  await expect(area.getByText('Возможная коллизия найдена', { exact: true })).toBeVisible();
+  await expect.poll(() => live.stats().waiting).toBeGreaterThan(0);
+  runs = [old];
+  live.send('remove-latest', false, ['project:demo:analysis-history']);
+  await expect(
+    area.getByText('В проверенных парах коллизий не найдено', { exact: true }),
+  ).toBeVisible();
+  await history.selectOption(old.id);
+  await expect(history).toHaveValue(old.id);
+  await expect.poll(() => live.stats().waiting).toBeGreaterThan(0);
+  runs = [];
+  live.send('remove-last', false, ['project:demo:analysis-history']);
+  await expect(history).toHaveCount(0);
+  await expect(area.getByText('Сохранённых запусков пока нет.', { exact: true })).toBeVisible();
+  await expect(
+    area.getByText('В проверенных парах коллизий не найдено', { exact: true }),
+  ).toHaveCount(0);
+});

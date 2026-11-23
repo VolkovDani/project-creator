@@ -225,9 +225,11 @@ profile before the next explicit analysis run; a cancelled request is not retrie
 automatically. You can explicitly retry unfinished pairs in the current run or
 start a new analysis that reuses completed results.
 
-Retrying failed pairs is available in the “Latest run” view: select a saved run in
-history to open it. Historical results do not replace user text with current
-versions. Older results are migrated without assigning unknown provenance.
+On the **Analysis** page, you can retry failed pairs in the latest run until you schedule it for deletion. Historical results preserve the source text from that run. Older results are migrated without assigning unknown provenance.
+
+Open the project’s **Technical section** to find **Analysis history**. You can view a saved run there and schedule a finished run for deletion. The displayed deadline is counted from when you schedule deletion. Scheduling the same run again keeps its original deadline. Once scheduled, you can permanently delete it immediately. Deletion removes that run and its saved pairs and source snapshots. The project, its requirements and other runs remain available. Unscheduled runs are kept regardless of age.
+
+Set `ANALYSIS_HISTORY_RETENTION_DAYS` in the repository-root `.env` to change the period for newly scheduled deletions. The default is 30 days. Use a whole number from 1 through 106751 inclusive, then recreate the backend with the same launcher or Compose configuration. For a host backend, export the variable and restart the server. Existing deadlines keep their saved dates. The backend checks for expired runs at startup and once an hour while running. If a check fails, cleanup retries on the next sweep.
 
 Successful verdicts `collision`, `compatible`, `insufficient`, and `duplicate` are
 reused between runs only within the same workspace/project, for the same

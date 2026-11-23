@@ -23,12 +23,13 @@ import (
 )
 
 type Server struct {
-	classifications *classification.Service
-	summaries       *summary.Service
-	db              *sql.DB
-	h               http.Handler
-	analysis        *analysis.Service
-	indexing        *rag.Service
+	stopHistoryCleanup func()
+	classifications    *classification.Service
+	summaries          *summary.Service
+	db                 *sql.DB
+	h                  http.Handler
+	analysis           *analysis.Service
+	indexing           *rag.Service
 }
 
 func New(path string, tokens map[string]string) (*Server, error) {
@@ -49,16 +50,23 @@ func NewWithSummaryProviders(path string, tokens map[string]string, embedder rag
 }
 
 type Config struct {
-	Classifier               classification.Classifier
-	Embedder                 rag.Embedder
-	Generator                analysis.Generator
-	Summarizer               summary.Generator
-	DefaultAnalysisThreshold float64
+	Classifier                   classification.Classifier
+	Embedder                     rag.Embedder
+	Generator                    analysis.Generator
+	Summarizer                   summary.Generator
+	DefaultAnalysisThreshold     float64
+	AnalysisHistoryRetentionDays int
 }
 
 func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, error) {
 	if !contracts.AnalysisConstraints().ValidThreshold(cfg.DefaultAnalysisThreshold) {
 		return nil, errors.New("invalid analysis default threshold")
+	}
+	if cfg.AnalysisHistoryRetentionDays == 0 {
+		cfg.AnalysisHistoryRetentionDays = analysis.DefaultRetentionDays
+	}
+	if cfg.AnalysisHistoryRetentionDays < 1 || cfg.AnalysisHistoryRetentionDays > analysis.MaxRetentionDays {
+		return nil, errors.New("invalid analysis history retention period")
 	}
 	if len(tokens) == 0 {
 		return nil, errors.New("at least one workspace token is required")
@@ -92,6 +100,7 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 		embeddingProfile = cfg.Embedder.Profile()
 	}
 	analyzer := analysis.NewWithDefaultThreshold(db, retriever, cfg.Generator, embeddingProfile, cfg.DefaultAnalysisThreshold)
+	analyzer.SetRetentionDays(cfg.AnalysisHistoryRetentionDays)
 	generatorProfile := ""
 	if cfg.Generator != nil {
 		generatorProfile = analyzer.Profile()
@@ -128,7 +137,7 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 		return nil, errors.New("startup cache invalidation unavailable")
 	}
 	h := &relay.Handler{Schema: schema}
-	return &Server{db: db, classifications: classifications, analysis: analyzer, indexing: retriever, summaries: summaries, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return &Server{stopHistoryCleanup: startAnalysisHistoryCleanup(analyzer.PurgeExpired), db: db, classifications: classifications, analysis: analyzer, indexing: retriever, summaries: summaries, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/graphql" && r.URL.Path != "/events" {
 			http.NotFound(w, r)
 			return
@@ -183,6 +192,7 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.h.ServeHTTP(w, r) }
 func (s *Server) Close() error {
+	s.stopHistoryCleanup()
 	s.classifications.Close()
 	s.summaries.Close()
 	s.analysis.Close()

@@ -58,9 +58,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	retentionDays, err := configuredAnalysisHistoryRetentionDays(os.Getenv)
+	if err != nil {
+		log.Fatal(err)
+	}
 	s, err := api.NewConfigured(path, map[string]string{token: "default"}, api.Config{
 		Embedder: embedder, Generator: generator, Summarizer: summarizer, Classifier: classifier,
-		DefaultAnalysisThreshold: threshold,
+		DefaultAnalysisThreshold: threshold, AnalysisHistoryRetentionDays: retentionDays,
 	})
 	if err != nil {
 		log.Fatal(err)

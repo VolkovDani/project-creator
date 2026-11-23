@@ -25,6 +25,25 @@ function scheduleUpdates() {
     analysisChannel.flush();
   }, 50);
 }
+function queueInvalidations(keys: unknown, eventId?: string) {
+  if (!Array.isArray(keys) || keys.some((key: unknown) => typeof key !== 'string'))
+    throw Error('invalid keys');
+  if (eventId && seenInvalidations.has(eventId)) return;
+  if (eventId) {
+    seenInvalidations.add(eventId);
+    if (seenInvalidations.size > 1024) {
+      const oldest = seenInvalidations.values().next().value;
+      if (oldest !== undefined) seenInvalidations.delete(oldest);
+    }
+  }
+  // Discard superseded snapshots before accepting the server's new latest run.
+  for (const key of keys) {
+    if (key.startsWith('project:') && key.endsWith(':analysis-history'))
+      analysisChannel.forgetProject(key.slice('project:'.length, -':analysis-history'.length));
+    pendingKeys.add(key);
+  }
+  clientCache.evict(keys);
+}
 function clearUpdates() {
   clearTimeout(updateTimer);
   updateTimer = undefined;
@@ -90,6 +109,7 @@ async function stream(signal: AbortSignal) {
               snapshot.revision !== payload.revision
             )
               throw Error('invalid analysis scope');
+            if (payload.keys !== undefined) queueInvalidations(payload.keys, frame.id);
             clientCache.evict([`project:${snapshot.projectId}:analysis`]);
             analysisChannel.push(snapshot);
             scheduleUpdates();
@@ -97,22 +117,7 @@ async function stream(signal: AbortSignal) {
             clearUpdates();
             clientCache.reset(false);
           } else {
-            if (
-              !Array.isArray(payload.keys) ||
-              payload.keys.some((key: unknown) => typeof key !== 'string')
-            )
-              throw Error('invalid keys');
-            if (frame.id && seenInvalidations.has(frame.id)) return;
-            if (frame.id) {
-              seenInvalidations.add(frame.id);
-              if (seenInvalidations.size > 1024) {
-                const oldest = seenInvalidations.values().next().value;
-                if (oldest !== undefined) seenInvalidations.delete(oldest);
-              }
-            }
-            // Evict immediately so an in-flight response cannot be marked fresh.
-            clientCache.evict(payload.keys);
-            for (const key of payload.keys) pendingKeys.add(key);
+            queueInvalidations(payload.keys, frame.id);
             scheduleUpdates();
           }
           cursor = nextCursor(cursor, frame.id);

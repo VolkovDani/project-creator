@@ -5,6 +5,11 @@ export const layoutCases = [
   { width: 1920, zoom: 2 },
 ];
 
+export async function openProjectMenu(page: Page) {
+  const toggle = page.locator('button[aria-controls="project-sidebar"]');
+  if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+}
+
 // CSS zoom exercises 200% text/control scaling; 960px also checks desktop reflow.
 export async function setLayout(page: Page, width: number, zoom: number) {
   await page.setViewportSize({ width, height: 1080 });

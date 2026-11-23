@@ -307,44 +307,44 @@ test('group loads compact rows and only an opened pair fetches texts; reopen reu
   await expect(group).toHaveAttribute('open', '');
   expect(live.requests.length).toBe(oldCount);
 });
-test('paged results include explanations without loading technical metadata', async ({ page }) => {
+test('legacy analysis links include explanations without loading technical metadata', async ({
+  page,
+}) => {
   const live = await fixture(page);
   live.set(snapshot('2', 1));
   await page.goto('/projects/demo/analysis?listMode=pages&page=1');
   const group = page.getByRole('group', { name: 'Возможные противоречия: 1', exact: true });
   await group.locator(':scope > summary').click();
   await expect(group.getByText('Confirmed explanation', { exact: true })).toBeVisible();
-  expect(live.requests).toContain('AnalysisPairPage');
-  expect(live.requests).not.toContain('AnalysisPairConnection');
+  expect(live.requests).toContain('AnalysisPairConnection');
+  expect(live.requests).not.toContain('AnalysisPairPage');
   expect(live.requests).not.toContain('AnalysisPairTechnical');
   expect(live.requests).not.toContain('AnalysisPairSources');
 });
-for (const mode of ['infinite', 'pages']) {
-  test(`saved model explanations reflect glossary edits in ${mode} mode`, async ({ page }) => {
-    const live = await fixture(page);
-    live.set(snapshot('21', 20));
-    live.setExplanationMatches([{ start: 10, end: 21, terms: [{ id: 'concept' }] }]);
-    await page.goto(`/projects/demo/analysis?listMode=${mode}`);
-    const group = page.getByRole('group', { name: 'Возможные противоречия: 20', exact: true });
-    await group.locator(':scope > summary').click();
-    const text = group.locator('p[data-glossary-text]');
-    await expect(text).toHaveText('Confirmed explanation');
-    const term = text.getByRole('button', { name: 'explanation', exact: true });
-    await expect(term).toBeVisible();
-    await term.focus();
-    await expect(page.getByRole('tooltip')).toContainText('concept definition');
+test('saved model explanations reflect glossary edits', async ({ page }) => {
+  const live = await fixture(page);
+  live.set(snapshot('21', 20));
+  live.setExplanationMatches([{ start: 10, end: 21, terms: [{ id: 'concept' }] }]);
+  await page.goto('/projects/demo/analysis');
+  const group = page.getByRole('group', { name: 'Возможные противоречия: 20', exact: true });
+  await group.locator(':scope > summary').click();
+  const text = group.locator('p[data-glossary-text]');
+  await expect(text).toHaveText('Confirmed explanation');
+  const term = text.getByRole('button', { name: 'explanation', exact: true });
+  await expect(term).toBeVisible();
+  await term.focus();
+  await expect(page.getByRole('tooltip')).toContainText('concept definition');
 
-    live.setExplanationMatches([]);
-    await page.evaluate(() =>
-      (window as unknown as StreamWindow).analysisPush(
-        'id: glossary-edit\nevent: cache.invalidate\ndata: {"schemaVersion":1,"keys":["project:demo:glossary"]}\n\n',
-      ),
-    );
-    await expect(term).toHaveCount(0);
-    await expect(text).toHaveText('Confirmed explanation');
-    expect(live.requests).not.toContain('AnalysisPairSources');
-  });
-}
+  live.setExplanationMatches([]);
+  await page.evaluate(() =>
+    (window as unknown as StreamWindow).analysisPush(
+      'id: glossary-edit\nevent: cache.invalidate\ndata: {"schemaVersion":1,"keys":["project:demo:glossary"]}\n\n',
+    ),
+  );
+  await expect(term).toHaveCount(0);
+  await expect(text).toHaveText('Confirmed explanation');
+  expect(live.requests).not.toContain('AnalysisPairSources');
+});
 test('technical information can retry after an error and reopen uses the current version', async ({
   page,
 }) => {

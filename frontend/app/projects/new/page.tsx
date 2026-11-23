@@ -8,6 +8,7 @@ import { CreateProjectDocument } from '../../../lib/generated';
 import { t } from '../../../lib/i18n';
 import { type FieldError, type Input, validate } from '../../../lib/validation';
 import { InterfacePreferences, useLocale } from '../../components/LocaleProvider';
+import PageMetadata from '../../components/PageMetadata';
 
 const empty: Input = { name: '', goal: '', description: '' };
 export default function NewProject() {
@@ -57,6 +58,7 @@ export default function NewProject() {
   }
   return (
     <main>
+      <PageMetadata titleKey="app.create" />
       <div className="top">
         <Link href="/">{t(locale, 'app.back')}</Link>
         <InterfacePreferences />

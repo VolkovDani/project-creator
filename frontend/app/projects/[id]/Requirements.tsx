@@ -8,34 +8,36 @@ import {
   EditRequirementDocument,
   RemoveRequirementDocument,
   RequirementConnectionDocument,
-  RequirementsDocument,
 } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
-import { findRequirementPage } from '../../../lib/requirementsView';
-import { validateRequirement } from '../../../lib/requirementValidation';
+import { useInvalidation } from '../../../lib/live';
+import { validateChangeReason, validateRequirement } from '../../../lib/requirementValidation';
 import { useInfinite } from '../../../lib/useInfinite';
-import { useListMode } from '../../../lib/useListMode';
+import { DesignIcon } from '../../components/DesignIcon';
 import Group from '../../components/Group';
-import { ListModeSelect, LoadMore } from '../../components/ListControls';
+import { LoadMore } from '../../components/ListControls';
+import rowStyles from '../../components/RecordIcons.module.css';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
+import ClassificationCard from './classification/ClassificationCard';
+import RequirementRevisionHistory from './RequirementRevisionHistory';
 import RequirementSummary, { useRequirementSummaries } from './RequirementSummary';
 import RetryFailedSummaries from './RetryFailedSummaries';
-import { useRequirementsPage } from './useRequirementsPage';
 
 export default function Requirements({ projectId, locale }: { projectId: string; locale: Locale }) {
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState('');
   const [editText, setEditText] = useState('');
+  const [changeReason, setChangeReason] = useState('');
   const [editing, setEditing] = useState<{ id: string; version: number } | null>(null);
   const editTrigger = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [validation, setValidation] = useState<{
     key: string;
+    field?: string;
+    code: string;
     params: Record<string, number>;
   } | null>(null);
-  const [sourceError, setSourceError] = useState<'missing' | 'failed' | null>(null);
-  const [sourceAttempt, setSourceAttempt] = useState(0);
   const [sourceTarget, setSourceTarget] = useState<string>();
   const operation = useRef(0);
   const active = useRef(true);
@@ -43,12 +45,12 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     operation.current++;
     setText('');
     setEditText('');
+    setChangeReason('');
     setEditing(null);
     setValidation(null);
     setFailure(false);
     setBusy(false);
     setSourceTarget(undefined);
-    setSourceError(null);
   }, []);
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -56,13 +58,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     if (!editing && dialog?.open) dialog.close();
     if (!editing) editTrigger.current?.focus({ preventScroll: true });
   }, [editing]);
-  const location = useListMode();
-  const { mode, setMode, setPage, replacePage } = location;
-  const paged = useRequirementsPage(projectId, clear, {
-    enabled: mode === 'pages',
-    page: location.page,
-    setPage,
-  });
+  useInvalidation([`project:${projectId}`, `project:${projectId}:requirements`], () => {}, clear);
   const connectionLoader = useCallback(
     async (after: string | null) =>
       (await query(RequirementConnectionDocument, { projectId, first: 40, after }))
@@ -73,10 +69,9 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     identity: `requirements:${projectId}`,
     tags: [`project:${projectId}`, `project:${projectId}:requirements`],
     load: connectionLoader,
-    enabled: mode === 'infinite',
   });
   const [mutationFailure, setFailure] = useState(false);
-  const rows = mode === 'pages' ? paged.rows : infinite.rows;
+  const { rows, loading, loaded } = infinite;
   const {
     summaries,
     failure: summaryFailure,
@@ -86,11 +81,6 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     projectId,
     rows.map((row) => ({ id: row.id, version: row.version })),
   );
-  const page = mode === 'pages' ? paged.page : 0;
-  const loading = mode === 'pages' ? paged.loading : infinite.loading;
-  const loaded = mode === 'pages' ? paged.loaded : infinite.loaded;
-  const failure = mutationFailure || (mode === 'pages' ? paged.failure : infinite.error);
-  const load = mode === 'pages' ? paged.load : infinite.refresh;
   const more = useCallback(() => {
     if (!infinite.loading && !infinite.error && infinite.hasNextPage)
       void infinite.loadMore().catch(() => {});
@@ -119,49 +109,41 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     };
   }, [projectId]);
   useEffect(() => {
-    void sourceAttempt;
-    if (!source) return;
-    let current = true;
-    const epoch = operation.current;
-    setSourceError(null);
-    void findRequirementPage(
-      source,
-      async (offset) =>
-        (await query(RequirementsDocument, { projectId, limit: 100, offset })).requirements,
-      () => current && epoch === operation.current,
-    )
-      .then((target) => {
-        if (!current || target === undefined) return;
-        if (target === null) {
-          setSourceError('missing');
-          return;
-        }
-        setSourceTarget(source);
-        replacePage(target);
-      })
-      .catch(() => {
-        if (current && epoch === operation.current) setSourceError('failed');
-      });
-    return () => {
-      current = false;
-    };
-  }, [projectId, source, sourceAttempt, replacePage]);
+    setSourceTarget(params.get('requirement') ?? undefined);
+  }, [params]);
+  const seeking = !!sourceTarget && sourceTarget === source;
+  const found = seeking && rows.some((row) => row.id === sourceTarget);
   useEffect(() => {
-    if (!sourceTarget || loading || !rows.some((row) => row.id === sourceTarget)) return;
+    if (!seeking || !loaded || loading || infinite.error) return;
+    if (!found) {
+      more();
+      return;
+    }
     const card = document.getElementById(`requirement-${sourceTarget}`);
-    const group = card?.closest('details');
+    if (!card) return;
+    const group = card.closest('details');
     if (group) group.open = true;
-    (card?.querySelector('mark[data-candidate]') ?? card)?.scrollIntoView({ block: 'center' });
-    card?.focus({ preventScroll: true });
+    (card.querySelector('mark[data-candidate]') ?? card).scrollIntoView({ block: 'center' });
+    card.focus({ preventScroll: true });
     setSourceTarget(undefined);
-  }, [rows, loading, sourceTarget]);
+  }, [seeking, found, loaded, loading, infinite.error, more, sourceTarget]);
   const current = (epoch: number) => active.current && operation.current === epoch;
   async function save(event: React.FormEvent) {
     event.preventDefault();
     const submittedText = editing ? editText : text;
-    const checked = validateRequirement(contract, submittedText),
-      first = checked.errors[0];
-    setValidation(first ? { key: first.messageKey, params: first.params } : null);
+    const checked = validateRequirement(contract, submittedText);
+    const first =
+      checked.errors[0] ?? (editing ? validateChangeReason(contract, changeReason)[0] : undefined);
+    setValidation(
+      first
+        ? {
+            field: first.path.at(-1),
+            code: first.code,
+            key: first.messageKey,
+            params: first.params,
+          }
+        : null,
+    );
     if (first) return;
     const epoch = ++operation.current;
     setBusy(true);
@@ -174,6 +156,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
               version: editing.version,
               projectId,
               text: checked.normalized,
+              changeReason,
             },
           })
         : await query(AddRequirementDocument, { input: { projectId, text: checked.normalized } });
@@ -182,19 +165,21 @@ export default function Requirements({ projectId, locale }: { projectId: string;
       if (result.fieldErrors.length) {
         const first = result.fieldErrors[0];
         setValidation({
+          field: first.path.at(-1),
+          code: first.code,
           key: first.messageKey,
           params: Object.fromEntries(first.params.map((p) => [p.key, p.value])),
         });
-        if (first.code === 'CONFLICT') await load();
+        if (first.code === 'CONFLICT') await infinite.refresh();
         return;
       }
       if (!result.requirement) throw Error('missing requirement');
       if (editing) {
         setEditing(null);
         setEditText('');
+        setChangeReason('');
       } else setText('');
-      if (!editing && page !== 0) setPage(0);
-      else await load();
+      await infinite.refresh();
     } catch {
       if (current(epoch)) setFailure(true);
     } finally {
@@ -209,13 +194,11 @@ export default function Requirements({ projectId, locale }: { projectId: string;
       const result = await query(RemoveRequirementDocument, { id, projectId, version });
       if (!current(epoch)) return;
       if (!result.deleteRequirement.deleted) {
-        setValidation({ key: 'validation.conflict', params: {} });
-        await load();
+        setValidation({ code: 'CONFLICT', key: 'validation.conflict', params: {} });
+        await infinite.refresh();
         return;
       }
-      // Stay on a populated page after deleting its last row.
-      if (rows.length === 1 && page > 0) setPage(page - 1);
-      else await load();
+      await infinite.refresh();
     } catch {
       if (current(epoch)) setFailure(true);
     } finally {
@@ -225,17 +208,17 @@ export default function Requirements({ projectId, locale }: { projectId: string;
   return (
     <section className="ui-panel" aria-labelledby="requirements-heading">
       <h2 id="requirements-heading">{t(locale, 'requirements.title')}</h2>
-      <form onSubmit={save} noValidate>
+      <form id="requirement-entry" onSubmit={save} noValidate>
         <label>
           {t(locale, 'requirements.text')}
           <textarea
             disabled={busy || !!editing}
             value={text}
             onChange={(event) => setText(event.target.value)}
-            aria-invalid={!!validation}
+            aria-invalid={!editing && validation?.field === 'text'}
           />
         </label>
-        {validation && (
+        {!editing && validation && (
           <p role="alert" className="error">
             {t(locale, validation.key, validation.params)}
           </p>
@@ -253,6 +236,7 @@ export default function Requirements({ projectId, locale }: { projectId: string;
             else {
               setEditing(null);
               setEditText('');
+              setChangeReason('');
               setValidation(null);
             }
           }}
@@ -265,11 +249,27 @@ export default function Requirements({ projectId, locale }: { projectId: string;
                 disabled={busy}
                 value={editText}
                 onChange={(event) => setEditText(event.target.value)}
-                aria-invalid={!!validation}
+                aria-invalid={validation?.field === 'text'}
+                aria-describedby={
+                  validation?.field === 'text' ? 'requirement-edit-error' : undefined
+                }
+              />
+            </label>
+            <label>
+              {t(locale, 'requirements.changeReason')}
+              <textarea
+                required
+                disabled={busy}
+                value={changeReason}
+                onChange={(event) => setChangeReason(event.target.value)}
+                aria-invalid={validation?.field === 'changeReason'}
+                aria-describedby={
+                  validation?.field === 'changeReason' ? 'requirement-edit-error' : undefined
+                }
               />
             </label>
             {validation && (
-              <p role="alert" className="error">
+              <p id="requirement-edit-error" role="alert" className="error">
                 {t(locale, validation.key, validation.params)}
               </p>
             )}
@@ -281,28 +281,28 @@ export default function Requirements({ projectId, locale }: { projectId: string;
             <button type="submit" disabled={busy}>
               {t(locale, 'requirements.save')}
             </button>
-            {validation?.key === 'validation.conflict' &&
-              rows.find((row) => row.id === editing.id) && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    const latestRow = rows.find((row) => row.id === editing.id);
-                    if (latestRow) {
-                      setEditing({ id: latestRow.id, version: latestRow.version });
-                      setValidation(null);
-                    }
-                  }}
-                >
-                  {t(locale, 'requirements.useLatest')}
-                </button>
-              )}
+            {validation?.code === 'CONFLICT' && rows.find((row) => row.id === editing.id) && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  const latestRow = rows.find((row) => row.id === editing.id);
+                  if (latestRow) {
+                    setEditing({ id: latestRow.id, version: latestRow.version });
+                    setValidation(null);
+                  }
+                }}
+              >
+                {t(locale, 'requirements.useLatest')}
+              </button>
+            )}
             <button
               type="button"
               disabled={busy}
               onClick={() => {
                 setEditing(null);
                 setEditText('');
+                setChangeReason('');
                 setValidation(null);
               }}
             >
@@ -314,44 +314,41 @@ export default function Requirements({ projectId, locale }: { projectId: string;
       <ResourceState
         locale={locale}
         loading={loading}
-        error={failure || sourceError === 'failed'}
+        error={mutationFailure || infinite.error}
         hasData={loaded}
         retry={() => {
           setFailure(false);
-          if (mode === 'pages') void paged.load();
-          else void infinite.retry().catch(() => {});
-          setSourceAttempt((value) => value + 1);
+          void infinite.retry().catch(() => {});
         }}
       />
-      {sourceError === 'missing' && (
+      {seeking && loaded && !loading && !infinite.error && !found && !infinite.hasNextPage && (
         <p role="alert" className="error">
           {t(locale, 'ui.sourceNotFound')}
         </p>
       )}
       <RetryFailedSummaries projectId={projectId} locale={locale} />
-      <ListModeSelect locale={locale} mode={mode} onChange={setMode} />
       <Group
+        anchorId="requirements-list"
         id={`${projectId}:requirements`}
         title={t(locale, 'ui.requirementsGroup')}
-        summary={
-          mode === 'pages'
-            ? `${t(locale, 'ui.currentPage')} · ${rows.length}`
-            : t(locale, 'list.total', { total: infinite.totalCount })
-        }
+        summary={t(locale, 'list.total', { total: infinite.totalCount })}
         defaultOpen
       >
         {loaded && rows.length === 0 && <p>{t(locale, 'requirements.empty')}</p>}
         <VirtualList
-          identity={`requirements:${projectId}:${mode}:${page}`}
-          restoreScroll={mode === 'infinite'}
-          overscan={mode === 'pages' ? 20 : 4}
+          identity={`requirements:${projectId}`}
           items={rows}
           keyOf={(row) => row.id}
           focusedId={editing?.id}
           scrollToId={sourceTarget}
-          onEndReached={mode === 'infinite' ? more : undefined}
+          onEndReached={more}
           renderItem={(row) => (
-            <article className="card" id={`requirement-${row.id}`} key={row.id} tabIndex={-1}>
+            <article
+              className={`card ${rowStyles.documentCard}`}
+              id={`requirement-${row.id}`}
+              key={row.id}
+              tabIndex={-1}
+            >
               {source === row.id && mention && mentionVersion !== row.version && (
                 <p role="status">{t(locale, 'glossary.mentionChanged')}</p>
               )}
@@ -370,14 +367,42 @@ export default function Requirements({ projectId, locale }: { projectId: string;
                 loading={summaryLoading}
                 refresh={refreshSummaries}
               />
+              <Group
+                id={`${projectId}:requirement:${row.id}:classification`}
+                title={t(locale, 'nav.classification')}
+                defaultOpen={false}
+                lazy
+              >
+                <ClassificationCard
+                  projectId={projectId}
+                  requirementId={row.id}
+                  original={row.text}
+                  version={row.version}
+                  locale={locale}
+                />
+              </Group>
+              <Group
+                id={`${projectId}:requirement:${row.id}:revisions`}
+                title={t(locale, 'requirements.history')}
+                defaultOpen={false}
+                lazy
+              >
+                <RequirementRevisionHistory
+                  projectId={projectId}
+                  requirementId={row.id}
+                  version={row.version}
+                  locale={locale}
+                />
+              </Group>
               <p className="muted">{t(locale, 'requirements.version', { version: row.version })}</p>
               <button
                 type="button"
-                disabled={busy || (mode === 'pages' && paged.requestedPage !== page)}
+                disabled={busy}
                 onClick={(event) => {
                   editTrigger.current = event.currentTarget;
                   setEditing({ id: row.id, version: row.version });
                   setEditText(row.text);
+                  setChangeReason('');
                   setValidation(null);
                   setFailure(false);
                 }}
@@ -386,36 +411,18 @@ export default function Requirements({ projectId, locale }: { projectId: string;
               </button>
               <button
                 type="button"
-                disabled={busy || (mode === 'pages' && paged.requestedPage !== page)}
+                disabled={busy}
                 className="destructive-action"
                 onClick={() => void remove(row.id, row.version)}
               >
                 {t(locale, 'requirements.delete')}
               </button>
+              <DesignIcon name="requirements" className={rowStyles.documentIcon} />
             </article>
           )}
         />
-        {mode === 'infinite' && <LoadMore locale={locale} {...infinite} loadMore={more} />}
+        <LoadMore locale={locale} {...infinite} loadMore={more} />
       </Group>
-      {mode === 'pages' && (
-        <div className="pagination">
-          <button
-            type="button"
-            disabled={page === 0 || loading || busy}
-            onClick={() => setPage(page - 1)}
-          >
-            {t(locale, 'app.previous')}
-          </button>
-          <span>{t(locale, 'app.page', { page: page + 1 })}</span>
-          <button
-            type="button"
-            disabled={rows.length < 20 || loading || busy}
-            onClick={() => setPage(page + 1)}
-          >
-            {t(locale, 'app.next')}
-          </button>
-        </div>
-      )}
     </section>
   );
 }

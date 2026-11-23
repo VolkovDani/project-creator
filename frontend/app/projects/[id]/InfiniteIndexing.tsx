@@ -77,20 +77,6 @@ export default function InfiniteIndexing({
     if (!infinite.loading && !infinite.error && infinite.hasNextPage && !busy)
       void infinite.loadMore().catch(() => {});
   }, [infinite.loading, infinite.error, infinite.hasNextPage, infinite.loadMore, busy]);
-  const end = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const element = end.current;
-    if (!element) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) more();
-      },
-      { rootMargin: '500px' },
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [more]);
-  const entries = infinite.rows.flatMap((row) => (row.entry ? [row.entry] : []));
   return (
     <>
       <ResourceState
@@ -116,13 +102,11 @@ export default function InfiniteIndexing({
           projectId={projectId}
           locale={locale}
           rows={infinite.rows}
-          entries={entries}
           busy={busy}
           index={index}
-          virtual
         />
-        <div ref={end} aria-hidden="true" style={{ height: 1 }} />
         <LoadMore
+          observe
           locale={locale}
           {...infinite}
           loading={infinite.loading || !!busy}

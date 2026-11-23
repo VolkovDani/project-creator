@@ -19,10 +19,7 @@ import { analysisRules, validateAnalysisSelection } from '../../../lib/analysisV
 import { clientCache, query } from '../../../lib/client';
 import {
   AnalysisHistoryDocument,
-  type AnalysisHistoryQuery,
   AnalysisPairConnectionDocument,
-  type AnalysisPairConnectionQuery,
-  AnalysisPairPageDocument,
   AnalysisPairSourcesDocument,
   AnalysisPairTechnicalDocument,
   AnalysisRunMetadataDocument,
@@ -33,14 +30,16 @@ import {
   StartProjectAnalysisDocument,
 } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
+import { offsetConnection } from '../../../lib/infinite';
 import { Latest } from '../../../lib/latest';
 import { useAnalysisProgress, useInvalidation } from '../../../lib/live';
 import { requirementURL } from '../../../lib/rag';
 import { useInfinite } from '../../../lib/useInfinite';
-import { useListMode } from '../../../lib/useListMode';
 import { useResource } from '../../../lib/useResource';
+import { DesignIcon } from '../../components/DesignIcon';
 import Group from '../../components/Group';
-import { ListModeSelect, LoadMore } from '../../components/ListControls';
+import { LoadMore } from '../../components/ListControls';
+import rowStyles from '../../components/RecordIcons.module.css';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
 import { GlossaryText } from './GlossaryActions';
@@ -69,7 +68,6 @@ const analysisErrorMessages: Record<string, string> = {
   PROFILE_CHANGED: 'analysis.error.PROFILE_CHANGED',
   SOURCE_CHANGED: 'analysis.error.SOURCE_CHANGED',
 };
-type PairSummary = AnalysisPairConnectionQuery['analysisPairsConnection']['edges'][number]['node'];
 type LiveRun = AnalysisRun & { revision: string };
 function liveRun(snapshot: AnalysisSnapshot): LiveRun {
   return {
@@ -398,7 +396,6 @@ function PairList({
   locale: Locale;
   onSource?: SourceHandler;
 }) {
-  const { mode, setMode } = useListMode();
   const tags = useMemo(
     () => [
       `project:${projectId}:analysis:${run.id}:${group.key}`,
@@ -428,86 +425,29 @@ function PairList({
     identity: `pairs:${projectId}:${run.id}:${group.key}`,
     tags,
     load: loader,
-    enabled: mode === 'infinite',
   });
   const more = useCallback(() => {
     if (!infinite.loading && !infinite.error && infinite.hasNextPage)
       void infinite.loadMore().catch(() => {});
   }, [infinite.loading, infinite.error, infinite.hasNextPage, infinite.loadMore]);
-  const [offset, setOffset] = useState(0);
-  const [pagedPairs, setPairs] = useState<PairSummary[]>([]);
-  const [pageLoading, setLoading] = useState(true);
-  const [pageError, setError] = useState(false);
-  const latest = useRef(new Latest());
-  const load = useCallback(async () => {
-    if (mode !== 'pages') return;
-    const generation = latest.current.begin();
-    setLoading(true);
-    try {
-      const data = await query(
-        AnalysisPairPageDocument,
-        {
-          projectId,
-          analysisId: run.id,
-          limit: 20,
-          offset,
-          ...groupFilter(group.key),
-        },
-        { tags },
-      );
-      if (latest.current.isCurrent(generation)) {
-        setPairs(data.analysisPairs);
-        setError(false);
-      }
-    } catch {
-      if (latest.current.isCurrent(generation)) {
-        setError(true);
-      }
-    } finally {
-      if (latest.current.isCurrent(generation)) setLoading(false);
-    }
-  }, [projectId, run.id, offset, group.key, mode, tags]);
-  useInvalidation(
-    tags,
-    () => void load(),
-    () => {
-      latest.current.invalidate();
-      setPairs([]);
-    },
-  );
-  useEffect(() => {
-    void load();
-    return () => latest.current.invalidate();
-  }, [load]);
-  useEffect(() => {
-    if (offset >= group.count && offset > 0)
-      setOffset(Math.max(0, Math.floor((group.count - 1) / 20) * 20));
-  }, [group.count, offset]);
-  const pairs = mode === 'pages' ? pagedPairs : infinite.rows;
-  const loading = mode === 'pages' ? pageLoading : infinite.loading;
-  const error = mode === 'pages' ? pageError : infinite.error;
+  const { rows: pairs, loading, error } = infinite;
   return (
     <>
-      <ListModeSelect locale={locale} mode={mode} onChange={setMode} />
       <ResourceState
         locale={locale}
         loading={loading}
         error={error}
-        hasData={mode === 'pages' ? pagedPairs.length > 0 || !pageLoading : infinite.loaded}
-        retry={() => {
-          if (mode === 'pages') void load();
-          else void infinite.retry().catch(() => {});
-        }}
+        hasData={infinite.loaded}
+        retry={() => void infinite.retry().catch(() => {})}
       />
       {!loading && !error && group.count === 0 && (
         <p className="muted">{t(locale, 'analysis.group.empty')}</p>
       )}
       <VirtualList
-        identity={`pairs:${projectId}:${run.id}:${group.key}:${mode}:${offset}`}
-        overscan={mode === 'pages' ? 20 : 4}
+        identity={`pairs:${projectId}:${run.id}:${group.key}`}
         items={pairs}
         keyOf={(pair) => pair.id}
-        onEndReached={mode === 'infinite' ? more : undefined}
+        onEndReached={more}
         restoreScroll={false}
         estimatedRowHeight={650}
         renderItem={(pair) => (
@@ -517,7 +457,10 @@ function PairList({
             data-pair-id={pair.id}
             aria-label={t(locale, 'analysis.pair.position', { number: pair.position + 1 })}
           >
-            <h4>{t(locale, 'analysis.pair.position', { number: pair.position + 1 })}</h4>
+            <h4>
+              <DesignIcon name="classification" className={rowStyles.desktopIcon} />
+              {t(locale, 'analysis.pair.position', { number: pair.position + 1 })}
+            </h4>
             {pair.status === 'completed' && (
               <>
                 {pair.explanation && !pair.isExactDuplicate ? (
@@ -591,36 +534,7 @@ function PairList({
           </article>
         )}
       />
-      {mode === 'infinite' && <LoadMore locale={locale} {...infinite} loadMore={more} />}
-      {mode === 'pages' && group.count > 20 && (
-        <nav
-          aria-label={t(locale, 'analysis.pages', {
-            name: t(locale, `analysis.group.${group.key}`),
-          })}
-        >
-          <button
-            type="button"
-            disabled={loading || offset === 0}
-            onClick={() => setOffset((value) => Math.max(0, value - 20))}
-          >
-            {t(locale, 'analysis.previous')}
-          </button>
-          <span>
-            {t(locale, 'analysis.pageRange', {
-              from: offset + 1,
-              to: Math.min(offset + 20, group.count),
-              total: group.count,
-            })}
-          </span>
-          <button
-            type="button"
-            disabled={loading || offset + 20 >= group.count}
-            onClick={() => setOffset((value) => value + 20)}
-          >
-            {t(locale, 'analysis.next')}
-          </button>
-        </nav>
-      )}
+      <LoadMore locale={locale} {...infinite} loadMore={more} />
     </>
   );
 }
@@ -645,13 +559,10 @@ export default function Analysis({
   const thresholdValue = threshold.trim() === '' ? NaN : Number(threshold);
   const selectionValidation = validateAnalysisSelection({ mode, threshold: thresholdValue });
   const validSelection = selectionValidation.errors.length === 0;
-  const [historyOffset, setHistoryOffset] = useState(0);
-  const [history, setHistory] = useState<AnalysisHistoryQuery['analysisHistory']>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
   const latest = useRef(new Latest());
-  const historyLatest = useRef(new Latest());
   const operation = useRef(0);
   const context = useRef(projectId);
   const active = useRef(true);
@@ -704,41 +615,37 @@ export default function Analysis({
       latest.current.invalidate();
     };
   }, [load]);
-  const loadHistory = useCallback(async () => {
-    const generation = historyLatest.current.begin();
-    const epoch = operation.current;
-    try {
+  const historyLoader = useCallback(
+    async (after: string | null) => {
+      const size = 20;
       const data = await query(
         AnalysisHistoryDocument,
-        { projectId, limit: 20, offset: historyOffset },
+        { projectId, limit: size + 1, offset: Number(after) },
         { tags: [`project:${projectId}:analysis`, `project:${projectId}:requirements`] },
       );
-      if (
-        active.current &&
-        context.current === projectId &&
-        operation.current === epoch &&
-        historyLatest.current.isCurrent(generation)
-      )
-        setHistory(data.analysisHistory);
-    } catch {
-      if (active.current && operation.current === epoch) setError(true);
-    }
-  }, [projectId, historyOffset]);
-  useEffect(() => {
-    void loadHistory();
-    return () => historyLatest.current.invalidate();
-  }, [loadHistory]);
+      return offsetConnection(data.analysisHistory, after, size);
+    },
+    [projectId],
+  );
+  const historyList = useInfinite({
+    identity: `analysis-history:${projectId}`,
+    tags: [`project:${projectId}:analysis`, `project:${projectId}:requirements`],
+    load: historyLoader,
+  });
+  const history = historyList.rows;
+  function moreHistory() {
+    if (historyList.hasNextPage && !historyList.loading && !historyList.error)
+      void historyList.loadMore().catch(() => {});
+  }
   useInvalidation(
     [`project:${projectId}:analysis`, `project:${projectId}:requirements`],
     () => {
       void load();
-      void loadHistory();
     },
     () => {
       operation.current++;
       latest.current.invalidate();
       setRun(undefined);
-      setHistory([]);
       setBusy(false);
       setError(false);
     },
@@ -760,7 +667,7 @@ export default function Analysis({
           clientCache.invalidate([`project:${projectId}:analysis:${next.id}:${group.key}`]);
       }
     }
-    if (previous && previous.id !== next.id) void loadHistory();
+    if (previous && previous.id !== next.id) void historyList.refresh().catch(() => {});
     runRef.current = next;
     setRun(next);
     setLoading(false);
@@ -828,7 +735,7 @@ export default function Analysis({
         }
         setSelected('');
         setLoading(false);
-        void loadHistory();
+        void historyList.refresh().catch(() => {});
       }
     } catch {
       if (active.current && context.current === projectId && operation.current === epoch)
@@ -944,11 +851,28 @@ export default function Analysis({
           </button>
         </fieldset>
       )}
-      {(history.length > 0 || historyOffset > 0) && (
+      {historyList.error && (
+        <ResourceState
+          locale={locale}
+          loading={false}
+          error
+          hasData={history.length > 0}
+          retry={() => void historyList.retry().catch(() => {})}
+        />
+      )}
+      {history.length > 0 && (
         <div>
           <label>
             {t(locale, 'analysis.history')}{' '}
-            <select value={selected} onChange={(event) => setSelected(event.target.value)}>
+            <select
+              value={selected}
+              onChange={(event) => setSelected(event.target.value)}
+              size={historyList.hasNextPage || history.length > 20 ? 6 : undefined}
+              onScroll={(event) => {
+                const list = event.currentTarget;
+                if (list.scrollTop + list.clientHeight >= list.scrollHeight - 2) moreHistory();
+              }}
+            >
               <option value="">{t(locale, 'analysis.latest')}</option>
               {selected && run && !history.some((item) => item.id === selected) && (
                 <option value={selected}>
@@ -962,20 +886,7 @@ export default function Analysis({
               ))}
             </select>
           </label>
-          <button
-            type="button"
-            disabled={historyOffset === 0}
-            onClick={() => setHistoryOffset((value) => Math.max(0, value - 20))}
-          >
-            {t(locale, 'analysis.previous')}
-          </button>
-          <button
-            type="button"
-            disabled={history.length < 20}
-            onClick={() => setHistoryOffset((value) => value + 20)}
-          >
-            {t(locale, 'analysis.next')}
-          </button>
+          <LoadMore locale={locale} {...historyList} loadMore={moreHistory} />
         </div>
       )}
       {run?.status === 'running' && (

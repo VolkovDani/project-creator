@@ -12,22 +12,24 @@ export function GlossaryText({
   sourceId,
   version,
   className,
+  as: Element = 'p',
 }: {
   children: ReactNode;
   sourceId?: string;
   version?: number;
   className?: string;
+  as?: 'p' | 'div';
 }) {
   return (
     <>
-      <p
+      <Element
         className={className}
         data-glossary-text=""
         data-source-id={sourceId}
         data-source-version={version}
       >
         {children}
-      </p>
+      </Element>
       <span data-glossary-action="" />
     </>
   );
@@ -58,7 +60,11 @@ export function GlossaryActions({
         name &&
         block &&
         target?.hasAttribute('data-glossary-action') &&
-        root(current?.focusNode) === block
+        root(current?.focusNode) === block &&
+        current?.rangeCount &&
+        !Array.from(block.querySelectorAll('[data-glossary-exclude]')).some((element) =>
+          current.getRangeAt(0).intersectsNode(element),
+        )
       ) {
         setSelection({
           target,

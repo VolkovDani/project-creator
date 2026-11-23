@@ -1,0 +1,31 @@
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-4);
+}
+.contents {
+  color: var(--text-muted);
+  font-size: var(--text-small);
+}
+.contents a {
+  display: block;
+  width: fit-content;
+  padding-block: var(--space-2);
+  color: var(--action);
+}
+@media (min-width: 78rem) {
+  .layout { grid-template-columns: minmax(0, 1fr) 12rem; }
+  .contents { grid-column: 2; grid-row: 1; position: sticky; top: var(--space-6); }
+  .layout > section { grid-column: 1; grid-row: 1; }
+}
+
+/* Keep one surface around each record so nested source sections retain the reading width. */
+.layout > section,
+.layout article > section {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.layout > section { margin-block-start: 0; }
+.layout article > section { margin-block: 0 var(--space-4); }

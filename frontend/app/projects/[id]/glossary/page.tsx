@@ -10,8 +10,8 @@ import {
 } from '../../../../lib/generated';
 import { t } from '../../../../lib/i18n';
 import { requirementURL } from '../../../../lib/rag';
-import { useListMode } from '../../../../lib/useListMode';
-import { ListModeSelect } from '../../../components/ListControls';
+import { DesignIcon } from '../../../components/DesignIcon';
+import rowStyles from '../../../components/RecordIcons.module.css';
 import GlossaryEditor, { type GlossaryDraft } from '../GlossaryEditor';
 import { useProject } from '../ProjectShell';
 import styles from './CandidateExcerpt.module.css';
@@ -24,7 +24,6 @@ export default function GlossaryPage() {
   const tag = `project:${projectId}:glossary`,
     reqTag = `project:${projectId}:requirements`;
   const [search, setSearch] = useState('');
-  const { mode, setMode } = useListMode();
   const [draft, setDraft] = useState<GlossaryDraft>(),
     [remove, setRemove] = useState<Term>(),
     [busy, setBusy] = useState(false),
@@ -61,16 +60,18 @@ export default function GlossaryPage() {
           onClose={() => setMentions(undefined)}
         />
       )}
-      <ListModeSelect locale={locale} mode={mode} onChange={setMode} />
       <label>
         {t(locale, 'glossary.search')}
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-          }}
-        />
+        <span className={rowStyles.searchField}>
+          <DesignIcon name="search" className={rowStyles.searchIcon} />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+            }}
+          />
+        </span>
       </label>
       <button type="button" onClick={() => setDraft({ name: '' })}>
         {t(locale, 'glossary.new')}
@@ -86,7 +87,6 @@ export default function GlossaryPage() {
       )}
       <GlossaryListView
         key={search}
-        mode={mode}
         locale={locale}
         load={load}
         identity={JSON.stringify(['glossary', projectId, search])}
@@ -96,6 +96,7 @@ export default function GlossaryPage() {
           <article className="card" key={term.id}>
             <h3>
               <button type="button" onClick={() => setDraft({ name: term.name, term })}>
+                <DesignIcon name="glossary" className={rowStyles.desktopIcon} />
                 {term.name}
               </button>
             </h3>
@@ -110,6 +111,7 @@ export default function GlossaryPage() {
               </div>
             ))}
             <button
+              className="destructive-action"
               type="button"
               onClick={() => {
                 setRemove(term);
@@ -121,6 +123,7 @@ export default function GlossaryPage() {
             {remove?.id === term.id && (
               <div>
                 <button
+                  className="destructive-action"
                   type="button"
                   disabled={busy}
                   onClick={async () => {
@@ -153,7 +156,6 @@ export default function GlossaryPage() {
       />
       <h3>{t(locale, 'glossary.candidates')}</h3>
       <GlossaryListView
-        mode={mode}
         locale={locale}
         load={scan}
         identity={JSON.stringify(['glossaryCandidates', projectId])}

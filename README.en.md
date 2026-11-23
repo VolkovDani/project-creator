@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/VolkovDani/project-creator/9d04799dc35617490cdd4e4ddc8642d9fa8e8433/frontend/public/icon-192.png" width="80" height="80" alt="">
+
 # Project Creator
 
 [Русская версия](README.md)
@@ -44,4 +46,4 @@ Start it again with `./project-creator up`.
 - [Development, tests, and CI](docs/development.md) · [Architecture (Russian)](ARCHITECTURE.md)
 - [Features and limitations in v0.1.0](docs/release-notes-v0.1.0.md) · [Project goals](GOAL.en.md)
 
-[Semantic types, representations and manual classification history](docs/requirement-classification.md).
+[Semantic types, representations, manual confirmation and optional background review with local Laya](docs/requirement-classification.md).

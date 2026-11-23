@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/VolkovDani/project-creator/9d04799dc35617490cdd4e4ddc8642d9fa8e8433/frontend/public/icon-192.png" width="80" height="80" alt="">
+
 # Project Creator
 
 [English version](README.en.md)
@@ -44,4 +46,4 @@ cd project-creator
 - [Разработка, тесты и CI](docs/development.ru.md) · [Архитектура](ARCHITECTURE.md)
 - [Возможности и ограничения v0.1.0](docs/release-notes-v0.1.0.ru.md) · [Цели проекта](GOAL.md)
 
-[Смысловые типы, формы и история ручной классификации](docs/requirement-classification.ru.md).
+[Смысловые типы, формы, ручное подтверждение и фоновая проверка с локальной Laya](docs/requirement-classification.ru.md).

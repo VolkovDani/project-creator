@@ -91,7 +91,7 @@ func TestRequirementAutoIndexQueueCreateAndUpdate(t *testing.T) {
 		t.Fatalf("configured embedder missing from progress: %v", progress)
 	}
 
-	updated := indexQueueAPI(t, s, "token-a", fmt.Sprintf(`mutation{updateRequirement(input:{id:"%s",projectId:"p",version:1,text:"Latest source version"}){requirement{id version}}}`, id))
+	updated := indexQueueAPI(t, s, "token-a", fmt.Sprintf(`mutation{updateRequirement(input:{id:"%s",projectId:"p",version:1,changeReason:"Clarify the requirement",text:"Latest source version"}){requirement{id version}}}`, id))
 	if updated["errors"] != nil {
 		t.Fatalf("update requirement: %v", updated)
 	}

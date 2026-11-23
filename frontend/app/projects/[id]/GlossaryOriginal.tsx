@@ -5,8 +5,8 @@ import { RequirementGlossaryDocument, type RequirementGlossaryQuery } from '../.
 import { loadGlossaryTerms } from '../../../lib/glossaryTerms';
 import { type Locale, t } from '../../../lib/i18n';
 import { useResource } from '../../../lib/useResource';
-import { GlossaryText } from './GlossaryActions';
 import GlossaryMatch from './GlossaryMatch';
+import { RequirementMarkdown } from './RequirementMarkdown';
 
 type Props = {
   projectId: string;
@@ -53,7 +53,13 @@ export function SourceText({
   );
   const result = useResource(load, [tag, `project:${projectId}:requirements`]);
   return (
-    <GlossaryText className="user-content" sourceId={requirementId} version={version}>
+    <RequirementMarkdown
+      text={original}
+      locale={locale}
+      sourceId={requirementId}
+      version={version}
+      showExact={!!highlight}
+    >
       <MatchedText
         highlight={highlight}
         projectId={projectId}
@@ -61,7 +67,7 @@ export function SourceText({
         matches={result.data?.matches ?? []}
         locale={locale}
       />
-    </GlossaryText>
+    </RequirementMarkdown>
   );
 }
 

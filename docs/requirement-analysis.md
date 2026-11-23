@@ -2,6 +2,12 @@
 
 [Project Creator](../README.en.md) · [Русская версия](requirement-analysis.ru.md)
 
+## Editing a requirement and reading its history
+
+Choose **Edit** on a requirement card, update the source text and enter the **Reason for change**. The reason belongs to the saved text version. Creating a requirement and confirming its classification do not require a reason. If someone saves another edit first, the dialog keeps your draft and reason so you can decide whether to apply them to the latest version.
+
+Open **Requirement text history** on the card to read the revisions, newest first. Each edit shows the previous and new wording, the submitted reason and the time of the change. When both versions are available, removed words are crossed out in the previous text and added words are underlined in the new text. For extensive rewrites, the changed passage can be highlighted as a single block. The local workspace token identifies a workspace only, so edits made with it have no recorded individual author. For requirements that predate revision history, the first available entry contains the text and version that existed at upgrade. Earlier wording and reasons cannot be reconstructed from that entry.
+
 ## Local embeddings and requirement search
 
 RAG stores vectors in PostgreSQL with pgvector. This section uses the local Ollama adapter. For remote indexing, search, comparisons and previews, see [OpenAI-compatible providers](setup-cli.en.md#remote-generation-and-embeddings).
@@ -195,9 +201,8 @@ Preparation saves source snapshots and builds the queue in bounded batches. Unti
 preparation completes, the total number of pairs is unknown (`totalPairs=null`),
 not zero. The interface distinguishes all possible project pairs, selected and
 unselected pairs, new and reused results, and pending, running, failed, and
-completed pairs. Unselected pairs are not considered checked. Collapsible result
-groups remain; rows load in pages, and counters apply to the whole run rather than
-the current page. A completed result moves to its group immediately through SSE in
+completed pairs. Unselected pairs are not considered checked. Rows in each expanded result group load in batches as you scroll.
+The counters apply to the whole run. A completed result moves to its group immediately through SSE in
 open tabs; reconnect/reset reloads saved data. “No contradictions found” applies
 to checked pairs; there is no separate “requirements are unrelated” classification.
 
@@ -331,7 +336,7 @@ database.
 
 Project navigation and selected RU/EN language are shared across all pages. The
 language is persisted between app visits. Links from search and analysis open the
-requirements page, find the relevant list page, and highlight the source card. If
+requirements list, load any batches needed to reach the source, and focus its card. If
 the source was deleted, its saved version text remains in the analysis result. In
 analysis groups, pair explanations are visible immediately; source texts and pair
 technical details are loaded separately when their sections are expanded.
@@ -339,8 +344,7 @@ technical details are loaded separately when their sections are expanded.
 During SSE invalidation and a repeated request, the last successful content remains
 visible. An error displays a local message about stale data and a retry button.
 Access denial clears data; an SSE reset after reconnect only refreshes it and keeps
-the draft. In paged mode, requirement and indexing counts apply to the current
-page of 20 records. Collapsed-group state is preserved in the current tab. Overall
+the draft. Collapsed-group state is preserved in the current tab. Overall
 indexing progress applies to the entire project, separately from counts of loaded
 cards. `queued` means waiting for background processing, `running` means indexing,
 `ready` means a current index is ready, and `failed` means an error. Legacy
@@ -358,8 +362,7 @@ bun run test:ux
 
 Scenarios check desktop 1920×1080 and narrow 390×844 screens, slow requests,
 SSE/reconnect/reset, errors and retry, access revocation, language and navigation,
-pagination of sources, and collapsible groups with counters. The contract and SSE
-use the same GraphQL operations and invalidation mechanism as before.
+links to sources in later batches, and collapsible groups with counters.
 
 Long words, URLs, and identifiers wrap within the page, including project
 descriptions and model provenance. Line breaks in goals and descriptions are
@@ -380,27 +383,24 @@ are saved in the Playwright results directory; for local diagnostics, set
 
 ### Viewing long lists
 
-Projects, requirements, and indexing records load in batches of 40 by default while
-scrolling. Cards stay on screen during background SSE updates. A “Load more” button
-is available for keyboard use; load errors have a local “Retry” button. Long lists
-are virtualized based on card height.
+Projects, requirements, and indexing records load in batches of 40. Scroll to
+the end of the loaded records or press **Load more** to append the next batch.
+A failed request offers a **Retry** button and keeps the loaded cards visible.
+Older links containing `listMode` or `page` open the scrolling list.
 
-The “List mode” switch enables ordinary pages of 20 records. The mode and page are
-saved in the URL and support Back/Forward. Returning from a card through client-side
-navigation preserves loaded batches and the infinite-list position; reloading the
-tab starts a new load. A requirement source link opens the corresponding regular
-page.
+Project and requirement cards use height-based virtualization. Returning to
+either list through client-side navigation restores the loaded batches and
+scroll position. Reloading the tab starts a new load.
 
-On the indexing page, statuses load by the requirement IDs in each batch, and group
-counters show counts among loaded requirements. Above the list, the number of
-loaded requirements and total count are displayed. The mode switch also opens
-pages of 20 requirements; the selected page is saved in the URL and supports
-browser Back/Forward.
+On the indexing page, statuses load by the requirement IDs in each batch. Group
+counts cover the loaded requirements. The list heading shows both the loaded
+count and the project total.
 
-Each collapsible analysis group has its own loading and cursor; closed groups do
-not request pairs. Counters describe the full run, not the loaded cards. Completed
-pairs move between their previous groups after SSE updates. Cursor contracts and
-limitations are described in [ADR-004](adr/004-cursor-lists.md).
+Scroll within the analysis run selector to load older runs in batches of 20.
+Each expanded result group loads pairs with its own cursor. Opening a group
+starts its first request. Counts describe the whole run. SSE updates move
+completed pairs into the corresponding result groups. The cursor contracts
+are described in [ADR-004](adr/004-cursor-lists.md).
 
 ### Efficient live analysis updates (#47)
 

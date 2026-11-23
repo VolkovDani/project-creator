@@ -1,0 +1,9 @@
+query ClassificationReviewCard($projectId: ID!, $requirementId: ID!) {
+  requirementClassification(projectId: $projectId, requirementId: $requirementId) {
+    ...ClassificationFields
+  }
+  classificationListByIds(projectId: $projectId, requirementIds: [$requirementId]) {
+    text
+    textVersion
+  }
+}

@@ -1,0 +1,54 @@
+.projectLink {
+  display: flex;
+  align-items: center;
+}
+
+.documentCard {
+  position: relative;
+}
+
+svg.searchIcon {
+  display: none;
+}
+
+@media (width > 48rem) {
+  article.documentCard {
+    --card-inset: clamp(1rem, 2vw, 1.75rem);
+    padding-inline-start: calc(var(--card-inset) + 2rem);
+  }
+
+  .documentIcon {
+    position: absolute;
+    inset-inline-start: var(--card-inset);
+    inset-block-start: calc(var(--card-inset) + 0.2em);
+    color: var(--text-muted);
+  }
+}
+
+@media (max-width: 48rem) {
+  .documentCard .documentIcon,
+  svg.desktopIcon {
+    display: none;
+  }
+
+  .searchField {
+    position: relative;
+    display: block;
+    margin-block-start: var(--space-1);
+  }
+
+  .searchField input {
+    margin: 0;
+    padding-inline-start: 2.5rem;
+  }
+
+  .searchField .searchIcon {
+    position: absolute;
+    display: inline-block;
+    inset-inline-start: var(--space-3);
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+}

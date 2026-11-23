@@ -9,6 +9,7 @@ import (
 	"github.com/VolkovDani/project-creator/contracts"
 	"github.com/VolkovDani/project-creator/graph"
 	"github.com/VolkovDani/project-creator/internal/analysis"
+	"github.com/VolkovDani/project-creator/internal/classification"
 	"github.com/VolkovDani/project-creator/internal/glossary"
 	"github.com/VolkovDani/project-creator/internal/rag"
 	"github.com/VolkovDani/project-creator/internal/storage"
@@ -22,11 +23,12 @@ import (
 )
 
 type Server struct {
-	summaries *summary.Service
-	db        *sql.DB
-	h         http.Handler
-	analysis  *analysis.Service
-	indexing  *rag.Service
+	classifications *classification.Service
+	summaries       *summary.Service
+	db              *sql.DB
+	h               http.Handler
+	analysis        *analysis.Service
+	indexing        *rag.Service
 }
 
 func New(path string, tokens map[string]string) (*Server, error) {
@@ -47,6 +49,7 @@ func NewWithSummaryProviders(path string, tokens map[string]string, embedder rag
 }
 
 type Config struct {
+	Classifier               classification.Classifier
 	Embedder                 rag.Embedder
 	Generator                analysis.Generator
 	Summarizer               summary.Generator
@@ -93,8 +96,9 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 	if cfg.Generator != nil {
 		generatorProfile = analyzer.Profile()
 	}
+	classifications := classification.New(db, cfg.Classifier)
 	definitions, _ := cfg.Summarizer.(glossary.DefinitionGenerator)
-	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, RAG: retriever, Analysis: analyzer, Summaries: summaries, Definitions: definitions}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
+	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, Classifications: classifications, RAG: retriever, Analysis: analyzer, Summaries: summaries, Definitions: definitions}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
 	if err != nil {
 		analyzer.Close()
 		summaries.Close()
@@ -107,7 +111,16 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 		db.Close()
 		return nil, errors.New("index queue startup unavailable")
 	}
+	if err = classifications.Start(workspaces); err != nil {
+		classifications.Close()
+		retriever.Close()
+		analyzer.Close()
+		summaries.Close()
+		db.Close()
+		return nil, errors.New("classification queue startup unavailable")
+	}
 	if err = announceStartup(db, tokens); err != nil {
+		classifications.Close()
 		retriever.Close()
 		analyzer.Close()
 		summaries.Close()
@@ -115,7 +128,7 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 		return nil, errors.New("startup cache invalidation unavailable")
 	}
 	h := &relay.Handler{Schema: schema}
-	return &Server{db: db, analysis: analyzer, indexing: retriever, summaries: summaries, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return &Server{db: db, classifications: classifications, analysis: analyzer, indexing: retriever, summaries: summaries, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/graphql" && r.URL.Path != "/events" {
 			http.NotFound(w, r)
 			return
@@ -170,6 +183,7 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.h.ServeHTTP(w, r) }
 func (s *Server) Close() error {
+	s.classifications.Close()
 	s.summaries.Close()
 	s.analysis.Close()
 	s.indexing.Close()

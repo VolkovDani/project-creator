@@ -1,12 +1,72 @@
-import { useCallback } from 'react';
+import { type ReactNode, useCallback, useMemo } from 'react';
 import { query } from '../../../lib/client';
 import { RequirementRevisionHistoryDocument } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
+import { revisionDiff } from '../../../lib/revisionDiff';
 import { useInfinite } from '../../../lib/useInfinite';
 import { LoadMore } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
 
 const pageSize = 10;
+
+function RevisionWording({
+  previousText,
+  text,
+  version,
+  locale,
+}: {
+  previousText: string | null;
+  text: string;
+  version: number;
+  locale: Locale;
+}) {
+  const wording = useMemo(() => {
+    if (previousText === null || previousText === text)
+      return { previous: previousText, next: text };
+    const previous: ReactNode[] = [];
+    const next: ReactNode[] = [];
+    let offset = 0;
+    for (const part of revisionDiff(previousText, text)) {
+      switch (part.kind) {
+        case 'equal':
+          previous.push(part.text);
+          next.push(part.text);
+          break;
+        case 'removed':
+          previous.push(
+            <del key={offset} className="revision-removed">
+              {part.text}
+            </del>,
+          );
+          break;
+        case 'added':
+          next.push(
+            <ins key={offset} className="revision-added">
+              {part.text}
+            </ins>,
+          );
+          break;
+      }
+      offset += part.text.length;
+    }
+    return { previous, next };
+  }, [previousText, text]);
+
+  return (
+    <>
+      {version > 1 && (
+        <>
+          <dt>{t(locale, 'requirements.previousText')}</dt>
+          <dd className="user-content">
+            {wording.previous ?? t(locale, 'requirements.previousUnavailable')}
+          </dd>
+        </>
+      )}
+      <dt>{t(locale, version === 1 ? 'requirements.text' : 'requirements.newText')}</dt>
+      <dd className="user-content">{wording.next}</dd>
+    </>
+  );
+}
 
 export default function RequirementRevisionHistory({
   projectId,
@@ -87,16 +147,14 @@ export default function RequirementRevisionHistory({
                   <dd className="user-content">
                     {entry.changeReason ?? t(locale, 'requirements.reasonUnavailable')}
                   </dd>
-                  <dt>{t(locale, 'requirements.previousText')}</dt>
-                  <dd className="user-content">
-                    {entry.previousText ?? t(locale, 'requirements.previousUnavailable')}
-                  </dd>
                 </>
               )}
-              <dt>
-                {t(locale, entry.version === 1 ? 'requirements.text' : 'requirements.newText')}
-              </dt>
-              <dd className="user-content">{entry.text}</dd>
+              <RevisionWording
+                previousText={entry.previousText}
+                text={entry.text}
+                version={entry.version}
+                locale={locale}
+              />
             </dl>
           </li>
         ))}

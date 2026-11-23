@@ -31,3 +31,20 @@ test('shared requirement fixtures', async () => {
       c.name,
     );
 });
+
+test('shared revision reason fixtures preserve accepted input and report field errors', async () => {
+  const { validateChangeReason } = await import('../lib/requirementValidation.ts');
+  const contract = JSON.parse(readFileSync('../contracts/requirement.json', 'utf8'));
+  const cases = JSON.parse(readFileSync('../contracts/revision-reason.fixtures.json', 'utf8'));
+  for (const c of cases) {
+    const input = c.repeat === undefined ? c.input : c.input.repeat(c.repeat);
+    assert.deepEqual(validateChangeReason(contract, input), c.errors, c.name);
+  }
+});
+
+test('unsupported revision reason rules are rejected', async () => {
+  const { validateChangeReason } = await import('../lib/requirementValidation.ts');
+  const contract = JSON.parse(readFileSync('../contracts/requirement.json', 'utf8'));
+  contract.fields.changeReason.required = 'yes';
+  assert.throws(() => validateChangeReason(contract, 'reason'), /Unsupported requirement contract/);
+});

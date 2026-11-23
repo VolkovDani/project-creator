@@ -14,6 +14,7 @@ const suggestion = 'Краткое предложение по требован�
 async function fixture(
   page: Page,
   options?: {
+    markdown?: string;
     failSummaryReads?: boolean;
     summaryVersion?: number;
     initialStatus?: string;
@@ -25,7 +26,7 @@ async function fixture(
 ) {
   let status = options?.initialStatus ?? 'ready';
   let sourceVersion = 3;
-  let sourceText = options?.highlight ? `🧪 ${original}` : original;
+  let sourceText = options?.markdown ?? (options?.highlight ? `🧪 ${original}` : original);
   let summaryVersion = options?.summaryVersion ?? sourceVersion;
   let failSummaryReads = options?.failSummaryReads ?? false;
   let retries = 0;
@@ -189,10 +190,10 @@ test('summary is primary, original is disclosed, and provenance is visible', asy
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
   await expect(card.getByText(suggestion, { exact: true })).toBeVisible();
-  const originalDetails = card.locator('details').last();
-  const originalDisclosure = originalDetails.getByText('Полный исходный текст требования', {
-    exact: true,
+  const originalDetails = card.locator('details').filter({
+    has: page.getByText('Полный исходный текст требования', { exact: true }),
   });
+  const originalDisclosure = originalDetails.locator('summary');
   await expect(originalDetails).not.toHaveAttribute('open');
   await expect(card.getByText(original, { exact: true })).toBeHidden();
 
@@ -303,6 +304,7 @@ test('saving a new source version refetches its summary without another SSE even
   await card.getByRole('button', { name: 'Изменить', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Текст требования').fill('Обновлённая версия требования.');
+  await dialog.getByLabel('Причина изменения').fill('Уточнили формулировку.');
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect.poll(api.summaryReads).toBeGreaterThan(before);
   await expect(card.getByText(`${suggestion} v4`, { exact: true })).toBeVisible();
@@ -380,4 +382,83 @@ test('a language rejection explains the failure and offers retry', async ({ page
   await page.goto('/projects/summary-project/requirements');
   await expect(page.getByRole('alert').filter({ hasText: 'языку' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Повторить создание резюме' })).toBeVisible();
+});
+
+test('renders requirement Markdown and retains the exact source, including Unicode highlights', async ({
+  page,
+  context,
+}) => {
+  const markdown = [
+    '# 📦 Перенос поставки',
+    '',
+    '> Условия',
+    '',
+    '- Получить согласование',
+    '',
+    '| Поле | Значение |',
+    '| --- | --- |',
+    '| Статус | Черновик |',
+    '',
+    '[Документ](https://example.org/docs)',
+    '',
+    '[Некорректная ссылка](ftp://example.org/x)',
+    '',
+    '![Вложение](https://example.org/pixel.png)',
+    '',
+    '<b>Исходный HTML</b>',
+    '',
+    '```js',
+    'const days = 3;',
+    '```',
+  ].join('\n');
+  await fixture(page, { markdown, initialStatus: 'missing', highlight: true });
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/projects/summary-project/requirements');
+  const card = page.locator('#requirement-req-1');
+  await expect(card.getByRole('heading', { name: '📦 Перенос поставки' })).toBeVisible();
+  await expect(card.getByRole('cell', { name: 'Черновик' })).toBeVisible();
+  await expect(card.locator('blockquote')).toHaveText('Условия');
+  await expect(card.locator('li').filter({ hasText: 'Получить согласование' })).toBeVisible();
+  const documentLink = card.getByRole('link', { name: 'Документ' });
+  await expect(documentLink).toHaveAttribute('href', 'https://example.org/docs');
+  await expect(documentLink).toHaveCSS('text-decoration-line', 'underline');
+  await expect(card.getByRole('link', { name: 'Некорректная ссылка' })).toHaveCount(0);
+  await expect(card.locator('img')).toHaveCount(0);
+  await expect(card.getByText('<b>Исходный HTML</b>', { exact: true })).toBeVisible();
+  await expect(card.locator('pre code span').filter({ hasText: 'const' })).toBeVisible();
+  await card.getByRole('button', { name: 'Скопировать код' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('const days = 3;');
+  await card
+    .getByRole('heading', { name: '📦 Перенос поставки' })
+    .evaluate((el) => window.getSelection()?.selectAllChildren(el));
+  await expect(card.getByRole('button', { name: 'Добавить выделение в словарь' })).toBeVisible();
+  await card
+    .getByRole('button', { name: 'Скопировать код' })
+    .evaluate((el) => window.getSelection()?.selectAllChildren(el));
+  await expect(card.getByRole('button', { name: 'Добавить выделение в словарь' })).toHaveCount(0);
+  await card.getByRole('button', { name: 'Исходная разметка' }).click();
+  await expect(card.locator('[data-glossary-text]').first()).toHaveText(markdown);
+  await expect(card.locator('[data-glossary-text]').first().getByRole('button')).toHaveText(
+    '📦 Пере',
+  );
+});
+
+test('formatted Markdown paragraphs keep glossary source identity', async ({ page }) => {
+  const api = await fixture(page, {
+    markdown: 'Заказ поставщика\n\nПеренос срока',
+    initialStatus: 'missing',
+  });
+  await page.goto('/projects/summary-project/requirements');
+  await expect.poll(api.summaryReads).toBeGreaterThan(0);
+  const card = page.locator('#requirement-req-1');
+  const paragraph = card.locator('p').filter({ hasText: /^Перенос срока$/ });
+  await expect(paragraph).toBeVisible();
+  const block = card.locator('[data-glossary-text]').filter({ hasText: 'Перенос срока' });
+  await expect(block).toHaveAttribute('data-source-id', 'req-1');
+  await expect(block).toHaveAttribute('data-source-version', '3');
+  await paragraph.evaluate((element) => window.getSelection()?.selectAllChildren(element));
+  await card.getByRole('button', { name: 'Добавить выделение в словарь' }).click();
+  await expect(
+    page.getByRole('dialog').getByLabel('Название понятия', { exact: true }),
+  ).toHaveValue('Перенос срока');
 });

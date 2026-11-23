@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import { openProjectMenu } from './layout-assertions';
 
 const candidate = {
   abbreviation: 'ЭЦП',
@@ -14,7 +15,21 @@ const candidate = {
 };
 const proposed = 'Подпись для подтверждения документа.\nСохраняет  исходный текст.';
 
-async function visitGlossary(page: Page, results: string[], candidates = [candidate]) {
+const term = {
+  id: 'term',
+  name: 'ЭЦП',
+  definition: '',
+  context: '',
+  variants: [],
+  version: 1,
+};
+
+async function visitGlossary(
+  page: Page,
+  results: string[],
+  candidates = [candidate],
+  terms: (typeof term)[] = [],
+) {
   const requests: unknown[] = [];
   const saves: unknown[] = [];
   const pageInfo = { hasNextPage: false, endCursor: null };
@@ -30,7 +45,7 @@ async function visitGlossary(page: Page, results: string[], candidates = [candid
         data = { project: { id: 'demo', name: 'Проект', goal: '', description: '' } };
         break;
       case 'GlossaryTermPages':
-        data = { glossaryTermsConnection: { items: [], pageInfo } };
+        data = { glossaryTermsConnection: { items: terms, pageInfo } };
         break;
       case 'GlossaryCandidatePages':
         data = { glossaryCandidatesConnection: { items: candidates, pageInfo } };
@@ -229,7 +244,10 @@ for (const theme of ['light', 'dark']) {
       };
     });
     await visitGlossary(page, [], candidates);
-    if (theme === 'dark') await page.getByRole('button', { name: 'Тёмная тема' }).click();
+    if (theme === 'light') {
+      await openProjectMenu(page);
+      await page.getByRole('button', { name: 'Тёмная тема' }).click();
+    }
     await expect(page.locator('html')).toHaveCSS('color-scheme', theme);
     for (const c of candidates) {
       const card = page
@@ -280,4 +298,75 @@ for (const theme of ['light', 'dark']) {
       await dialog.getByRole('button', { name: 'Отмена' }).click();
     }
   });
+
+  test(`glossary deletion and its confirmation share a destructive treatment in the ${theme} theme`, async ({
+    page,
+  }) => {
+    await visitGlossary(page, [], [], [term]);
+    if (theme === 'light') await page.getByRole('button', { name: 'Тёмная тема' }).click();
+    await expect(page.locator('html')).toHaveCSS('color-scheme', theme);
+    const remove = page.getByRole('button', { name: 'Удалить', exact: true });
+    const mentions = page.getByRole('button', { name: 'Где упоминается' });
+    const neutralColor = await mentions.evaluate((el) => getComputedStyle(el).color);
+    const dangerColor = await remove.evaluate((el) => getComputedStyle(el).color);
+    expect(dangerColor).not.toBe(neutralColor);
+    const dangerBorder = `1px solid ${dangerColor}`;
+    await expect(remove).toHaveCSS('border', dangerBorder);
+    await remove.click();
+    const confirm = page.getByRole('button', { name: 'Подтвердить удаление' });
+    await expect(confirm).toHaveCSS('color', dangerColor);
+    await expect(confirm).toHaveCSS('border', dangerBorder);
+    const cancel = page.getByRole('button', { name: 'Отмена' });
+    await expect(cancel).toHaveCSS('color', neutralColor);
+    await cancel.click();
+    await expect(confirm).toHaveCount(0);
+  });
 }
+
+test('scrolling inside the mentions dialog loads the next cursor without moving the page', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 480 });
+  await visitGlossary(page, [], [], [term]);
+  const cursors: Array<string | null> = [];
+  await page.route('**/api/graphql', async (route) => {
+    const { operationName, variables } = route.request().postDataJSON();
+    if (operationName === 'GlossaryMentions') {
+      cursors.push(variables.after);
+      const start = variables.after ? 20 : 0;
+      const items = Array.from({ length: start === 0 ? 20 : 1 }, (_, i) => ({
+        id: `r${start + i}`,
+        text: `Упоминание ${start + i}`,
+        version: 1,
+      }));
+      await route.fulfill({
+        json: {
+          data: {
+            glossaryMentions: {
+              items,
+              pageInfo: { endCursor: start === 0 ? 'after-20' : null, hasNextPage: start === 0 },
+            },
+          },
+        },
+      });
+    } else await route.fallback();
+  });
+  await page.goto('/projects/demo/glossary?listMode=pages&page=2');
+  await page.getByRole('button', { name: 'Где упоминается' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('link', { name: 'Упоминание 0', exact: true })).toBeVisible();
+  expect(cursors).toEqual([null]);
+  const pageOffset = await page.evaluate(() => window.scrollY);
+  await expect
+    .poll(async () => {
+      await dialog.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      return cursors;
+    })
+    .toEqual([null, 'after-20']);
+  await expect(dialog.getByRole('link', { name: 'Упоминание 20' })).toHaveAttribute(
+    'href',
+    /requirement=r20/,
+  );
+  await expect(dialog.getByRole('button', { name: 'Загрузить ещё' })).toHaveCount(0);
+  expect(await page.evaluate(() => window.scrollY)).toBe(pageOffset);
+});

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// A restart can change the configured embedding profile without changing source
+// A restart can change the configured embedding or record-classification profile without changing source
 // rows. Durable invalidations keep already-open clients from retaining the old
 // profile's status/results while resuming an otherwise valid SSE cursor.
 func announceStartup(db *sql.DB, tokens map[string]string) error {
@@ -29,7 +29,7 @@ func announceStartup(db *sql.DB, tokens map[string]string) error {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO cache_events(id,workspace,keys) VALUES(md5(random()::text||clock_timestamp()::text),$1,ARRAY['projects'])`, workspace); err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO cache_events(id,workspace,keys) SELECT md5(random()::text||clock_timestamp()::text||id),workspace,ARRAY['projects','project:'||id,'project:'||id||':requirements'] FROM projects WHERE workspace=$1 ORDER BY id`, workspace); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO cache_events(id,workspace,keys) SELECT md5(random()::text||clock_timestamp()::text||id),workspace,ARRAY['projects','project:'||id,'project:'||id||':requirements','project:'||id||':classifications','project:'||id||':classification-profile'] FROM projects WHERE workspace=$1 ORDER BY id`, workspace); err != nil {
 			return err
 		}
 	}

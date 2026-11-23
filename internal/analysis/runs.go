@@ -241,7 +241,7 @@ func (s *Service) History(ctx context.Context, workspace, project string, limit,
 // Start preserves the programmatic full-scan entry point. The UI explicitly
 // chooses related by default through StartWithOptions.
 func (s *Service) Start(ctx context.Context, workspace, project string) (Run, error) {
-	return s.StartWithOptions(ctx, workspace, project, Options{Mode: "all", Threshold: contracts.AnalysisConstraints().DefaultThreshold})
+	return s.StartWithOptions(ctx, workspace, project, Options{Mode: "all", Threshold: s.defaultThreshold})
 }
 func (s *Service) StartWithOptions(ctx context.Context, workspace, project string, opts Options) (Run, error) {
 	return s.startWithOptions(ctx, workspace, project, opts, "")
@@ -249,7 +249,7 @@ func (s *Service) StartWithOptions(ctx context.Context, workspace, project strin
 func (s *Service) startWithOptions(ctx context.Context, workspace, project string, opts Options, predecessor string) (Run, error) {
 	empty := Run{ProjectID: project, Sources: []Source{}, Findings: []Finding{}, Pairs: []PairResult{}, MissingRequirementIDs: []string{}}
 	if opts.Mode == "" {
-		opts.Mode, opts.Threshold = contracts.AnalysisDefaults()
+		opts = Options{Mode: contracts.AnalysisConstraints().DefaultMode, Threshold: s.defaultThreshold}
 	}
 	if !contracts.ValidateAnalysisSelection(opts.Mode, opts.Threshold) {
 		return empty, errors.New("invalid analysis selection")

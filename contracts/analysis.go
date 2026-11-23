@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 )
 
 //go:embed analysis.json
@@ -48,7 +47,7 @@ func AnalysisConstraints() AnalysisConfig {
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		panic("invalid analysis contract: trailing JSON")
 	}
-	if rules.Version != 1 || len(rules.Modes) == 0 || len(rules.ReplacementStrategies) == 0 || rules.MinThreshold > rules.MaxThreshold || rules.DefaultThreshold < rules.MinThreshold || rules.DefaultThreshold > rules.MaxThreshold || rules.PageMin < 1 || rules.PageMax < rules.PageMin || rules.OffsetMin < 0 {
+	if rules.Version != 1 || len(rules.Modes) == 0 || len(rules.ReplacementStrategies) == 0 || rules.MinThreshold > rules.MaxThreshold || !rules.ValidThreshold(rules.DefaultThreshold) || rules.PageMin < 1 || rules.PageMax < rules.PageMin || rules.OffsetMin < 0 {
 		panic("unsupported analysis contract")
 	}
 	found := false
@@ -93,11 +92,16 @@ func AnalysisSelection(mode *string, threshold *float64) (AnalysisSelectionInput
 	if !found {
 		errors = append(errors, AnalysisFieldError{[]string{"mode"}, "INVALID_CHOICE", "analysis.validation.mode", map[string]float64{}})
 	}
-	if math.IsNaN(out.Threshold) || math.IsInf(out.Threshold, 0) || out.Threshold < rules.MinThreshold || out.Threshold > rules.MaxThreshold {
+	if !rules.ValidThreshold(out.Threshold) {
 		errors = append(errors, AnalysisFieldError{[]string{"threshold"}, "RANGE", "analysis.validation.threshold", map[string]float64{"min": rules.MinThreshold, "max": rules.MaxThreshold}})
 	}
 	return out, errors
 }
+
+func (rules AnalysisConfig) ValidThreshold(value float64) bool {
+	return value >= rules.MinThreshold && value <= rules.MaxThreshold
+}
+
 func ValidateAnalysisSelection(mode string, threshold float64) bool {
 	_, errors := AnalysisSelection(&mode, &threshold)
 	return len(errors) == 0

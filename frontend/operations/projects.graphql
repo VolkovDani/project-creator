@@ -1,5 +1,5 @@
 query ProjectList($limit: Int!, $offset: Int!) { projects(limit: $limit, offset: $offset) { id name goal description createdAt updatedAt } }
-query ProjectDetail($id: ID!) { project(id: $id) { id name goal description createdAt updatedAt } }
+query ProjectDetail($id: ID!) { analysisDefaultThreshold project(id: $id) { id name goal description createdAt updatedAt } }
 mutation CreateProject($input: ProjectInput!) { createProject(input: $input) { project { id name goal description createdAt updatedAt } fieldErrors { path code messageKey params { key value } } } }
 query Requirements($projectId: ID!, $limit: Int!, $offset: Int!) { requirements(projectId: $projectId, limit: $limit, offset: $offset) { id projectId text version createdAt updatedAt } }
 mutation AddRequirement($input: CreateRequirementInput!) { createRequirement(input:$input) { requirement { id text version } fieldErrors { path code messageKey params { key value } } } }
@@ -8,3 +8,9 @@ mutation RemoveRequirement($id: ID!, $projectId: ID!, $version: Int!) { deleteRe
 
 query ProjectConnection($first: Int!, $after: String) { projectsConnection(first: $first, after: $after) { edges { cursor node { id name goal description createdAt updatedAt } } pageInfo { endCursor hasNextPage } totalCount } }
 query RequirementConnection($projectId: ID!, $first: Int!, $after: String) { requirementsConnection(projectId: $projectId, first: $first, after: $after) { edges { cursor node { id projectId text version createdAt updatedAt } } pageInfo { endCursor hasNextPage } totalCount } }
+
+query RequirementRevisionHistory($projectId: ID!, $requirementId: ID!, $first: Int!, $beforeVersion: Int) {
+  requirementRevisionHistory(projectId: $projectId, requirementId: $requirementId, first: $first, beforeVersion: $beforeVersion) {
+    version previousText text changeReason author createdAt
+  }
+}

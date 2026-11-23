@@ -1,10 +1,8 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { query } from '../../../lib/client';
 import {
-  IndexRequirementDocument,
-  RequirementIndexListDocument,
-  type RequirementIndexListQuery,
+  type RequirementIndexByIdsQuery,
   SearchRequirementsDocument,
   type SearchRequirementsQuery,
 } from '../../../lib/generated';
@@ -12,93 +10,13 @@ import { type Locale, t } from '../../../lib/i18n';
 import { Latest } from '../../../lib/latest';
 import { useInvalidation } from '../../../lib/live';
 import { indexStatus, requirementURL } from '../../../lib/rag';
+import { DesignIcon } from '../../components/DesignIcon';
 import Group from '../../components/Group';
+import rowStyles from '../../components/RecordIcons.module.css';
 import ResourceState from '../../components/ResourceState';
 import { GlossaryText } from './GlossaryActions';
 
-type Index = RequirementIndexListQuery['requirementIndex'][number];
-export function useProjectIndex(projectId: string, page: number) {
-  const [entries, setEntries] = useState<Index[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loaded, setLoaded] = useState(false);
-  const [loadedContext, setLoadedContext] = useState('');
-  const [busy, setBusy] = useState<string>();
-  const [error, setError] = useState(false);
-  const latest = useRef(new Latest());
-  const active = useRef(true);
-  const context = useRef(`${projectId}:${page}`);
-  context.current = `${projectId}:${page}`;
-  const load = useCallback(async () => {
-    const generation = latest.current.begin();
-    setLoading(true);
-    try {
-      const data = await query(RequirementIndexListDocument, {
-        projectId,
-        limit: 20,
-        offset: page * 20,
-      });
-      if (latest.current.isCurrent(generation)) {
-        setEntries(data.requirementIndex);
-        setLoaded(true);
-        setLoadedContext(`${projectId}:${page}`);
-        setError(false);
-      }
-    } catch {
-      if (latest.current.isCurrent(generation)) setError(true);
-    } finally {
-      if (latest.current.isCurrent(generation)) setLoading(false);
-    }
-  }, [projectId, page]);
-  useEffect(() => {
-    active.current = true;
-    setEntries([]);
-    setLoaded(false);
-    setBusy(undefined);
-    void load();
-    const state = latest.current;
-    return () => {
-      active.current = false;
-      state.invalidate();
-    };
-  }, [load]);
-  useInvalidation(
-    [`project:${projectId}`, `project:${projectId}:requirements`],
-    () => void load(),
-    () => {
-      latest.current.invalidate();
-      setEntries([]);
-      setLoaded(false);
-      setBusy(undefined);
-      setError(false);
-    },
-  );
-  const index = async (requirementId: string) => {
-    const requestContext = context.current;
-    setBusy(requirementId);
-    setError(false);
-    try {
-      const data = await query(IndexRequirementDocument, { projectId, requirementId });
-      if (active.current && context.current === requestContext)
-        setEntries((items) => [
-          ...items.filter((item) => item.requirementId !== requirementId),
-          data.indexRequirement,
-        ]);
-    } catch {
-      if (active.current && context.current === requestContext) setError(true);
-    } finally {
-      if (active.current && context.current === requestContext) setBusy(undefined);
-    }
-  };
-  return {
-    entries,
-    busy,
-    error,
-    index,
-    loading,
-    loaded: loaded && loadedContext === `${projectId}:${page}`,
-    reload: load,
-  };
-}
+type Index = RequirementIndexByIdsQuery['requirementIndexByIds'][number];
 export function RequirementIndexAction({
   entry,
   requirementId,
@@ -244,7 +162,10 @@ export default function ProjectSearch({
                 {t(locale, 'rag.source')}
               </a>
               <details>
-                <summary>{t(locale, 'rag.sourceText')}</summary>
+                <summary>
+                  <DesignIcon name="requirements" className={rowStyles.desktopIcon} />
+                  {t(locale, 'rag.sourceText')}
+                </summary>
                 <GlossaryText sourceId={hit.requirementId} version={hit.version}>
                   {hit.sourceText}
                 </GlossaryText>

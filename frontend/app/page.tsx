@@ -2,23 +2,21 @@
 import Link from 'next/link';
 import { useCallback } from 'react';
 import { query } from '../lib/client';
-import {
-  ProjectConnectionDocument,
-  ProjectListDocument,
-  type ProjectListQuery,
-} from '../lib/generated';
+import { ProjectConnectionDocument, type ProjectConnectionQuery } from '../lib/generated';
 import { t } from '../lib/i18n';
 import { useInfinite } from '../lib/useInfinite';
-import { useListMode } from '../lib/useListMode';
-import { useResource } from '../lib/useResource';
-import { ListModeSelect, LoadMore } from './components/ListControls';
+import { DesignIcon } from './components/DesignIcon';
+import { LoadMore } from './components/ListControls';
 import { InterfacePreferences, useLocale } from './components/LocaleProvider';
+import PageMetadata from './components/PageMetadata';
+import styles from './components/RecordIcons.module.css';
 import ResourceState from './components/ResourceState';
 import { VirtualList } from './components/VirtualList';
 export default function Home() {
   const { locale } = useLocale();
   return (
     <main>
+      <PageMetadata titleKey="app.title" />
       <div className="top">
         <h1>{t(locale, 'app.title')}</h1>
         <InterfacePreferences />
@@ -30,27 +28,25 @@ export default function Home() {
     </main>
   );
 }
-function ProjectList() {
-  const { locale } = useLocale();
-  const { mode, setMode, page, setPage } = useListMode();
-  return (
-    <>
-      <ListModeSelect locale={locale} mode={mode} onChange={setMode} />
-      {mode === 'infinite' ? <InfiniteProjects /> : <PagedProjects page={page} setPage={setPage} />}
-    </>
-  );
-}
-function ProjectCard({ project }: { project: ProjectListQuery['projects'][number] }) {
+function ProjectCard({
+  project,
+}: {
+  project: ProjectConnectionQuery['projectsConnection']['edges'][number]['node'];
+}) {
   return (
     <article className="card">
       <h2>
-        <Link href={`/projects/${encodeURIComponent(project.id)}`}>{project.name}</Link>
+        <Link className={styles.projectLink} href={`/projects/${encodeURIComponent(project.id)}`}>
+          <DesignIcon name="projects" />
+          <span>{project.name}</span>
+          <DesignIcon name="next" />
+        </Link>
       </h2>
       <p>{project.goal}</p>
     </article>
   );
 }
-function InfiniteProjects() {
+function ProjectList() {
   const { locale } = useLocale();
   const load = useCallback(
     async (after: string | null) =>
@@ -82,54 +78,6 @@ function InfiniteProjects() {
         onEndReached={more}
       />
       <LoadMore locale={locale} {...list} loadMore={more} />
-    </section>
-  );
-}
-function PagedProjects({ page, setPage }: { page: number; setPage: (page: number) => void }) {
-  const { locale } = useLocale();
-  const loader = useCallback(
-    async () => ({
-      page,
-      rows: (await query(ProjectListDocument, { limit: 20, offset: page * 20 })).projects,
-    }),
-    [page],
-  );
-  const { data: snapshot, loading, error, reload } = useResource(loader, ['projects']);
-  const rows = snapshot?.rows;
-  const displayedPage = snapshot?.page ?? page;
-  return (
-    <section aria-label={t(locale, 'app.title')} aria-busy={loading}>
-      <ResourceState
-        locale={locale}
-        loading={loading}
-        error={error}
-        hasData={rows !== undefined}
-        retry={() => void reload()}
-      />
-      <div className="record-list">
-        {rows?.length === 0 ? (
-          <p>{t(locale, 'app.empty')}</p>
-        ) : (
-          rows?.map((project) => <ProjectCard key={project.id} project={project} />)
-        )}
-      </div>
-      <div className="pagination">
-        <button
-          type="button"
-          disabled={displayedPage === 0 || loading}
-          onClick={() => setPage(displayedPage - 1)}
-        >
-          {t(locale, 'app.previous')}
-        </button>
-        <span>{t(locale, 'app.page', { page: displayedPage + 1 })}</span>
-        <button
-          type="button"
-          disabled={!rows || rows.length < 20 || loading}
-          onClick={() => setPage(displayedPage + 1)}
-        >
-          {t(locale, 'app.next')}
-        </button>
-      </div>
     </section>
   );
 }

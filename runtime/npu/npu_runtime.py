@@ -30,14 +30,16 @@ def requirement_text_max_length():
             or type(value.get('version')) is not int or value['version'] != 1
             or value.get('lengthUnit') != 'unicode-code-points'
             or value.get('trim') != 'ascii-space-tab-lf-cr'
-            or not isinstance(value.get('fields'), dict) or set(value['fields']) != {'text'}):
+            or not isinstance(value.get('fields'), dict)
+            or set(value['fields']) != {'text', 'changeReason'}):
         raise RuntimeError('unsupported shared requirement contract')
-    rule = value['fields']['text']
-    if (not isinstance(rule, dict) or set(rule) != {'required', 'maxLength'}
-            or rule.get('required') is not True or type(rule.get('maxLength')) is not int
-            or rule['maxLength'] <= 0):
-        raise RuntimeError('invalid shared requirement text constraint')
-    return rule['maxLength']
+    for name, rule in value['fields'].items():
+        keys = {'required', 'maxLength'} if name == 'text' else {'required', 'maxLength', 'blank'}
+        if (not isinstance(rule, dict) or set(rule) != keys or rule.get('required') is not True
+                or type(rule.get('maxLength')) is not int or rule['maxLength'] <= 0
+                or (name == 'changeReason' and rule['blank'] != 'unicode-white-space')):
+            raise RuntimeError(f'invalid shared requirement constraint for {name}')
+    return value['fields']['text']['maxLength']
 
 
 REQUIREMENT_TEXT_MAX_LENGTH = requirement_text_max_length()

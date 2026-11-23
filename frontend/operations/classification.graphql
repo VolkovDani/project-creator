@@ -1,5 +1,6 @@
 fragment ClassificationFields on RequirementClassification {
-  requirementId textVersion revision status semanticType representationType
+  __typename projectId requirementId textVersion revision status semanticType representationType
+  digest profile questionVersion errorCode reason
   source rulesVersion model createdAt alternatives { semanticType representationType score }
 }
 query RequirementClassification($projectId: ID!, $requirementId: ID!) {
@@ -13,4 +14,35 @@ query ClassifiedRequirements($projectId: ID!, $semanticType: String, $representa
 }
 mutation ConfirmClassification($input: ConfirmClassificationInput!) {
   confirmRequirementClassification(input: $input) { classification { ...ClassificationFields } fieldErrors { path code messageKey params { key value } } }
+}
+
+fragment ClassificationListFields on ClassificationListItem {
+  __typename projectId requirementId text textVersion revision status semanticType representationType errorCode
+}
+query ClassificationList($projectId: ID!, $semanticType: String, $representationType: String, $status: String, $limit: Int!, $offset: Int!) {
+  classificationList(projectId: $projectId, semanticType: $semanticType, representationType: $representationType, status: $status, limit: $limit, offset: $offset) { ...ClassificationListFields }
+}
+query ClassificationPageIds($projectId: ID!, $semanticType: String, $representationType: String, $status: String, $limit: Int!, $offset: Int!) {
+  classificationList(projectId: $projectId, semanticType: $semanticType, representationType: $representationType, status: $status, limit: $limit, offset: $offset) { requirementId }
+}
+query ClassificationListByIds($projectId: ID!, $requirementIds: [ID!]!) {
+  classificationListByIds(projectId: $projectId, requirementIds: $requirementIds) { ...ClassificationListFields }
+}
+query ClassificationProgress($projectId: ID!) {
+  classificationProgress(projectId: $projectId) { __typename projectId configured profile total unclassified queued classifying suggested needsReview confirmed failed stale }
+}
+query ClassificationGroups($projectId: ID!) {
+  classificationGroups(projectId: $projectId) { __typename projectId semanticType representationType count }
+}
+fragment ClassificationQueueFields on ClassificationQueuePayload {
+  queued fieldErrors { path code messageKey params { key value } }
+}
+mutation BackfillClassifications($projectId: ID!) {
+  backfillClassifications(projectId: $projectId) { ...ClassificationQueueFields }
+}
+mutation RetryFailedClassifications($projectId: ID!) {
+  retryFailedClassifications(projectId: $projectId) { ...ClassificationQueueFields }
+}
+mutation RetryClassification($projectId: ID!, $requirementId: ID!, $textVersion: Int!, $reanalyze: Boolean!) {
+  retryRequirementClassification(projectId: $projectId, requirementId: $requirementId, textVersion: $textVersion, reanalyze: $reanalyze) { ...ClassificationQueueFields }
 }

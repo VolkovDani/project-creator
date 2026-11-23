@@ -144,7 +144,7 @@ func TestGraphQLSummaryCRUDBatchAuthorizationAndCommittedInvalidation(t *testing
 	if err = s.db.QueryRow(`SELECT count(*) FROM cache_events WHERE workspace='a' AND keys @> ARRAY[$1]`, "project:"+project+":summaries").Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	update := summaryRequest(t, s, "token-a", fmt.Sprintf(`mutation{updateRequirement(input:{id:%q,projectId:%q,version:1,text:"updated full source"}){requirement{version}}}`, id1, project))
+	update := summaryRequest(t, s, "token-a", fmt.Sprintf(`mutation{updateRequirement(input:{id:%q,projectId:%q,version:1,changeReason:"Clarify the requirement",text:"updated full source"}){requirement{version}}}`, id1, project))
 	if update["errors"] != nil {
 		t.Fatal(update)
 	}

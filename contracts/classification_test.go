@@ -1,25 +1,19 @@
 package contracts
 
 import (
-	"encoding/json"
-	"os"
 	"slices"
 	"testing"
 )
 
 func TestClassificationAxesAndStatusVocabulary(t *testing.T) {
-	var c struct {
-		Version                          string
-		Semantic, Representation, States []string
+	c := ClassificationRules()
+	if c.Version != "2" {
+		t.Errorf("classification rules version = %q, want 2", c.Version)
 	}
-	raw, err := os.ReadFile("classification.json")
-	if err != nil {
-		t.Fatal(err)
+	if !slices.Contains(c.Representation, "test_case") || slices.Contains(c.Semantic, "test_case") {
+		t.Errorf("test_case must be a representation only: %+v", c)
 	}
-	if err := json.Unmarshal(raw, &c); err != nil {
-		t.Fatal(err)
-	}
-	if c.Version == "" || !slices.Contains(c.Semantic, "functional_requirement") || !slices.Contains(c.Representation, "user_story") || slices.Contains(c.Semantic, "user_story") {
+	if !slices.Contains(c.Semantic, "functional_requirement") || !slices.Contains(c.Representation, "user_story") || slices.Contains(c.Semantic, "user_story") {
 		t.Fatalf("independent axes missing: %+v", c)
 	}
 	for _, axis := range [][]string{c.Semantic, c.Representation} {

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 export default function Group({
   id,
+  anchorId,
   title,
   summary,
   children,
@@ -9,6 +10,7 @@ export default function Group({
   lazy = false,
 }: {
   id: string;
+  anchorId?: string;
   title: string;
   summary?: string;
   children: React.ReactNode;
@@ -26,6 +28,7 @@ export default function Group({
   }, [id, defaultOpen]);
   return (
     <details
+      id={anchorId}
       className="data-group"
       open={open}
       data-restored={String(restored)}

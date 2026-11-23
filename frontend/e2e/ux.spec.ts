@@ -1,47 +1,200 @@
 import { expect, type Page, test } from '@playwright/test';
-import { expectLayout, layoutCases, setLayout } from './layout-assertions';
+import { expectLayout, layoutCases, openProjectMenu, setLayout } from './layout-assertions';
 
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status === 'passed') await expectLayout(page);
 });
 
-test('dark theme follows the user across navigation, language changes and reloads', async ({
+test('project menu groups sections and keeps diagnostics accessible on a direct indexing URL', async ({
+  page,
+}, testInfo) => {
+  await fixture(page, 1);
+  await page.goto('/projects/demo/indexing');
+  const toggle = page.locator('button[aria-controls="project-sidebar"]');
+  const nav = page.getByRole('navigation', { name: 'Разделы проекта' });
+  const narrow = testInfo.project.name === 'narrow';
+  await expect(toggle).toHaveAttribute('aria-expanded', String(!narrow));
+  if (narrow) {
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(nav).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(toggle).toBeFocused();
+    await expect(nav).toBeHidden();
+  } else {
+    await toggle.click();
+    await expect(nav).toBeHidden();
+  }
+  await toggle.click();
+  await expect(nav.getByRole('link')).toHaveText([
+    'Обзор',
+    'Требования',
+    'Поиск',
+    'Классификация',
+    'Словарь',
+    'Анализ',
+    'Технический раздел',
+    'Индексация',
+  ]);
+  for (const link of await nav.getByRole('link').all()) {
+    await expect(link.locator(':scope > svg:first-child[aria-hidden="true"]')).toHaveCount(1);
+  }
+  const firstGlyph = nav.locator('svg use').first();
+  await expect
+    .poll(() => firstGlyph.evaluate((use: SVGUseElement) => use.getBBox().width))
+    .toBeGreaterThan(0);
+  await expect(nav.getByRole('link', { name: 'Обзор' })).toHaveCSS(
+    'text-decoration-line',
+    'underline',
+  );
+  const indexing = nav.getByRole('list').getByRole('link', { name: 'Индексация' });
+  await expect(indexing).toHaveAttribute('aria-current', 'page');
+  const technical = nav.getByRole('link', { name: 'Технический раздел' });
+  await expect(technical).toHaveAttribute('aria-current', 'location');
+  await technical.click();
+  await expect(page).toHaveURL('/projects/demo/technical');
+  if (narrow) await expect(nav).toBeHidden();
+  await page.getByRole('main').getByRole('link', { name: 'Индексация', exact: true }).click();
+  await expect(page).toHaveURL('/projects/demo/indexing');
+  await page.getByRole('link', { name: project.name, exact: true }).click();
+  await expect(page.locator('.overview-links strong')).toHaveText([
+    'Требования',
+    'Поиск',
+    'Классификация',
+    'Словарь',
+    'Анализ',
+  ]);
+  for (const link of await page.locator('.overview-links a').all()) {
+    await expect(link.locator('svg[aria-hidden="true"]')).toHaveCount(2);
+    await expect(link.locator('svg use').last()).toHaveAttribute(
+      'href',
+      '/design-icons.svg#chevron-right',
+    );
+  }
+  await expect(page.locator('.overview-links strong').first()).toHaveCSS(
+    'text-decoration-line',
+    'underline',
+  );
+  await expect(page.locator('.overview-links p').first()).toHaveCSS('text-decoration-line', 'none');
+  await expect(nav.getByRole('link', { name: 'Индексация' })).toHaveCount(0);
+});
+
+test('section metadata follows navigation and the saved language', async ({ page }) => {
+  await fixture(page, 1);
+  await page.goto('/projects/demo/classification');
+  const description = page.locator('head meta[name="description"]');
+  await expect(page).toHaveTitle('Классификация — Project Creator');
+  await expect(description).toHaveAttribute('content', /классификацию/);
+  await expect(page.getByRole('heading', { name: project.name })).toBeVisible();
+  const toggle = page.locator('button[aria-controls="project-sidebar"]');
+  if ((await toggle.getAttribute('aria-expanded')) === 'false') {
+    await expect(page.getByRole('button', { name: 'Тёмная тема' })).toBeHidden();
+    await toggle.click();
+  }
+  const sidebar = page.getByRole('complementary');
+  const theme = sidebar.getByRole('button', { name: 'Тёмная тема' });
+  await expect(theme).toBeVisible();
+  await expect(theme.locator('svg[aria-hidden="true"]')).toHaveCount(1);
+  await expect(sidebar.locator('.language svg[aria-hidden="true"]')).toHaveCount(1);
+  await sidebar.getByRole('combobox', { name: 'Язык' }).selectOption('en');
+  await expect(page).toHaveTitle('Classification — Project Creator');
+  await expect(description).toHaveAttribute('content', /classifications/);
+  await page
+    .getByRole('navigation', { name: 'Project sections' })
+    .getByRole('link', { name: 'Technical section' })
+    .click();
+  await expect(page).toHaveTitle('Technical section — Project Creator');
+  await page.getByRole('main').getByRole('link', { name: 'Indexing', exact: true }).click();
+  await expect(page).toHaveTitle('Indexing — Project Creator');
+  await expect(description).toHaveAttribute('content', /indexing/);
+  await page.reload();
+  await expect(page).toHaveTitle('Indexing — Project Creator');
+  await expect(page.locator('head title')).toHaveCount(1);
+});
+
+test('pages advertise the browser and Apple icons and serve the supplied sizes', async ({
+  page,
+  request,
+}) => {
+  await fixture(page, 1);
+  await page.goto('/projects/demo/indexing');
+  const tabIcons = page.locator('head link[rel="icon"]');
+  await expect(tabIcons).toHaveCount(3);
+  for (const size of [16, 32]) {
+    await expect(page.locator(`head link[rel="icon"][sizes="${size}x${size}"]`)).toHaveAttribute(
+      'href',
+      `/favicon-${size}x${size}.png`,
+    );
+  }
+  await expect(page.locator('head link[rel="icon"][href^="/favicon.ico"]')).toHaveCount(1);
+  await expect(page.locator('head link[rel="apple-touch-icon"][sizes="180x180"]')).toHaveAttribute(
+    'href',
+    '/apple-touch-icon.png',
+  );
+  const icon = await request.get('/favicon.ico');
+  expect(icon.status()).toBe(200);
+  expect(icon.headers()['content-type']).toMatch(/image\/(x-icon|vnd.microsoft.icon)/);
+  const ico = await icon.body();
+  expect([...ico.subarray(0, 6)]).toEqual([0, 0, 1, 0, 3, 0]);
+  expect([ico[6], ico[22], ico[38]]).toEqual([16, 32, 48]);
+  for (const [file, size] of [
+    ['favicon-16x16', 16],
+    ['favicon-32x32', 32],
+    ['favicon-48x48', 48],
+    ['favicon-64x64', 64],
+    ['apple-touch-icon', 180],
+    ['icon-192', 192],
+    ['icon-512', 512],
+    ['icon-maskable-512', 512],
+  ] as const) {
+    const image = await request.get(`/${file}.png`);
+    expect(image.status()).toBe(200);
+    expect(image.headers()['content-type']).toContain('image/png');
+    const png = await image.body();
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([size, size]);
+  }
+});
+
+test('dark is the default and an explicit light preference survives navigation and reloads', async ({
   page,
 }) => {
   await fixture(page, 1);
   await page.goto('/projects/new');
   const language = page.getByRole('combobox', { name: 'Язык' });
   const theme = page.getByRole('button', { name: 'Тёмная тема' });
-  await expect(theme).toHaveAttribute('aria-pressed', 'false');
+  await expect(theme).toHaveAttribute('aria-pressed', 'true');
   await language.focus();
   await page.keyboard.press('Tab');
   await expect(theme).toBeFocused();
   await page.keyboard.press('Space');
-  await expect(theme).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(27, 28, 28)');
+  await expect(theme).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('html')).toHaveCSS('color-scheme', 'light');
   await expect(page).toHaveURL(/\/projects\/new$/);
   await language.selectOption('en');
   const englishTheme = page.getByRole('button', { name: 'Dark theme' });
-  await expect(englishTheme).toHaveAttribute('aria-pressed', 'true');
+  await expect(englishTheme).toHaveAttribute('aria-pressed', 'false');
   await page.locator('.top a[href="/"]').click();
-  await expect(englishTheme).toHaveAttribute('aria-pressed', 'true');
-  await page.reload();
-  await expect(englishTheme).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark');
-  await englishTheme.click();
+  await expect(englishTheme).toHaveAttribute('aria-pressed', 'false');
   await page.reload();
   await expect(englishTheme).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('html')).toHaveCSS('color-scheme', 'light');
+  await englishTheme.click();
+  await page.reload();
+  await expect(englishTheme).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark');
 });
 
 test('requirement editing opens a native dialog and Escape discards the draft', async ({
   page,
 }) => {
   await fixture(page, 21);
-  await page.goto('/projects/demo/requirements?listMode=pages&page=2');
+  await page.goto('/projects/demo/requirements');
   const addDraft = page.getByLabel('Текст требования');
   await addDraft.fill('Черновик добавления');
-  await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
+  const edit = page
+    .locator('#requirement-r0')
+    .getByRole('button', { name: 'Изменить', exact: true });
+  await edit.click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   const editor = dialog.getByLabel('Текст требования');
@@ -52,10 +205,10 @@ test('requirement editing opens a native dialog and Escape discards the draft', 
   await page.keyboard.press('Escape');
   await expect(dialog).not.toBeVisible();
   await expect(addDraft).toHaveValue('Черновик добавления');
-  await expect(page.getByRole('button', { name: 'Изменить', exact: true }).first()).toBeFocused();
+  await expect(edit).toBeFocused();
   expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore);
   await expect(
-    page.locator('#requirement-r20').getByText('Требование 20', { exact: true }).first(),
+    page.locator('#requirement-r0').getByText('Требование 0', { exact: true }).first(),
   ).toBeVisible();
 });
 
@@ -67,16 +220,87 @@ test('requirement edit conflict keeps the draft and saving closes the dialog', a
   const dialog = page.getByRole('dialog');
   const editor = dialog.getByLabel('Текст требования');
   await editor.fill('Новая редакция');
+  const save = dialog.getByRole('button', { name: 'Сохранить', exact: true });
+  await save.click();
+  await expect(dialog.getByRole('alert')).toHaveText('Заполните поле');
+  const reason = dialog.getByLabel('Причина изменения');
+  await expect(reason).toHaveAttribute('aria-invalid', 'true');
+  const draftReason = '  Уточнили сроки\nпосле обсуждения  ';
+  await reason.fill(draftReason);
   api.setText('Сохранённая другая редакция');
   api.conflictNextEdit();
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog.getByRole('alert')).toBeVisible();
   await expect(editor).toHaveValue('Новая редакция');
+  await expect(reason).toHaveValue(draftReason);
   await dialog.getByRole('button', { name: 'Сохранить черновик поверх актуальной версии' }).click();
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  expect(api.editWrites()).toEqual([{ id: 'r0', text: 'Новая редакция', version: 2 }]);
+  expect(api.editWrites()).toEqual([
+    { id: 'r0', text: 'Новая редакция', version: 2, changeReason: draftReason },
+  ]);
   await expect(page.getByLabel('Текст требования')).toHaveValue('Черновик добавления');
+});
+
+test('revision history pages by version and distinguishes creation from legacy edits', async ({
+  page,
+}) => {
+  const api = await fixture(page, 1);
+  for (let version = 2; version <= 13; version++) api.setText(`Текст ${version}`);
+  const cursors: Array<number | null> = [];
+  await page.route('**/api/graphql', async (route) => {
+    const { operationName, variables } = route.request().postDataJSON();
+    if (operationName !== 'RequirementRevisionHistory') return route.fallback();
+    expect(variables.projectId).toBe('demo');
+    expect(variables.requirementId).toBe('r0');
+    cursors.push(variables.beforeVersion ?? null);
+    const revisions = Array.from({ length: 13 }, (_, i) => {
+      const version = 13 - i;
+      return {
+        version,
+        text: `Текст ${version}`,
+        previousText: version <= 2 ? null : `Текст ${version - 1}`,
+        changeReason: version <= 2 ? null : `Причина ${version}`,
+        author: version === 13 ? 'Автор' : null,
+        createdAt: version === 2 ? 'Legacy timestamp' : '2026-11-20T14:23:01Z',
+      };
+    });
+    await route.fulfill({
+      json: {
+        data: {
+          requirementRevisionHistory: revisions
+            .filter((row) => !variables.beforeVersion || row.version < variables.beforeVersion)
+            .slice(0, variables.first),
+        },
+      },
+    });
+  });
+  await page.goto('/projects/demo/requirements');
+  const history = page.getByRole('group', { name: 'История текста требования' });
+  await history.locator('summary').click();
+  const entries = history.getByRole('listitem');
+  await expect(entries.first()).toContainText('Версия 12 → 13');
+  await expect(entries.first()).toContainText('Текст 12');
+  await expect(entries.first()).toContainText('Текст 13');
+  await expect(entries.first().locator('del')).toHaveText('12');
+  await expect(entries.first().locator('ins')).toHaveText('13');
+  await expect(entries.first().locator('del')).toHaveCSS('text-decoration-line', 'line-through');
+  await expect(entries.first().locator('ins')).toHaveCSS('text-decoration-line', 'underline');
+  await expect(entries.first()).toContainText('Причина 13');
+  await expect(entries.first()).toContainText('Автор');
+  await expect(entries.first().locator('time')).toHaveAttribute('datetime', '2026-11-20T14:23:01Z');
+  const more = history.getByRole('button', { name: 'Загрузить ещё' });
+  await more.focus();
+  await page.keyboard.press('Enter');
+  await expect(entries).toHaveCount(13);
+  await expect(entries.nth(11)).toContainText('Причина изменения не указана');
+  await expect(entries.nth(11)).toContainText('Legacy timestamp');
+  await expect(entries.nth(11)).toContainText('Предыдущий текст недоступен');
+  await expect(entries.nth(11).locator('ins, del')).toHaveCount(0);
+  await expect(entries.last().locator('ins, del')).toHaveCount(0);
+  await expect(entries.last()).toContainText('Исходная версия');
+  await expect(entries.last()).not.toContainText('Причина изменения');
+  expect(cursors).toEqual([null, 4]);
 });
 
 test('a busy requirement dialog rejects Escape and keeps network errors visible', async ({
@@ -88,6 +312,7 @@ test('a busy requirement dialog rejects Escape and keeps network errors visible'
   await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Текст требования').fill('Busy edit');
+  await dialog.getByLabel('Причина изменения').fill('User reason');
   const save = dialog.getByRole('button', { name: 'Сохранить', exact: true });
   await save.click();
   await request.started;
@@ -96,6 +321,7 @@ test('a busy requirement dialog rejects Escape and keeps network errors visible'
   await expect(dialog).toBeVisible();
   request.release();
   await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(dialog.getByLabel('Причина изменения')).toHaveValue('User reason');
   await expect(dialog).toBeVisible();
 });
 
@@ -186,7 +412,7 @@ async function fixture(
   };
   const connectionReads: Array<{ first: number; after: string | null }> = [];
   const indexReads: string[][] = [];
-  const editWrites: Array<{ id: string; text: string; version: number }> = [];
+  const editWrites: Array<{ id: string; text: string; version: number; changeReason: string }> = [];
   let indexes = rows.map((r, i) => ({
     requirementId: r.id,
     version: 1,
@@ -232,7 +458,12 @@ async function fixture(
         };
       } else {
         const index = rows.findIndex((row) => row.id === input.id);
-        editWrites.push({ id: input.id, text: input.text, version: input.version });
+        editWrites.push({
+          id: input.id,
+          text: input.text,
+          version: input.version,
+          changeReason: input.changeReason,
+        });
         rows[index] = { ...rows[index], text: input.text, version: rows[index].version + 1 };
         data = {
           updateRequirement: {
@@ -261,11 +492,11 @@ async function fixture(
     } else if (query.includes('requirementsConnection(')) {
       reads++;
       connectionReads.push({ first: Number(variables.first), after: variables.after ?? null });
+      if (delay && (!delayAfterFirst || variables.after)) await delay;
       if (failure) {
         await route.fulfill({ status: failure, json: { error: 'fixture failure' } });
         return;
       }
-      if (delay && delayAfterFirst && variables.after) await delay;
       const start = Number(variables.after ? String(variables.after).replace('cursor-', '') : 0);
       const batch = rows.slice(start, start + Math.min(Number(variables.first), maxBatchSize));
       data = {
@@ -278,14 +509,6 @@ async function fixture(
           totalCount: rows.length,
         },
       };
-    } else if (query.includes('requirements(')) {
-      reads++;
-      if (delay && !delayAfterFirst) await delay;
-      if (failure) {
-        await route.fulfill({ status: failure, json: { error: 'fixture failure' } });
-        return;
-      }
-      data = { requirements: rows.slice(variables.offset, variables.offset + variables.limit) };
     } else if (query.includes('requirementIndexByIds(')) {
       indexReads.push(variables.requirementIds);
       if (failure || indexFailure) {
@@ -330,7 +553,7 @@ async function fixture(
         },
       };
     else if (query.includes('projects(')) data = { projects: [projectValue] };
-    else data = { project: projectValue };
+    else data = { project: projectValue, analysisDefaultThreshold: 0.65 };
     await route.fulfill({ json: { data } }).catch(() => {});
   });
   return {
@@ -393,7 +616,14 @@ test('index queue shows project-wide progress and running state after SSE and re
   const api = await fixture(page, 45);
   api.setProgress({ total: 200, ready: 120, queued: 78, running: 1, failed: 1 });
   api.setRunning();
-  await page.goto('/projects/demo/indexing?listMode=pages&page=1');
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Network.enable');
+  let eventsPriority: string | undefined;
+  cdp.on('Network.requestWillBeSent', ({ request }) => {
+    if (new URL(request.url).pathname === '/api/events') eventsPriority = request.initialPriority;
+  });
+  await page.goto('/projects/demo/indexing');
+  await expect.poll(() => eventsPriority).toBe('Low');
   const summary = page.getByRole('region', { name: 'Прогресс индексации проекта', exact: true });
   await expect(summary).toContainText('Готово: 120 из 200');
   await expect(summary).toContainText('В работе: 1');
@@ -407,8 +637,6 @@ test('index queue shows project-wide progress and running state after SSE and re
   await api.event();
   await expect(summary).toContainText('Готово: 200 из 200');
   await api.event(true);
-  await expect(summary).toContainText('Готово: 200 из 200');
-  await page.getByLabel('Режим списка').selectOption('infinite');
   await expect(summary).toContainText('Готово: 200 из 200');
 });
 
@@ -521,7 +749,7 @@ test('infinite requirements restore loaded rows and scroll after leaving the rou
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(1000);
   const savedOffset = await page.evaluate(() => window.scrollY);
   const savedReads = api.connectionReads().length;
-  await page.getByRole('link', { name: 'Обзор', exact: true }).evaluate((link) => {
+  await page.getByRole('link', { name: project.name, exact: true }).evaluate((link) => {
     if (link instanceof HTMLElement) link.click();
   });
   await expect(page).toHaveURL('/projects/demo');
@@ -531,27 +759,24 @@ test('infinite requirements restore loaded rows and scroll after leaving the rou
   expect(api.connectionReads()).toHaveLength(savedReads);
 });
 
-test('list mode and page changes participate in browser history', async ({ page }) => {
-  await fixture(page, 45);
-  await page.goto('/projects/demo/requirements');
+test('legacy list URLs open the first cursor batch without pagination controls', async ({
+  page,
+}) => {
+  const api = await fixture(page, 45);
+  await page.goto('/projects/demo/requirements?listMode=pages&page=2&source=bookmark');
+  await expect(page.getByRole('heading', { name: 'Бизнес-требования', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Режим списка')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Назад', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Далее', exact: true })).toHaveCount(0);
   await expect(page.locator('#requirement-r0')).toBeVisible();
-  await page.getByLabel('Режим списка').selectOption('pages');
-  await expect(page).toHaveURL(/listMode=pages&page=1/);
-  await page.getByRole('button', { name: 'Далее', exact: true }).click();
-  await expect(page).toHaveURL(/listMode=pages&page=2/);
-  await page.goBack();
-  await expect(page).toHaveURL(/listMode=pages&page=1/);
-  await page.goBack();
-  await expect(page).not.toHaveURL(/listMode=pages/);
-  await expect(page.getByLabel('Режим списка')).toHaveValue('infinite');
-  await page.goForward();
-  await expect(page.getByLabel('Режим списка')).toHaveValue('pages');
+  expect(api.connectionReads()).toEqual([{ first: 40, after: null }]);
+  expect(new URL(page.url()).searchParams.get('source')).toBe('bookmark');
 });
 
 test('first load reserves space and a failed first request has a local retry', async ({ page }) => {
   const api = await fixture(page);
   const release = api.delay();
-  await page.goto('/projects/demo/requirements?listMode=pages&page=1');
+  await page.goto('/projects/demo/requirements');
   await expect.poll(api.reads).toBeGreaterThan(0);
   await expect(page.getByText('Загрузка…', { exact: true })).toBeVisible();
   await expect(page.locator('.skeleton')).toBeVisible();
@@ -565,11 +790,11 @@ test('first load reserves space and a failed first request has a local retry', a
   await expect(page.locator('#requirement-r0')).toBeVisible();
 });
 
-test('slow SSE refetch and reconnect reset preserve cards, draft, focus and pagination', async ({
+test('slow SSE refetch and reconnect reset preserve cards, draft, focus and continuation', async ({
   page,
 }) => {
-  const api = await fixture(page);
-  await page.goto('/projects/demo/requirements?listMode=pages&page=1');
+  const api = await fixture(page, 41);
+  await page.goto('/projects/demo/requirements');
   const card = page.locator('#requirement-r0');
   await expect(card).toBeVisible();
   const draft = page.getByLabel('Текст требования');
@@ -601,18 +826,20 @@ test('slow SSE refetch and reconnect reset preserve cards, draft, focus and pagi
   await expect(card).toBeVisible();
   await expect(draft).toHaveValue('Несохранённый черновик');
   releaseReset();
-  await page.getByRole('button', { name: 'Далее', exact: true }).click();
-  await expect(page.locator('#requirement-r20')).toBeVisible();
-  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Назад', exact: true }).click();
+  await expect(draft).toBeFocused();
+  await page.getByRole('button', { name: 'Загрузить ещё', exact: true }).click();
+  await expect.poll(() => api.connectionReads().at(-1)?.after).toBe('cursor-40');
+  await expect(page.getByRole('button', { name: 'Загрузить ещё', exact: true })).toHaveCount(0);
+  await page.evaluate(() => window.scrollTo(0, 0));
   await expect(card).toBeVisible();
+  await expect(draft).toHaveValue('Несохранённый черновик');
 });
 
 test('failed background request keeps stale data and local retry restores freshness', async ({
   page,
 }) => {
   const api = await fixture(page);
-  await page.goto('/projects/demo/requirements?listMode=pages&page=1');
+  await page.goto('/projects/demo/requirements');
   await expect(page.locator('#requirement-r0')).toBeVisible();
   api.fail(503);
   await api.event();
@@ -641,7 +868,7 @@ test('failed background request keeps stale data and local retry restores freshn
 
 test('revoked access clears previously rendered data', async ({ page }) => {
   const api = await fixture(page);
-  await page.goto('/projects/demo/requirements?listMode=pages&page=1');
+  await page.goto('/projects/demo/requirements');
   await expect(page.locator('#requirement-r0')).toBeVisible();
   await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
   await page.getByRole('dialog').getByLabel('Текст требования').fill('Закрытый черновик');
@@ -657,7 +884,7 @@ test('project pages share navigation, locale and browser history without overflo
   page,
 }) => {
   await fixture(page);
-  await page.goto('/?listMode=pages&page=1');
+  await page.goto('/');
   await expect(page.getByRole('link', { name: project.name, exact: true })).toBeVisible();
   await expect(page.getByLabel('Название', { exact: true })).toHaveCount(0);
   await page.getByRole('link', { name: 'Создать проект', exact: true }).click();
@@ -666,19 +893,21 @@ test('project pages share navigation, locale and browser history without overflo
   await page.goto('/projects/demo');
   await expect(page.getByRole('heading', { name: project.name, exact: true })).toBeVisible();
   await expect(page.getByLabel('Текст требования')).toHaveCount(0);
+  await openProjectMenu(page);
   await page.getByLabel('Язык').selectOption('en');
+  const nav = page.getByRole('navigation', { name: 'Project sections' });
   for (const [name, path] of [
     ['Requirements', 'requirements'],
+    ['Technical section', 'technical'],
     ['Indexing', 'indexing'],
     ['Search', 'search'],
     ['Analysis', 'analysis'],
   ] as const) {
-    await page.getByRole('link', { name, exact: true }).first().click();
+    const link = nav.getByRole('link', { name, exact: true });
+    await link.click();
     await expect(page).toHaveURL(new RegExp(`/${path}$`));
-    await expect(page.getByRole('link', { name, exact: true }).first()).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    await openProjectMenu(page);
+    await expect(link).toHaveAttribute('aria-current', 'page');
     await expect(page.getByLabel('Language')).toHaveValue('en');
   }
   await page.goBack();
@@ -686,6 +915,7 @@ test('project pages share navigation, locale and browser history without overflo
   await page.goForward();
   await expect(page).toHaveURL(/\/analysis$/);
   await page.reload();
+  await openProjectMenu(page);
   await expect(page.getByLabel('Language')).toHaveValue('en');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
@@ -695,13 +925,14 @@ test('project pages share navigation, locale and browser history without overflo
 test('requirement source links select the correct card and survive direct opening', async ({
   page,
 }) => {
-  await fixture(page);
-  await page.goto('/projects/demo/search?listMode=pages&page=1');
+  const api = await fixture(page, 21, '', project, undefined, 10);
+  await page.goto('/projects/demo/search');
   await page.getByLabel('Поисковый запрос').fill('20');
   await page.getByRole('button', { name: 'Найти требования', exact: true }).click();
   await page.getByRole('link', { name: 'Перейти к требованию', exact: true }).click();
   await expect(page).toHaveURL(/\/requirements\?requirement=r20(?:&[^#]*)?#requirement-r20$/);
   await expect(page.locator('#requirement-r20')).toBeVisible();
+  expect(api.connectionReads().map((read) => read.after)).toEqual([null, 'cursor-10', 'cursor-20']);
   await page.reload();
   await expect(page.locator('#requirement-r20')).toBeVisible();
   await page.goBack();
@@ -711,7 +942,7 @@ test('requirement source links select the correct card and survive direct openin
 test('indexing appends on scroll with matching statuses and stops at the end', async ({ page }) => {
   const api = await fixture(page, 85);
   await page.goto('/projects/demo/indexing');
-  await expect(page.getByLabel('Режим списка')).toHaveValue('infinite');
+  await expect(page.getByLabel('Режим списка')).toHaveCount(0);
   await expect(page.getByText('Требование 2', { exact: true })).toBeVisible();
   await expect.poll(() => api.indexReads().length).toBe(1);
   expect(api.indexReads()[0]).toHaveLength(40);
@@ -734,8 +965,6 @@ test('indexing group state is restored across a Russian to English navigation', 
 }) => {
   await fixture(page, 2);
   await page.goto('/projects/demo/indexing');
-  const language = page.locator('.language select');
-  await language.selectOption('ru');
   let ready = page.locator('.data-group').last();
   await expect(ready).toHaveAttribute('data-restored', 'true');
   if ((await ready.getAttribute('open')) === null) await ready.locator('summary').click();
@@ -744,7 +973,8 @@ test('indexing group state is restored across a Russian to English navigation', 
     .poll(() => page.evaluate(() => sessionStorage.getItem('group:demo:indexing:ready')))
     .toBe('true');
 
-  await language.selectOption('en');
+  await openProjectMenu(page);
+  await page.getByRole('combobox', { name: 'Язык' }).selectOption('en');
   await page.goto('/projects/demo/requirements');
   await page.goto('/projects/demo/indexing');
   ready = page.locator('.data-group').last();
@@ -785,86 +1015,79 @@ test('infinite indexing refreshes statuses after SSE and clears cards on access 
   await expect(page.locator('[id^="indexing-r"]')).toHaveCount(0);
 });
 
-test('indexing pagination survives reload and browser history', async ({ page }) => {
-  await fixture(page, 41);
-  await page.goto('/projects/demo/indexing?listMode=pages&page=1');
-  const previous = page.getByRole('button', { name: 'Назад', exact: true });
-  const next = page.getByRole('button', { name: 'Далее', exact: true });
-  await expect(previous).toBeDisabled();
-  await next.click();
-  await expect(page).toHaveURL(/\/indexing\?listMode=pages&page=2$/);
-  await expect(page.getByText('Требование 20', { exact: true })).toBeVisible();
-  await expect(page.getByText('Требование 2', { exact: true })).toHaveCount(0);
-  await page.reload();
-  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
-  await expect(page.getByText('Требование 20', { exact: true })).toBeVisible();
-  await next.click();
-  await expect(page.getByText('Страница 3', { exact: true })).toBeVisible();
-  await expect(page.getByText('Требование 40', { exact: true })).toBeVisible();
-  await expect(next).toBeDisabled();
-  await page.goBack();
-  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
-  await expect(page.getByText('Требование 20', { exact: true })).toBeVisible();
-  await page.goForward();
-  await expect(page.getByText('Страница 3', { exact: true })).toBeVisible();
-  await previous.click();
-  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
-});
-
-test('index group summaries are scoped to current page and update while collapsed', async ({
-  page,
-}) => {
-  const api = await fixture(page);
-  await page.goto('/projects/demo/indexing?listMode=pages&page=1');
-  await expect(page.getByText(/На этой странице/).first()).toBeVisible();
-  const summaries = page.locator('details summary');
-  await expect(summaries.first()).toBeVisible();
-  const initial = await summaries.allTextContents();
-  expect(initial.join(' ')).toMatch(/20/);
-  await summaries.first().focus();
+test('index group summaries reflect loaded rows and update while collapsed', async ({ page }) => {
+  const api = await fixture(page, 85);
+  await page.goto('/projects/demo/indexing?listMode=pages&page=3');
+  const failed = page.getByRole('group', { name: 'ошибка', exact: true });
+  const pending = page.getByRole('group', { name: 'ожидает индексации', exact: true });
+  const ready = page.getByRole('group', { name: 'готов', exact: true });
+  await expect(page.getByText('Загружено: 40 из 85', { exact: true })).toBeVisible();
+  await expect(failed.locator('summary')).toContainText('1');
+  await expect(pending.locator('summary')).toContainText('38');
+  await failed.locator('summary').focus();
   await page.keyboard.press('Enter');
-  await expect(page.locator('details').first()).not.toHaveAttribute('open', '');
+  await expect(failed).not.toHaveAttribute('open', '');
   api.setReady();
   await api.event();
+  await expect(failed.locator('summary')).toContainText('0');
+  await expect(failed).not.toHaveAttribute('open', '');
+  await expect(ready.locator('summary')).toContainText(/(?:40|80|85)/);
   await expect
-    .poll(async () => (await summaries.allTextContents()).join(' '))
-    .not.toBe(initial.join(' '));
-  await expect(page.locator('details').first()).not.toHaveAttribute('open', '');
-  await page.getByRole('button', { name: 'Далее', exact: true }).click();
-  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
-  await expect.poll(async () => (await summaries.allTextContents()).join(' ')).not.toMatch(/20/);
+    .poll(async () => {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      return ready.locator('summary').textContent();
+    })
+    .toContain('85');
 });
 
-test('a failed project page transition keeps its rows and page number coherent until retry', async ({
+test('a failed project continuation retries the same cursor and preserves earlier projects', async ({
   page,
 }) => {
   let failed = true;
+  const reads: Array<string | null> = [];
   await page.route('**/api/events', (route) =>
     route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': heartbeat\n\n' }),
   );
   await page.route('**/api/graphql', async (route) => {
     const { variables } = route.request().postDataJSON();
-    if (variables.offset === 20 && failed) {
+    reads.push(variables.after);
+    if (variables.after && failed) {
       await route.fulfill({ status: 503, json: { error: 'unavailable' } });
       return;
     }
-    const projects = Array.from({ length: variables.offset === 20 ? 1 : 20 }, (_, i) => ({
-      ...project,
-      id: `p${variables.offset + i}`,
-      name: `Проект ${variables.offset + i}`,
+    const start = variables.after ? 40 : 0;
+    const edges = Array.from({ length: start === 40 ? 1 : 40 }, (_, i) => ({
+      node: { ...project, id: `p${start + i}`, name: `Проект ${start + i}` },
+      cursor: `cursor-${start + i + 1}`,
     }));
-    await route.fulfill({ json: { data: { projects } } });
+    await route.fulfill({
+      json: {
+        data: {
+          projectsConnection: {
+            edges,
+            totalCount: 41,
+            pageInfo: { endCursor: edges.at(-1)?.cursor, hasNextPage: !start },
+          },
+        },
+      },
+    });
   });
-  await page.goto('/?listMode=pages&page=1');
-  await expect(page.getByRole('link', { name: 'Проект 0', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Далее', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Повторить', exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Проект 0', exact: true })).toBeVisible();
-  await expect(page.getByText('Страница 1', { exact: true })).toBeVisible();
+  await page.goto('/?listMode=pages&page=3');
+  const first = page.getByRole('link', { name: 'Проект 0', exact: true });
+  await expect(first).toBeVisible();
+  const more = page.getByRole('button', { name: 'Загрузить ещё', exact: true });
+  await more.focus();
+  await page.keyboard.press('Enter');
+  const retry = page.getByRole('button', { name: 'Повторить', exact: true });
+  await expect(retry).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(first).toBeVisible();
   failed = false;
-  await page.getByRole('button', { name: 'Повторить', exact: true }).click();
-  await expect(page.getByRole('link', { name: 'Проект 20', exact: true })).toBeVisible();
-  await expect(page.getByText('Страница 2', { exact: true })).toBeVisible();
+  await retry.click();
+  await expect(more).toHaveCount(0);
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect(page.getByRole('link', { name: 'Проект 40', exact: true })).toBeVisible();
+  expect(reads).toEqual([null, 'cursor-40', 'cursor-40']);
 });
 
 test('a late create response does not redirect after the user has left the form', async ({
@@ -954,7 +1177,7 @@ for (const { width, zoom } of layoutCases) {
       running: 1,
       failed: 1,
     });
-    await page.goto('/?listMode=pages');
+    await page.goto('/');
     await expect(page.getByRole('article')).toHaveCount(1);
     await expectLayout(page);
     await page.getByRole('article').getByRole('link').click();
@@ -965,20 +1188,34 @@ for (const { width, zoom } of layoutCases) {
     await expect(description).toHaveText(longText);
     expect(await description.evaluate((el) => getComputedStyle(el).whiteSpace)).toMatch(/pre/);
     for (const locale of ['ru', 'en']) {
+      await openProjectMenu(page);
       await page.locator('.language select').selectOption(locale);
       for (const path of ['requirements', 'indexing', 'search', 'analysis']) {
-        await page.goto(`/projects/demo/${path}?listMode=pages`);
-        await expect(page.locator('.project-nav a[aria-current="page"]')).toBeVisible();
+        await page.goto(`/projects/demo/${path}`);
+        const toggle = page.locator('button[aria-controls="project-sidebar"]');
+        const collapsed = (await toggle.getAttribute('aria-expanded')) === 'false';
+        if (collapsed) await toggle.click();
+        await expect(
+          page
+            .getByRole('navigation', {
+              name: locale === 'ru' ? 'Разделы проекта' : 'Project sections',
+            })
+            .locator('a[aria-current="page"]'),
+        ).toBeVisible();
+        if (collapsed) await toggle.click();
         await expect(page.locator('main h2').first()).toBeVisible();
         if (path === 'requirements') {
           const card = page.locator('#requirement-r0');
-          const original = card.locator('details').last().locator('summary');
-          await original.focus();
+          const original = card.locator('details').filter({
+            has: page.getByText(
+              locale === 'ru' ? 'Полный исходный текст требования' : 'Full original requirement',
+              { exact: true },
+            ),
+          });
+          await original.locator('summary').focus();
           await page.keyboard.press('Enter');
-          await expect(card.locator('details').last()).toHaveAttribute('open', '');
-          await expect(card.locator('details').last().locator('p')).toHaveText(
-            `Требование 0${longText}`,
-          );
+          await expect(original).toHaveAttribute('open', '');
+          await expect(original.locator('p')).toHaveText(`Требование 0${longText}`);
           const edit = card.getByRole('button', {
             name: locale === 'ru' ? 'Изменить' : 'Edit',
             exact: true,
@@ -1021,7 +1258,7 @@ for (const route of ['requirements', 'analysis']) {
       }
     });
     await fixture(page, 3);
-    await page.goto(`/projects/demo/${route}?listMode=pages`);
+    await page.goto(`/projects/demo/${route}`);
     const section = page.locator('main section[aria-labelledby]').last();
     const button = section.locator('button:enabled').first();
     await expect(button).toBeVisible();
@@ -1037,3 +1274,46 @@ for (const route of ['requirements', 'analysis']) {
     expect(renderingErrors).toEqual([]);
   });
 }
+
+test('page contents and nested disclosures look interactive and toggle from the keyboard', async ({
+  page,
+}, testInfo) => {
+  const theme = testInfo.project.name === 'narrow' ? 'light' : 'dark';
+  await page.addInitScript((value) => localStorage.setItem('project-creator-theme', value), theme);
+  await fixture(page, 1);
+  await page.goto('/projects/demo/requirements');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+  const contents = page.getByRole('navigation', { name: 'На этой странице' }).locator('details');
+  const source = page
+    .locator('#requirement-r0 details')
+    .filter({
+      has: page.locator('summary', { hasText: 'Полный исходный текст требования' }),
+    })
+    .first();
+  const group = page.getByRole('group', { name: 'Список требований', exact: true });
+  for (const panel of [contents, source, group]) {
+    await expect(panel).toHaveCSS('border-top-style', 'solid');
+    await expect(panel).toHaveCSS('border-top-width', '1px');
+    await expect(panel).not.toHaveCSS('padding-inline-start', '0px');
+    const summary = panel.locator(':scope > summary');
+    await expect(summary).toHaveCSS('display', 'list-item');
+    await expect(summary).toHaveCSS('cursor', 'pointer');
+  }
+  const summary = source.locator(':scope > summary');
+  await summary.focus();
+  await page.keyboard.press('Enter');
+  await expect(source).toHaveAttribute('open', '');
+  await expect(summary).toHaveCSS('outline-style', 'solid');
+  await page.keyboard.press('Space');
+  await expect(source).not.toHaveAttribute('open', '');
+});
+
+test('page contents link to requirement entry and the list', async ({ page }) => {
+  await fixture(page, 3);
+  await page.goto('/projects/demo/requirements');
+  const contents = page.getByRole('navigation', { name: 'На этой странице' });
+  await expect(contents).toBeVisible();
+  await contents.getByRole('link', { name: 'Список требований' }).click();
+  await expect(page).toHaveURL(/#requirements-list$/);
+  await expect(page.locator('#requirements-list')).toBeInViewport();
+});

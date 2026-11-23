@@ -13,6 +13,7 @@ export default function RequirementsPage() {
           <summary>{t(locale, 'ui.onThisPage')}</summary>
           <a href="#requirement-entry">{t(locale, 'requirements.add')}</a>
           <a href="#requirements-list">{t(locale, 'ui.requirementsGroup')}</a>
+          <a href="#requirements-archive">{t(locale, 'requirements.archiveTitle')}</a>
         </details>
       </nav>
       <Suspense>

@@ -148,7 +148,7 @@ func (s *Service) Status(ctx context.Context, workspace, project string, limit, 
 	} else if configured && active != profile {
 		profile = ""
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT r.id,r.version,coalesce(i.status,'pending'),coalesce(i.error_code,'') FROM requirements r LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.version=r.version AND i.profile=$3 WHERE r.workspace=$1 AND r.project_id=$2 ORDER BY r.created_at,r.id LIMIT $4 OFFSET $5`, workspace, project, profile, limit, offset)
+	rows, err := s.db.QueryContext(ctx, `SELECT r.id,r.version,coalesce(i.status,'pending'),coalesce(i.error_code,'') FROM active_requirements r LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.version=r.version AND i.profile=$3 WHERE r.workspace=$1 AND r.project_id=$2 ORDER BY r.created_at,r.id LIMIT $4 OFFSET $5`, workspace, project, profile, limit, offset)
 	if err != nil {
 		return nil, errStorage
 	}
@@ -196,7 +196,7 @@ func (s *Service) StatusByIDs(ctx context.Context, workspace, project string, re
 	} else if configured && active != profile {
 		profile = ""
 	}
-	query := `SELECT r.id,r.version,coalesce(i.status,'pending'),coalesce(i.error_code,'') FROM requirements r LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.version=r.version AND i.profile=$3 WHERE r.workspace=$1 AND r.project_id=$2 AND r.id IN (`
+	query := `SELECT r.id,r.version,coalesce(i.status,'pending'),coalesce(i.error_code,'') FROM active_requirements r LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.version=r.version AND i.profile=$3 WHERE r.workspace=$1 AND r.project_id=$2 AND r.id IN (`
 	args := []any{workspace, project, profile}
 	for i, id := range ids {
 		if i > 0 {
@@ -242,7 +242,7 @@ func (s *Service) Index(ctx context.Context, workspace, project, requirement str
 	}
 	var active bool
 	err := s.db.QueryRowContext(ctx, `SELECT r.version,coalesce(i.status,'pending'),coalesce(i.error_code,''),coalesce(i.lease_until>clock_timestamp(),false)
- FROM requirements r LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.version=r.version AND i.profile=$4
+ FROM active_requirements r LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id AND i.version=r.version AND i.profile=$4
  WHERE r.workspace=$1 AND r.project_id=$2 AND r.id=$3`, workspace, project, requirement, state.Profile).Scan(&state.Version, &state.Status, &state.ErrorCode, &active)
 	if err == sql.ErrNoRows {
 		return state, ErrNotFound
@@ -290,7 +290,7 @@ func (s *Service) indexLocked(ctx context.Context, workspace, project, requireme
 		return state, ErrInactiveProfile
 	}
 	var source string
-	if err = tx.QueryRowContext(ctx, `SELECT text,version FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 FOR UPDATE`, workspace, project, requirement).Scan(&source, &state.Version); err == sql.ErrNoRows {
+	if err = tx.QueryRowContext(ctx, `SELECT text,version FROM active_requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 FOR UPDATE`, workspace, project, requirement).Scan(&source, &state.Version); err == sql.ErrNoRows {
 		return state, ErrNotFound
 	} else if err != nil {
 		return state, errStorage
@@ -423,7 +423,7 @@ func (s *Service) finishWithRetry(ctx context.Context, workspace, project string
 	}
 	configured := err == nil
 	var current int
-	if err = tx.QueryRowContext(ctx, `SELECT version FROM requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 FOR UPDATE`, workspace, project, state.RequirementID).Scan(&current); err == sql.ErrNoRows {
+	if err = tx.QueryRowContext(ctx, `SELECT version FROM active_requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 FOR UPDATE`, workspace, project, state.RequirementID).Scan(&current); err == sql.ErrNoRows {
 		return state, ErrNotFound
 	} else if err != nil {
 		return state, errStorage
@@ -500,7 +500,7 @@ func (s *Service) Search(ctx context.Context, workspace, project, text string, l
 	if err != nil {
 		return nil, errors.New("invalid search embedding")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT c.requirement_id,c.project_id,c.text,r.text,c.version,c.start_offset,c.end_offset,1-(c.embedding OPERATOR(public.<=>) $4::public.vector) AS score FROM requirement_chunks c JOIN requirements r ON r.workspace=c.workspace AND r.project_id=c.project_id AND r.id=c.requirement_id AND r.version=c.version JOIN requirement_index i ON i.workspace=c.workspace AND i.project_id=c.project_id AND i.requirement_id=c.requirement_id AND i.profile=c.profile AND i.version=c.version AND i.status='ready' WHERE c.workspace=$1 AND c.project_id=$2 AND c.profile=$3 ORDER BY c.embedding OPERATOR(public.<=>) $4::public.vector,c.requirement_id,c.ordinal LIMIT $5`, workspace, project, profile, vector, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT c.requirement_id,c.project_id,c.text,r.text,c.version,c.start_offset,c.end_offset,1-(c.embedding OPERATOR(public.<=>) $4::public.vector) AS score FROM requirement_chunks c JOIN active_requirements r ON r.workspace=c.workspace AND r.project_id=c.project_id AND r.id=c.requirement_id AND r.version=c.version JOIN requirement_index i ON i.workspace=c.workspace AND i.project_id=c.project_id AND i.requirement_id=c.requirement_id AND i.profile=c.profile AND i.version=c.version AND i.status='ready' WHERE c.workspace=$1 AND c.project_id=$2 AND c.profile=$3 ORDER BY c.embedding OPERATOR(public.<=>) $4::public.vector,c.requirement_id,c.ordinal LIMIT $5`, workspace, project, profile, vector, limit)
 	if err != nil {
 		return nil, errStorage
 	}

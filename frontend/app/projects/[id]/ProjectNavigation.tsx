@@ -6,6 +6,7 @@ import { type Locale, t } from '../../../lib/i18n';
 import { DesignIcon } from '../../components/DesignIcon';
 import { InterfacePreferences } from '../../components/LocaleProvider';
 import styles from './ProjectShell.module.css';
+import { ProjectSwitcher } from './ProjectSwitcher';
 
 export const sections = [
   'overview',
@@ -120,7 +121,15 @@ export function ProjectNavigation({
             <Image src="/favicon-48x48.png" alt="" width={36} height={36} unoptimized />
             <strong>{t(locale, 'app.brand')}</strong>
           </div>
-          <p className={styles.projectName}>{name}</p>
+          {expanded && (
+            <ProjectSwitcher
+              key={pathname}
+              name={name}
+              base={base}
+              sectionPath={pathname.slice(base.length)}
+              locale={locale}
+            />
+          )}
           <nav className={styles.navigation} aria-label={t(locale, 'ui.sections')}>
             <ul>
               {sections.map((section) => {

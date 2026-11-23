@@ -141,6 +141,7 @@
   "analysis.newRun": "Start a new analysis",
   "analysis.refresh": "Refresh status",
   "ui.project": "Project",
+  "ui.switchProject": "Switch project",
   "ui.sections": "Project sections",
   "app.brand": "Project Creator",
   "nav.glossaryShort": "Glossary",

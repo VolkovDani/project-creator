@@ -1,10 +1,9 @@
 'use client';
 import Link from 'next/link';
 import { useCallback } from 'react';
-import { query } from '../lib/client';
-import { ProjectConnectionDocument, type ProjectConnectionQuery } from '../lib/generated';
+import type { ProjectConnectionQuery } from '../lib/generated';
 import { t } from '../lib/i18n';
-import { useInfinite } from '../lib/useInfinite';
+import { useProjects } from '../lib/useProjects';
 import { DesignIcon } from './components/DesignIcon';
 import { LoadMore } from './components/ListControls';
 import { InterfacePreferences, useLocale } from './components/LocaleProvider';
@@ -48,12 +47,7 @@ function ProjectCard({
 }
 function ProjectList() {
   const { locale } = useLocale();
-  const load = useCallback(
-    async (after: string | null) =>
-      (await query(ProjectConnectionDocument, { first: 40, after })).projectsConnection,
-    [],
-  );
-  const list = useInfinite({ identity: 'projects', tags: ['projects'], load });
+  const list = useProjects();
   const more = useCallback(() => {
     if (!list.loading && !list.error && list.hasNextPage) void list.loadMore().catch(() => {});
   }, [list.loading, list.error, list.hasNextPage, list.loadMore]);

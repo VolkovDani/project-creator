@@ -54,6 +54,17 @@ main p,
 .user-content {
   max-inline-size: var(--reading-width);
 }
+.revision-removed {
+  background-color: var(--danger-tint);
+  color: var(--danger);
+  text-decoration: line-through;
+}
+.revision-added {
+  background-color: color-mix(in srgb, var(--success) 14%, var(--surface));
+  color: var(--success);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
 a {
   color: var(--action);
   text-decoration-line: underline;

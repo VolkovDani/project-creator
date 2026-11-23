@@ -259,7 +259,7 @@ test('revision history pages by version and distinguishes creation from legacy e
       return {
         version,
         text: `Текст ${version}`,
-        previousText: version === 1 ? null : `Текст ${version - 1}`,
+        previousText: version <= 2 ? null : `Текст ${version - 1}`,
         changeReason: version <= 2 ? null : `Причина ${version}`,
         author: version === 13 ? 'Автор' : null,
         createdAt: version === 2 ? 'Legacy timestamp' : '2026-11-20T14:23:01Z',
@@ -282,6 +282,10 @@ test('revision history pages by version and distinguishes creation from legacy e
   await expect(entries.first()).toContainText('Версия 12 → 13');
   await expect(entries.first()).toContainText('Текст 12');
   await expect(entries.first()).toContainText('Текст 13');
+  await expect(entries.first().locator('del')).toHaveText('12');
+  await expect(entries.first().locator('ins')).toHaveText('13');
+  await expect(entries.first().locator('del')).toHaveCSS('text-decoration-line', 'line-through');
+  await expect(entries.first().locator('ins')).toHaveCSS('text-decoration-line', 'underline');
   await expect(entries.first()).toContainText('Причина 13');
   await expect(entries.first()).toContainText('Автор');
   await expect(entries.first().locator('time')).toHaveAttribute('datetime', '2026-11-20T14:23:01Z');
@@ -291,6 +295,9 @@ test('revision history pages by version and distinguishes creation from legacy e
   await expect(entries).toHaveCount(13);
   await expect(entries.nth(11)).toContainText('Причина изменения не указана');
   await expect(entries.nth(11)).toContainText('Legacy timestamp');
+  await expect(entries.nth(11)).toContainText('Предыдущий текст недоступен');
+  await expect(entries.nth(11).locator('ins, del')).toHaveCount(0);
+  await expect(entries.last().locator('ins, del')).toHaveCount(0);
   await expect(entries.last()).toContainText('Исходная версия');
   await expect(entries.last()).not.toContainText('Причина изменения');
   expect(cursors).toEqual([null, 4]);

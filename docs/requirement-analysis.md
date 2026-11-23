@@ -6,7 +6,7 @@
 
 Choose **Edit** on a requirement card, update the source text and enter the **Reason for change**. The reason belongs to the saved text version. Creating a requirement and confirming its classification do not require a reason. If someone saves another edit first, the dialog keeps your draft and reason so you can decide whether to apply them to the latest version.
 
-Open **Requirement text history** on the card to read the revisions, newest first. Each edit shows the previous and new wording, the submitted reason and the time of the change. The local workspace token identifies a workspace only, so edits made with it have no recorded individual author. For requirements that predate revision history, the first available entry contains the text and version that existed at upgrade. Earlier wording and reasons cannot be reconstructed from that entry.
+Open **Requirement text history** on the card to read the revisions, newest first. Each edit shows the previous and new wording, the submitted reason and the time of the change. When both versions are available, removed words are crossed out in the previous text and added words are underlined in the new text. For extensive rewrites, the changed passage can be highlighted as a single block. The local workspace token identifies a workspace only, so edits made with it have no recorded individual author. For requirements that predate revision history, the first available entry contains the text and version that existed at upgrade. Earlier wording and reasons cannot be reconstructed from that entry.
 
 ## Local embeddings and requirement search
 

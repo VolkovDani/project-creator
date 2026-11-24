@@ -1,0 +1,25 @@
+.metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+}
+
+.metadata > div {
+  min-inline-size: 0;
+}
+
+.metadata dt {
+  color: var(--text-muted);
+}
+
+.metadata dd {
+  margin-inline-start: 0;
+}
+
+.sources {
+  padding-inline-start: var(--space-5);
+}
+
+.sources li + li {
+  margin-block-start: var(--space-2);
+}

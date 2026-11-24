@@ -52,11 +52,13 @@ export function ProjectNavigation({
   const indexing = pathname === `${base}/indexing`;
   const history = pathname === `${base}/technical/analysis-history`;
   const technical = pathname === `${base}/technical`;
+  const externalProposals = pathname === `${base}/analysis/external-proposals`;
 
   useEffect(() => {
     if (!mobile || !expanded) return;
     const first =
       sidebar.current?.querySelector<HTMLAnchorElement>('[aria-current="page"]') ??
+      sidebar.current?.querySelector<HTMLAnchorElement>('[aria-current="location"]') ??
       sidebar.current?.querySelector<HTMLAnchorElement>('nav a');
     first?.focus();
     const dismiss = (event: KeyboardEvent) => {
@@ -139,7 +141,13 @@ export function ProjectNavigation({
                   <li key={section}>
                     <Link
                       href={href}
-                      aria-current={pathname === href ? 'page' : undefined}
+                      aria-current={
+                        pathname === href
+                          ? 'page'
+                          : section === 'analysis' && externalProposals
+                            ? 'location'
+                            : undefined
+                      }
                       onNavigate={closeMobileMenu}
                     >
                       <DesignIcon name={section} />

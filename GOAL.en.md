@@ -78,18 +78,16 @@ first version.
 - Answers show sources and limitations. When data is insufficient, the system says so instead of presenting a guess as fact.
 - Probabilistic estimates of timelines and risks are a separate capability that requires data and forecast quality checks. An LLM’s self-assessment is not a calibrated probability of correctness. Until data is available, use explainable estimates, ranges, and explicit assumptions.
 
-### Proposal: external AI assistant through MCP
+### External AI assistant through MCP
 
-An optional MCP adapter to existing business logic is under consideration: an
-assistant reads authorized requirements and sources with their versions,
-performs its own analysis, and saves a proposal with provenance, evidence, and
-limitations. Proposals do not automatically change approved requirements;
-stale sources remain visible. Access is checked before context is passed and
-before a write, and cloud processing requires explicit consent. Local model
-failure does not enable cloud use automatically. This proposal is not implemented
-and does not choose an SDK or transport; open questions are tracked in
-[Issue #146](https://github.com/VolkovDani/project-creator/issues/146). See the
-[MCP proposal](docs/mcp-integration.md) for details.
+In the local MVP, an MCP client can connect to one project. It reads active
+requirements and their versions, performs its own analysis, and saves a draft
+with citations, provenance and limitations. Users edit approved requirements
+separately. Stale and unavailable sources remain visible. Reads and writes
+check access, and connecting a cloud client requires explicit consent.
+Other source types and remote server deployment remain outside the current
+integration.
+[Issue #146](https://github.com/VolkovDani/project-creator/issues/146) · [Connection and limitations](docs/mcp-integration.md)
 
 ## Proposed First Product Version (Long-Term Direction)
 

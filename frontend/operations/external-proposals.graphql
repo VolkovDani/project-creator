@@ -1,0 +1,23 @@
+query ExternalProposals($projectId: ID!, $after: String) {
+  externalProposals(projectId: $projectId, after: $after) {
+    items {
+      id
+      analysis
+      limitations
+      client
+      model
+      sharing
+      status
+      createdAt
+      sources {
+        requirementId
+        version
+        status
+      }
+    }
+    pageInfo {
+      endCursor
+      hasNextPage
+    }
+  }
+}

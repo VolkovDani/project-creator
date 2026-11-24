@@ -46,6 +46,7 @@ Start it again with `./project-creator up`.
 - [Installation and troubleshooting](docs/setup-cli.en.md) · [Install with an AI assistant](docs/ai-installation.md)
 - [Manual Docker Compose setup, updates, and backups](docs/compose.md)
 - [Requirement search, indexing, and analysis](docs/requirement-analysis.md)
+- [External assistant through MCP](docs/mcp-integration.md)
 - [Development, tests, and CI](docs/development.md) · [Architecture (Russian)](ARCHITECTURE.md)
 - [Features and limitations in v0.1.0](docs/release-notes-v0.1.0.md) · [Project goals](GOAL.en.md)
 

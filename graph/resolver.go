@@ -11,6 +11,7 @@ import (
 	"github.com/VolkovDani/project-creator/internal/explanation"
 	"github.com/VolkovDani/project-creator/internal/glossary"
 	"github.com/VolkovDani/project-creator/internal/project"
+	"github.com/VolkovDani/project-creator/internal/proposal"
 	"github.com/VolkovDani/project-creator/internal/rag"
 	"github.com/VolkovDani/project-creator/internal/summary"
 	graphql "github.com/graph-gophers/graphql-go"
@@ -38,6 +39,7 @@ func WithWorkspace(ctx context.Context, workspace string) context.Context {
 func workspace(ctx context.Context) string { v, _ := ctx.Value(workspaceKey{}).(string); return v }
 
 type Resolver struct {
+	Proposals       *proposal.Service
 	Explanations    *explanation.Service
 	Classifications *classification.Service
 	Definitions     glossary.DefinitionGenerator

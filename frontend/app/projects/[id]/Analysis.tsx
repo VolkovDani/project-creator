@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type AnalysisGroup,
@@ -806,7 +807,16 @@ export default function Analysis({
   return (
     <section className="ui-panel" aria-labelledby={heading}>
       <h2 id={heading}>{t(locale, historyView ? 'analysis.history' : 'analysis.title')}</h2>
-      {!historyView && <p>{t(locale, 'analysis.help')}</p>}
+      {!historyView && (
+        <>
+          <p>{t(locale, 'analysis.help')}</p>
+          <p>
+            <Link href={`/projects/${encodeURIComponent(projectId)}/analysis/external-proposals`}>
+              {t(locale, 'externalProposals.title')}
+            </Link>
+          </p>
+        </>
+      )}
       {(!historyView || run) && <p>{t(locale, 'analysis.disclaimer')}</p>}
       {!historyView && (
         <>

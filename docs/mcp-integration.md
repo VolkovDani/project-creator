@@ -1,52 +1,122 @@
-# MCP integration proposal
+# Connect an assistant through MCP
 
 [Русская версия](mcp-integration.ru.md)
 
-This document records a **proposal**, not implemented behavior or an approved
-commitment. The existing application remains the source of truth for projects,
-requirements, source documents, and their versions. An external assistant could
-connect through the Model Context Protocol (MCP) as an optional adapter to the
-existing business logic. Tracking: [Issue #146](https://github.com/VolkovDani/project-creator/issues/146).
+An MCP client can read active requirements from one Project Creator project,
+analyze them with its selected model, and save a proposal for human review.
+Open **Analysis → External proposals** to see the analysis, limitations, and
+source versions. Apply any resulting edits yourself through **Requirements**.
+[Issue #146](https://github.com/VolkovDani/project-creator/issues/146)
 
-## Proposed scope
+## Connect a client
 
-An MCP adapter would call application domain services rather than access storage
-directly, duplicate business rules, or create a second domain model. Some
-capabilities in this proposal, especially saving provenance-rich assistant
-proposals, do not exist today and would need a separately designed domain
-service and application API. The first useful direction is deliberately narrow:
+Use an updated [local installation](ai-installation.md) with the backend and
+web interface running. Open the project in your browser and copy the ID from
+`/projects/<id>`. Use one client configuration entry per project you want to share.
 
-- Read requirements and source material only within the caller's authorized
-  project/client scope.
-- Return source identifiers, versions, and freshness information with the
-  context, so the external assistant can analyze it itself.
-- Save an assistant's **proposal** with its cited source versions, origin,
-  limitations, and status. Saving a proposal does not make it a confirmed fact.
-- Make changes to source requirements or their approval status unavailable
-  through this proposed integration. A person continues to review and apply
-  changes through the application.
-- Keep changed or deleted sources visible as stale or unavailable in the saved
-  proposal; do not silently present an old analysis as current.
+Choose `--sharing=local` for a client configured to use only a local model.
+Use `--sharing=cloud` only if you agree to send that project's contents to the
+client's external provider. Each mode grants the selected client access to the
+active requirements and saved proposals in that project. The setting records
+your choice. Check the client's provider, data retention and fallback settings
+before connecting. Project Creator makes no inference calls through this adapter.
 
-Authorization must be checked before retrieving or passing any context to an
-assistant, and checked again before writing a proposal. The adapter must not
-allow cross-client access. Sending context to a cloud model requires explicit
-configuration and user consent. A local model failure must not trigger an
-automatic cloud fallback.
+These examples use Docker Compose. Use the same project directory, Compose
+project name and file overrides as your running installation. Supply any
+required global Compose options before `exec`. The subprocess inherits the
+backend's workspace token inside the container.
 
-## Not decided
+### Local model with OpenCode
 
-The MCP SDK, transport (for example, stdio or HTTP), authentication mechanism,
-hosting arrangement, permission mapping, and exact read/write tool surface are
-open decisions. They require a separate implementation issue and design review.
-This proposal does not select an SDK, add a dependency, promise a release date,
-or authorize implementation. See [Issue #146](https://github.com/VolkovDani/project-creator/issues/146)
-for discussion.
+On OpenCode 1.19.6, add this entry to the CLI's `opencode.json`. Set up a
+local provider such as Ollama in OpenCode and select its model.
 
-## Current AI setup
+```json
+{
+  "mcp": {
+    "project_creator": {
+      "type": "local",
+      "command": ["docker", "compose", "--project-directory", "/absolute/path/to/project-creator",
+        "exec", "-T", "backend", "/app/server", "mcp", "--project=PROJECT_ID", "--sharing=local"],
+      "enabled": true
+    }
+  }
+}
+```
 
-The repository already provides a local-model setup flow through the
-`project-creator` CLI. Follow the [AI installation guide](ai-installation.md) for
-hardware discovery, setup, verification, diagnostics, and data-preservation
-guidance. The current CLI manages the application's local runtime; it does not
-implement MCP.
+Run `opencode mcp list` to check the connection. Use the server's tools
+with the selected local model.
+[OpenCode 1.19.6](https://github.com/anomalyco/opencode/releases/tag/v1.19.6) · [Configure Ollama](https://opencode.ai/docs/providers/#ollama)
+
+### Codex CLI with a ChatGPT plan
+
+Use a ChatGPT account with Codex CLI access. Add the server to Codex's
+`config.toml` and restart the CLI.
+
+```toml
+[mcp_servers.project_creator]
+command = "docker"
+args = [
+  "compose", "--project-directory", "/absolute/path/to/project-creator",
+  "exec", "-T", "backend", "/app/server", "mcp",
+  "--project=PROJECT_ID", "--sharing=cloud"
+]
+```
+
+To test, ask the client to list requirements in a project containing sample
+data. After reviewing the result, ask it to save a proposal citing the IDs and
+versions it read. Check the proposal in Project Creator.
+[Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) · [Codex plan access](https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan)
+
+### Backend running on the host
+
+When the backend runs directly on the host, replace `docker compose … exec -T
+backend /app/server` with the absolute path to a binary built from `./cmd/server`.
+Pass the same workspace token in the subprocess's private
+`PROJECT_CREATOR_TOKEN` environment and use the backend port from
+`PROJECT_CREATOR_ADDR` if it differs from 8080. Keep the token out of CLI
+arguments, shared configurations, and logs.
+
+## Tools and review
+
+- `list_requirements` returns active requirement IDs, current versions and
+  text. Use the returned end cursor to continue a page.
+- `save_external_proposal` stores analysis, limitations, client and model
+  provenance, sharing mode, and between 1 and 20 distinct requirement versions.
+  The model identifier is supplied by the client. Client identity is
+  self-reported through MCP. If a cited requirement changes or becomes
+  unavailable before saving, refresh it and analyze the current text again.
+  Retry the same submission with the same request ID and content after a
+  connection failure.
+- `list_external_proposals` returns saved drafts and source freshness, with
+  cursor pagination. A source is **current** while its active version matches,
+  **changed** when a newer active version exists, and **unavailable** after
+  archiving or deletion. The cited ID and version remain visible.
+
+The proposal starts in **Pending review**. Verify the reasoning and source
+versions before making an edit. The adapter exposes current requirement text
+and proposals. The current scope excludes historical text retrieval, other
+source types, requirement mutations, and remote MCP hosting.
+
+## Design and verification
+
+Local stdio uses the official Go SDK and works without a public endpoint or
+separate backend service. The subprocess calls fixed GraphQL operations on
+IPv4 loopback with the existing workspace token. Its launch arguments bind it
+to one project. The backend checks each read and write against that workspace
+and project. Only the machine owner should configure the subprocess or grant
+Docker access.
+
+PostgreSQL stores proposals separately from requirements. It verifies cited
+active versions in the save transaction, commits the invalidation with the
+draft, and scopes request IDs to the project so retries keep one result.
+The review page recalculates freshness using current sources. A draft can
+contain quotes from its sources and stays available if a source is removed.
+
+Deterministic integration tests cover the MCP tools, GraphQL, PostgreSQL and
+browser review. A disposable Compose stack also exercised all three tools
+through `docker compose exec -T`. Codex CLI 0.172.0 and OpenCode 1.19.6 each discovered and called
+all three tools over stdio using the Project Creator binary and synthetic
+GraphQL data. Codex used direct tool calls. OpenCode used a loopback model
+stub. The runs left actual subscription inference and Ollama model behavior
+unverified.

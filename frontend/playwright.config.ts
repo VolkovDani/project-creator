@@ -5,7 +5,7 @@ if (!process.env.E2E_DATABASE_URL)
 const token = 'local-test-token-0123456789-0123456789';
 export default defineConfig({
   testDir: './e2e',
-  testIgnore: 'ux.spec.ts',
+  testIgnore: ['ux.spec.ts', 'external-proposals.spec.ts'],
   timeout: 30000,
   fullyParallel: false,
   workers: 1,

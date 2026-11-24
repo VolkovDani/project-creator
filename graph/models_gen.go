@@ -212,6 +212,49 @@ type ClassificationExplanationPayload struct {
 	Result      *ClassificationExplanationResult
 	FieldErrors []*FieldError
 }
+type ExternalProposalSource struct {
+	RequirementId graphql.ID
+	Version       int32
+	Status        string
+}
+type ExternalProposalSourceInput struct {
+	RequirementId graphql.ID
+	Version       int32
+}
+type ExternalProposal struct {
+	ID          graphql.ID
+	Analysis    string
+	Limitations string
+	Client      string
+	Model       string
+	Sharing     string
+	Status      string
+	CreatedAt   string
+	Sources     []*ExternalProposalSource
+}
+type SaveExternalProposalInput struct {
+	ProjectId   graphql.ID
+	RequestId   string
+	Analysis    string
+	Limitations string
+	Client      string
+	Model       string
+	Sharing     string
+	Sources     []ExternalProposalSourceInput
+}
+type ExternalProposalPayload struct {
+	Proposal    *ExternalProposal
+	FieldErrors []*FieldError
+}
+type ExternalProposalPage struct {
+	Items    []*ExternalProposal
+	PageInfo *PageInfo
+}
+type ExternalProposalsArgs struct {
+	ProjectId graphql.ID
+	First     *int32
+	After     *string
+}
 type ClassificationExplanationSuggestionRevisionArgs struct {
 	ProjectId     graphql.ID
 	RequirementId graphql.ID
@@ -378,6 +421,9 @@ type ProjectsArgs struct {
 type ProjectsConnectionArgs struct {
 	First *int32
 	After *string
+}
+type SaveExternalProposalArgs struct {
+	Input SaveExternalProposalInput
 }
 type ExplainRequirementClassificationArgs struct {
 	Input ExplainClassificationInput

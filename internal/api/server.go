@@ -12,6 +12,7 @@ import (
 	"github.com/VolkovDani/project-creator/internal/classification"
 	"github.com/VolkovDani/project-creator/internal/explanation"
 	"github.com/VolkovDani/project-creator/internal/glossary"
+	"github.com/VolkovDani/project-creator/internal/proposal"
 	"github.com/VolkovDani/project-creator/internal/rag"
 	"github.com/VolkovDani/project-creator/internal/storage"
 	"github.com/VolkovDani/project-creator/internal/summary"
@@ -112,7 +113,7 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 		explainer, _ = cfg.Generator.(explanation.Generator)
 	}
 	definitions, _ := cfg.Summarizer.(glossary.DefinitionGenerator)
-	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, Classifications: classifications, Explanations: explanation.New(db, explainer), RAG: retriever, Analysis: analyzer, Summaries: summaries, Definitions: definitions}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
+	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, Proposals: proposal.New(db), Classifications: classifications, Explanations: explanation.New(db, explainer), RAG: retriever, Analysis: analyzer, Summaries: summaries, Definitions: definitions}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
 	if err != nil {
 		analyzer.Close()
 		summaries.Close()

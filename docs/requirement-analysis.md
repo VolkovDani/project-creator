@@ -520,6 +520,8 @@ The output may use isolated ASCII technical names from the source, identifiers u
 
 After a language rejection the worker makes one fresh attempt using the original text and its confirmed glossary hints. When the request budget permits, the corrective JSON schema constrains the spelling to the configured alphabet, source symbols and recognized identifiers. The worker still validates the result before publication. New results record the validation and correction policy in their provenance. Existing ready previews keep their base model profile and generation history.
 
+For an OpenVINO NPU model managed by Models Configurator, the corrective language schema explicitly limits the JSON object to one field. The server requires that field to be `summary` and checks it before saving the preview.
+
 A failed preview shows the reason in the interface. `INVALID_FORMAT` identifies a malformed response, `INVALID_TEXT` an empty or unpublishable string, `INVALID_LANGUAGE` an alphabet mismatch, `MISSING_SOURCE_NUMBERS` an omitted numeric literal or numbered identifier, and `CORRECTION_TOO_LONG` a correction that exceeds the request budget. Historical `INVALID_OUTPUT` records remain retryable.
 
 If any summaries failed, the Requirements page shows **Retry all failed summaries** with a count for the whole project, including interrupted generations (`INTERRUPTED`). Click it to queue those summaries again for the current requirement versions and active profile. To retry just one summary, use the action on its requirement card.

@@ -36,6 +36,8 @@ For local inference, `setup` explicitly authorizes downloading local weights, co
 
 ## Remote generation and embeddings
 
+When both embeddings and generation use Models Configurator and the record classifier still uses the bundled Ollama service, keep the local device selected (for example `--device arc`). This keeps Ollama available for classification and connects the backend to the manager network for the other two roles.
+
 Use `--device remote` to run the application on a machine without Ollama, an NPU, or local model weights. Use Docker Compose 2.20.2 or later for the remote configuration, including NPU generation with remote embeddings. PostgreSQL runs in Compose. Configure the endpoints in the private repository-root `.env` before setup. On a fresh installation the CLI generates its own database password and application token.
 
 Set the URL and model ID for each role you want to use. Leave all variables for an unused role unset. Generation alone supports all-pairs comparisons and summaries. Embeddings alone support indexing and semantic search. Setup verifies only the selected roles using synthetic records.

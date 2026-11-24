@@ -112,12 +112,25 @@ func NewSummaryOpenAICompatible(baseURL, model, key, allowedLanguages string) (*
 		return nil, err
 	}
 	spec := compatibleProvenance(client, "openai-compatible-summary-v1")
-	schemaFor := func(pattern string) map[string]any { return compatibleSchema(summaryResponseSchema(pattern)) }
+	managedNPU := managedNPUModelID.MatchString(model)
+	schemaFor := func(pattern string) map[string]any {
+		schema := compatibleSchema(summaryResponseSchema(pattern))
+		if managedNPU && pattern != "" {
+			// OpenVINO can append an empty extra key with a patterned string,
+			// even when required and additionalProperties define a single key.
+			schema["minProperties"] = 1
+			schema["maxProperties"] = 1
+		}
+		return schema
+	}
 	summary, err := newChatSummary(allowedLanguages, spec, schemaFor, context.Context.Err, func(ctx context.Context, messages []map[string]string, schema map[string]any) (string, error) {
 		return compatibleChat(ctx, client, messages, "requirement_summary", schema)
 	})
 	if err != nil {
 		return nil, err
+	}
+	if managedNPU {
+		summary.outputValidation += "+managed-npu-language-repair-exactly-one-property"
 	}
 	return &SummaryOpenAICompatible{summary}, nil
 }

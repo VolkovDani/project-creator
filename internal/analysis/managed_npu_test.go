@@ -9,7 +9,80 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/VolkovDani/project-creator/internal/glossary"
 )
+
+func TestManagedNPUSummaryLanguageRepairKeepsOneProperty(t *testing.T) {
+	const preview = "Хранить отчёт в СЭД 42 дня."
+	for _, tc := range []struct {
+		name             string
+		ignoreFieldCount bool
+		wantErr          error
+	}{
+		{name: "bounded object"},
+		{name: "provider adds an empty key", ignoreFieldCount: true, wantErr: ErrSummaryFormat},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := summarySource(preview)
+			hints := []glossary.Hint{{Spelling: "СЭД", Definition: "Система электронного документооборота."}}
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req chatRequestFixture
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+					return
+				}
+				calls++
+				schema := req.Format.Schema.Schema
+				content := `{"summary":"Retain the report for 42 days."}`
+				if calls == 1 {
+					if schema["minProperties"] != nil || schema["maxProperties"] != nil {
+						t.Error("the initial schema must retain the existing generation profile")
+					}
+				} else {
+					var input struct {
+						Text     string
+						Glossary []glossary.Hint `json:"confirmedGlossary"`
+					}
+					if len(req.Messages) != 2 ||
+						json.Unmarshal([]byte(req.Messages[1]["content"]), &input) != nil ||
+						input.Text != src.Text || len(input.Glossary) != 1 || input.Glossary[0] != hints[0] {
+						t.Error("the repair must restart with the original text and glossary")
+					}
+					properties, _ := schema["properties"].(map[string]any)
+					summary, _ := properties["summary"].(map[string]any)
+					if summary["pattern"] == nil {
+						t.Error("missing corrective language constraint")
+					}
+					// The managed runtime may emit an empty extra key under the
+					// corrective pattern unless the object has an explicit limit.
+					content = `{"summary":"` + preview + `"}`
+					if schema["minProperties"] != float64(1) || schema["maxProperties"] != float64(1) || tc.ignoreFieldCount {
+						content = `{"summary":"` + preview + `","":""}`
+					}
+				}
+				fmt.Fprintf(w, `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":%q}}]}`, content)
+			}))
+			defer server.Close()
+			g, err := NewSummaryOpenAICompatible(server.URL, "openvino-npu.test."+strings.Repeat("a", 64), "", "ru")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(g.Provenance(), "maxProperties") ||
+				!strings.Contains(g.ResultProvenance(), "managed-npu-language-repair-exactly-one-property") {
+				t.Fatal("record the repair policy without changing the base generation profile")
+			}
+			want := preview
+			if tc.wantErr != nil {
+				want = ""
+			}
+			if got, err := g.SummarizeWithGlossary(context.Background(), src, hints); got != want || err != tc.wantErr || calls != 2 {
+				t.Fatalf("summary=%q calls=%d err=%v", got, calls, err)
+			}
+		})
+	}
+}
 
 func TestManagedNPUPairParity(t *testing.T) {
 	id := "openvino-npu.A.1_test-2." + strings.Repeat("a", 64)

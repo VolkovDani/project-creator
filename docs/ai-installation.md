@@ -10,8 +10,8 @@ instructions match the files on the user's machine. The repository supports
 native Linux x86_64 with Python 3 for the CLI and Docker Engine with Compose
 v2.20+. Windows, macOS, ARM, and Docker Desktop are outside the current CLI
 support matrix. NPU additionally requires Python 3.12 and uv 0.12.13 or later.
-This guide covers the existing CLI, not an MCP client or server; MCP remains a
-proposal (see [MCP integration](mcp-integration.md)).
+This guide covers the installation CLI. To connect an external analysis
+client after setup, see [Connect an assistant through MCP](mcp-integration.md).
 
 ## 1. Discover the machine and choose a profile
 
@@ -112,7 +112,7 @@ space first. Do not use destructive cleanup such as `docker compose down
 the data owner has approved the specific operation and a backup exists. System
 driver changes, privileged access, and reboots are separate operations.
 
-This documented setup uses local models. Any future cloud model integration
+This documented setup uses local models. Any cloud model integration
 must be configured explicitly and requires consent before project context is
 sent. Local inference failures must not silently cause cloud processing. Paid
 cloud services or subscriptions require separate user approval; this guide does

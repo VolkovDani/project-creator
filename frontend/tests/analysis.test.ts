@@ -164,7 +164,7 @@ test('only a current stopped run with failed pairs can resume failed work', () =
   );
 });
 
-test('analysis translations have matching keys and interpolation parameters', () => {
+test('analysis and proposal translations have matching keys and interpolation parameters', () => {
   const ru = JSON.parse(
     fs.readFileSync(new URL('../../contracts/i18n/ru.json', import.meta.url), 'utf8'),
   ) as Record<string, string>;
@@ -173,7 +173,12 @@ test('analysis translations have matching keys and interpolation parameters', ()
   ) as Record<string, string>;
   const keys = (dict: Record<string, string>) =>
     Object.keys(dict)
-      .filter((key) => key.startsWith('analysis.'))
+      .filter(
+        (key) =>
+          key.startsWith('analysis.') ||
+          key.startsWith('externalProposals.') ||
+          key.startsWith('validation.proposal'),
+      )
       .sort();
   assert.deepEqual(keys(ru), keys(en));
   for (const key of keys(ru)) {

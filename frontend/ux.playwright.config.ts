@@ -7,6 +7,7 @@ export default defineConfig({
     'ux.spec.ts',
     'analysis.spec.ts',
     'analysis-live.spec.ts',
+    'external-proposals.spec.ts',
     'classification.spec.ts',
     'rag.spec.ts',
     'summaries.spec.ts',
@@ -23,7 +24,11 @@ export default defineConfig({
   },
   projects: [
     { name: 'desktop', use: { viewport: { width: 1920, height: 1080 } } },
-    { name: 'narrow', testMatch: 'ux.spec.ts', use: { viewport: { width: 390, height: 844 } } },
+    {
+      name: 'narrow',
+      testMatch: ['ux.spec.ts', 'external-proposals.spec.ts'],
+      use: { viewport: { width: 390, height: 844 } },
+    },
   ],
   webServer: {
     command: 'bun run start -- -p 3101',

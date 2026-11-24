@@ -46,6 +46,7 @@ cd project-creator
 - [Установка и диагностика](docs/setup-cli.md) · [Установка с AI-ассистентом](docs/ai-installation.ru.md)
 - [Запуск вручную через Docker Compose, обновление и резервные копии](docs/compose.ru.md)
 - [Поиск, индексация и анализ требований](docs/requirement-analysis.ru.md)
+- [Внешний ассистент через MCP](docs/mcp-integration.ru.md)
 - [Разработка, тесты и CI](docs/development.ru.md) · [Архитектура](ARCHITECTURE.md)
 - [Возможности и ограничения v0.1.0](docs/release-notes-v0.1.0.ru.md) · [Цели проекта](GOAL.md)
 

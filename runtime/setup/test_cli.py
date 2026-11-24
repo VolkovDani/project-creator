@@ -639,6 +639,31 @@ class RemoteInstallTests(InstallerTestCase):
             self.assertEqual(self.app.config.values[key], value)
             self.assertEqual(self.runner.envs[-1][key], '')
 
+    def test_managed_roles_keep_the_bundled_record_classifier_on_its_device(self):
+        self.configure_remote('GENERATOR', 'EMBEDDING')
+        self.app.config.update_env({'PROJECT_CREATOR_GENERATOR_RUNTIME': 'openai-compatible',
+                                    'PROJECT_CREATOR_EMBEDDING_RUNTIME': 'openai-compatible',
+                                    'PROJECT_CREATOR_MODELS_NETWORK': 'models-configurator-clients'})
+        self.app.config.ensure('arc', switch=True)
+        for mode, url in [('systemone-review', ''), ('laya-review', 'http://ollama:11434')]:
+            with self.subTest(mode=mode):
+                self.app.config.update_env({'PROJECT_CREATOR_RECORD_CLASSIFIER': mode,
+                                            'PROJECT_CREATOR_RECORD_CLASSIFIER_URL': url})
+                self.app.config.validate_providers('arc')
+                self.app.compose('config')
+                self.assertIn(str(self.root/'compose.intel.yml'), self.runner.calls[-1])
+                self.assertIn(str(self.root/'compose.models-configurator.yml'), self.runner.calls[-1])
+                with self.assertRaisesRegex(cli.Failure, 'CONFIG_PROVIDER'):
+                    self.app.config.validate_providers('remote')
+                self.assertFalse(self.app.config.uses_ollama('none'))
+        for mode, url in [('', ''), ('systemone-review', 'http://127.0.0.1:11434')]:
+            with self.subTest(mode=mode, url=url):
+                self.app.config.update_env({'PROJECT_CREATOR_RECORD_CLASSIFIER': mode,
+                                            'PROJECT_CREATOR_RECORD_CLASSIFIER_URL': url})
+                self.app.config.validate_providers('remote')
+                with self.assertRaisesRegex(cli.Failure, 'CONFIG_PROVIDER'):
+                    self.app.config.validate_providers('arc')
+
     def test_npu_with_remote_embeddings_retains_ollama_if_local_summaries_use_it(self):
         self.app.config.ensure('npu', switch=True)
         self.configure_remote('EMBEDDING')

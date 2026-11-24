@@ -20,6 +20,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import gpu
@@ -264,6 +265,8 @@ class Config:
     def validate_providers(self, device):
         if device == 'none':
             return
+        if device == 'remote' and self.uses_bundled_classifier():
+            raise Failure('CONFIG_PROVIDER', 'Select a local device for the bundled Ollama record classifier.')
         if device == 'remote' and not any(self.runtime(role, device) for role in ('GENERATOR', 'EMBEDDING')):
             raise Failure('CONFIG_PROVIDER', 'Configure at least one API role in .env for remote mode.')
         for role in ('GENERATOR', 'EMBEDDING'):
@@ -286,7 +289,20 @@ class Config:
         if device not in ('remote', 'npu') and not self.uses_ollama(device):
             raise Failure('CONFIG_PROVIDER', 'Select --device remote when both providers are external.')
 
+    def uses_bundled_classifier(self):
+        if self.values.get('PROJECT_CREATOR_RECORD_CLASSIFIER') not in ('systemone-review', 'laya-review'):
+            return False
+        endpoint = self.values.get('PROJECT_CREATOR_RECORD_CLASSIFIER_URL') or 'http://ollama:11434'
+        try:
+            return urllib.parse.urlsplit(endpoint).hostname == 'ollama'
+        except ValueError:
+            raise Failure('CONFIG_PROVIDER', 'Invalid record classifier URL.') from None
+
     def uses_ollama(self, device):
+        if device == 'none':
+            return False
+        if self.uses_bundled_classifier():
+            return True
         generator = self.runtime('GENERATOR', device)
         if generator == 'ollama' or self.runtime('EMBEDDING', device) == 'ollama':
             return True

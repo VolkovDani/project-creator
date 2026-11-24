@@ -43,6 +43,7 @@ MESSAGES = {
         'doctor': 'Check prerequisites and an existing installation; no downloads or changes.',
         'device': 'Select none (fresh-install default), a generator device or remote API mode (NPU uses CPU embeddings by default; --ollama-device can select Arc).',
         'ollama_device': 'Ollama device for embeddings; use with --device npu.',
+        'models_configurator_dir': 'Manage the Models Configurator Compose stack in this local checkout.',
         'project': 'Keep the existing Compose project name; only sets the name on first setup.',
         'switch': 'Explicitly change execution device; keep existing data and pinned weights.',
         'locale': 'Diagnostic language.',
@@ -59,6 +60,7 @@ MESSAGES = {
         'npu': 'Pinned Python environments, source snapshot, INT4 export and manifest.',
         'runtime': 'Managed NPU runtime, socket and profile.',
         'start': 'Build/start containers without deleting volumes.',
+        'models_configurator': 'Start and verify the linked Models Configurator stack.',
         'verify': 'Check configured model roles using synthetic records.',
         'fixture': 'Synthetic diagnostic project retained: {id}',
         'download': 'Model download is explicit; interrupted files are reused on retry.',
@@ -81,6 +83,7 @@ MESSAGES = {
         'doctor': 'Проверить окружение и текущую установку без скачивания и изменений.',
         'device': 'Выберите none (новая установка), устройство генератора или режим удалённых API (для NPU embeddings по умолчанию работают на CPU; --ollama-device может выбрать Arc).',
         'ollama_device': 'Устройство Ollama для embeddings; используется вместе с --device npu.',
+        'models_configurator_dir': 'Управлять Compose-стеком Models Configurator в указанном локальном репозитории.',
         'project': 'Сохранить имя существующего Compose-проекта; задаётся только при первой установке.',
         'switch': 'Явно изменить устройство, сохранить данные и закреплённые веса.',
         'locale': 'Язык диагностики.',
@@ -97,6 +100,7 @@ MESSAGES = {
         'npu': 'Закреплённые Python-окружения, snapshot исходников, экспорт INT4 и манифест.',
         'runtime': 'Управляемый NPU runtime, сокет и профиль.',
         'start': 'Сборка/запуск контейнеров с сохранением томов.',
+        'models_configurator': 'Запуск и проверка подключённого стека Models Configurator.',
         'verify': 'Проверка настроенных ролей моделей на синтетических записях.',
         'fixture': 'Сохранён синтетический проект диагностики: {id}',
         'download': 'Скачивание явно запрошено; после прерывания готовые файлы используются повторно.',
@@ -136,6 +140,8 @@ ERROR_MESSAGES = {
     'MODEL_EXPORT': ('Экспорт NPU не завершён или существующие веса требуют проверки. Проверьте exporter Python 3.12, disk TMPDIR и инструкцию восстановления.', 'NPU export is incomplete or existing weights require inspection. Check the Python 3.12 exporter, disk TMPDIR and recovery guide.'),
     'MODEL_LICENSE': ('Лицензия модели не получена. Проверьте происхождение и лицензию весов перед повтором.', 'The model license was not returned. Check weight provenance and license before retrying.'),
     'MODEL_MANIFEST': ('Не удалось создать или проверить манифест/профиль. Проверьте завершённый экспорт и целостность файлов.', 'Could not create or verify the manifest/profile. Check the completed export and file integrity.'),
+    'MODELS_CONFIGURATOR': ('Проверьте путь к Models Configurator, приватную конфигурацию сборки, список моделей и логи Compose в его каталоге.', 'Check the Models Configurator checkout path, its private Compose settings, model inventory and Compose logs.'),
+    'MODELS_NETWORK': ('Запустите Models Configurator отдельно и задайте PROJECT_CREATOR_MODELS_NETWORK либо подключите локальный репозиторий через setup --models-configurator-dir.', 'Start Models Configurator separately and set PROJECT_CREATOR_MODELS_NETWORK, or link the local checkout with setup --models-configurator-dir.'),
     'MODEL_QUALITY': ('Модель не прошла проверку ожидаемого вывода. Изучите синтетический проект; установка не помечена успешной.', 'The model failed an expected-finding check. Inspect the synthetic project; installation is not marked successful.'),
     'MODEL_RESPONSE': ('Анализ не завершён или ответ модели отклонён. Проверьте код ошибки анализа и логи runtime.', 'Analysis did not complete or the model response was rejected. Check the analysis error code and runtime logs.'),
     'MODEL_SOURCES': ('Ответ модели ссылается на неверные источники или версии. Изучите диагностический проект и ответ runtime.', 'The model response cites incorrect sources or versions. Inspect the diagnostic project and runtime response.'),
@@ -362,9 +368,9 @@ class Config:
 
 
 class Runner:
-    def run(self, args, *, capture=False, env=None, timeout=120, code='COMMAND'):
+    def run(self, args, *, capture=False, env=None, cwd=None, timeout=120, code='COMMAND'):
         try:
-            result = subprocess.run(list(map(str, args)), check=False, text=True, cwd=None,
+            result = subprocess.run(list(map(str, args)), check=False, text=True, cwd=cwd,
                                     env=env, stdout=subprocess.PIPE if capture else None,
                                     stderr=subprocess.PIPE if capture else None, timeout=timeout)
         except FileNotFoundError:
@@ -439,6 +445,7 @@ class Installer:
         self.runner = runner or Runner()
         self.output = output or sys.stdout
         self.lang = lang
+        self.models_network = None
 
     @property
     def npu(self):
@@ -464,6 +471,173 @@ class Installer:
                 if not key.startswith(('PROJECT_CREATOR_', 'COMPOSE_', 'OLLAMA_', 'NPU_SOCKET_', 'GGML_', 'CUDA_', 'ROCR_', 'HIP_', 'HSA_', 'NVIDIA_'))
                 and key not in ('POSTGRES_PASSWORD', 'APP_PORT', 'POSTGRES_PORT')}
 
+    def models_directory(self, selection=None):
+        if selection is None:
+            selection = self.config.state.get('models_configurator_dir')
+            if selection is None:
+                return None
+            if not isinstance(selection, str) or not Path(selection).is_absolute():
+                raise Failure('MODELS_CONFIGURATOR', 'The saved checkout path must be absolute; repeat setup --models-configurator-dir.')
+        directory = Path(selection).expanduser().resolve()
+        if directory == self.root or not any((directory / name).is_file()
+                                             for name in ('compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml')):
+            raise Failure('MODELS_CONFIGURATOR', 'Select the Models Configurator checkout containing its Compose file.')
+        return directory
+
+    def models_compose(self, directory, *args, timeout=240):
+        environment = {key: value for key, value in self.environment().items() if not key.startswith('MODELS_')}
+        environment['PWD'] = str(directory)
+        return self.runner.run(['docker', 'compose', *args], cwd=directory, env=environment,
+                               capture=True, timeout=timeout, code='MODELS_CONFIGURATOR')
+
+    def models_configuration(self, directory):
+        try:
+            rendered = json.loads(self.models_compose(directory, 'config', '--format', 'json'))
+            manager = rendered['services']['models-configurator']
+            inventory = next(Path(mount['source']) for mount in manager['volumes']
+                             if mount['type'] == 'bind' and mount['target'] == '/etc/models.json')
+            network = rendered['networks']['clients']['name']
+            project = rendered['name']
+            if not isinstance(network, str) or not network or not inventory.is_absolute() or not isinstance(project, str) or not project:
+                raise ValueError
+        except (KeyError, TypeError, ValueError, StopIteration):
+            raise Failure('MODELS_CONFIGURATOR', 'Compose must define the manager service, its model inventory bind mount and its client network.') from None
+        if project == self.config.state['project']:
+            raise Failure('MODELS_CONFIGURATOR', 'Set a distinct COMPOSE_PROJECT_NAME in the manager checkout to keep the two Compose projects separate.')
+        return inventory, network, project
+
+    def wait_models_metadata(self, port, path, accept, detail, *, wait_seconds, timeout=2):
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            with contextlib.closing(http.client.HTTPConnection('127.0.0.1', port, timeout=timeout)) as connection:
+                try:
+                    connection.request('GET', path)
+                    response = connection.getresponse()
+                    if response.status == 200:
+                        payload = json.loads(response.read(1_000_000))
+                        if isinstance(payload, dict) and accept(payload):
+                            return payload
+                except (OSError, ValueError, http.client.HTTPException):
+                    pass
+            if time.monotonic() >= deadline:
+                raise Failure('MODELS_CONFIGURATOR', detail)
+            time.sleep(0.5)
+
+    def models_ready(self, directory, roles, *, wait):
+        published = self.models_compose(directory, 'port', 'models-configurator', '8317').strip()
+        match = re.fullmatch(r'(?:127\.0\.0\.1|0\.0\.0\.0):([0-9]{1,5})', published)
+        if not match or not 1 <= int(match[1]) <= 65535:
+            raise Failure('MODELS_CONFIGURATOR', 'The manager must publish its API port 8317 on IPv4 loopback.')
+        port = int(match[1])
+        inventory = self.wait_models_metadata(
+            port, '/v1/models', lambda payload: payload.get('object') == 'list' and isinstance(payload.get('data'), list),
+            'The running manager did not return a valid /v1/models inventory on its published port.',
+            wait_seconds=30 if wait else 0,
+        )['data']
+        socket_profiles = {}
+        for role, profile in roles.items():
+            capability = 'chat' if role == 'GENERATOR' else 'embeddings'
+            model = next((model for model in inventory if isinstance(model, dict) and
+                          model.get('id') == profile and model.get('role') == capability), None)
+            if model is None:
+                raise Failure('MODELS_CONFIGURATOR', f'PROJECT_CREATOR_{role}_MODEL must be a {capability} profile listed by the linked manager at /v1/models.')
+            provider = model.get('provider')
+            if provider in ('openvino-npu', 'openvino-bge'):
+                socket_profiles[profile] = provider
+        if socket_profiles:
+            self.wait_models_metadata(
+                port, '/status', lambda payload: self.models_sockets_ready(payload.get('models'), socket_profiles),
+                'The selected OpenVINO profiles are not ready. Check the linked manager /status and the runtime logs.',
+                wait_seconds=120 if wait else 0, timeout=7,
+            )
+
+    def models_sockets_ready(self, models, socket_profiles):
+        if not isinstance(models, list):
+            return False
+        ready = {
+            model['id'] for model in models
+            if isinstance(model, dict) and isinstance(model.get('id'), str)
+            and model.get('reachability') == 'reachable' and model.get('listed') is True
+            # BGE needs its weights loaded. NPU may reload on demand after a cancelled request.
+            and (socket_profiles.get(model['id']) != 'openvino-bge' or model.get('loaded') is True)
+        }
+        return socket_profiles.keys() <= ready
+
+    def compatible_roles(self, device):
+        return [role for role in ('GENERATOR', 'EMBEDDING') if self.config.runtime(role, device) == 'openai-compatible']
+
+    def models_roles(self, device):
+        roles = {}
+        for role in self.compatible_roles(device):
+            try:
+                host = urllib.parse.urlsplit(self.config.values.get(f'PROJECT_CREATOR_{role}_URL', '')).hostname
+            except ValueError:
+                continue
+            if host == 'models-configurator':
+                roles[role] = self.config.values.get(f'PROJECT_CREATOR_{role}_MODEL')
+        return roles
+
+    def client_network(self, device):
+        matches_manager = bool(self.models_roles(device))
+        configured_network = self.config.values.get('PROJECT_CREATOR_MODELS_NETWORK')
+        if matches_manager and self.models_network and configured_network and self.models_network != configured_network:
+            raise Failure('MODELS_NETWORK', 'PROJECT_CREATOR_MODELS_NETWORK must match the linked manager checkout’s MODELS_NETWORK.')
+        if self.compatible_roles(device):
+            return configured_network or (self.models_network if matches_manager else None)
+        return None
+
+    def validate_models_project(self, project):
+        if project != self.config.state.get('models_configurator_project'):
+            raise Failure('MODELS_CONFIGURATOR', 'Restore the recorded manager Compose project name before retrying.')
+
+    def check_models(self, device, *, start=False, initialize=False, directory=None):
+        directory = directory or self.models_directory()
+        self.models_network = None
+        if directory:
+            inventory, self.models_network, project = self.models_configuration(directory)
+            previous_project = self.config.state.get('models_configurator_project')
+            if initialize and previous_project and self.config.state['models_configurator_dir'] != str(directory):
+                running = self.runner.run(['docker', 'ps', '--filter', f'label=com.docker.compose.project={previous_project}', '--quiet'],
+                                          env=self.environment(), capture=True, code='MODELS_CONFIGURATOR')
+                if running.strip():
+                    raise Failure('MODELS_CONFIGURATOR', 'Run down before linking another Models Configurator checkout.')
+            elif not initialize or previous_project:
+                self.validate_models_project(project)
+        network = self.client_network(device)
+        roles = self.models_roles(device)
+        if roles and not network:
+            raise Failure('MODELS_NETWORK', 'Set PROJECT_CREATOR_MODELS_NETWORK or run setup --models-configurator-dir for a manager checkout.')
+        if directory:
+            if initialize and inventory == directory / 'models.json' and not inventory.exists():
+                example = directory / 'models.example.json'
+                if example.is_file():
+                    contents = example.read_text()
+                    try:
+                        if json.loads(contents) != {'models': []}:
+                            raise ValueError
+                    except ValueError:
+                        raise Failure('MODELS_CONFIGURATOR', 'Create models.json explicitly when models.example.json is invalid or has settings beyond an empty inventory.') from None
+                    with contextlib.suppress(FileExistsError):
+                        with inventory.open('x') as stream:
+                            stream.write(contents)
+                            stream.flush()
+                            os.fchmod(stream.fileno(), 0o644)
+            if not inventory.is_file():
+                raise Failure('MODELS_CONFIGURATOR', 'Create the configured model inventory in the manager checkout before retrying.')
+            if initialize:
+                self.config.state.update(models_configurator_dir=str(directory), models_configurator_project=project)
+                self.config.save()
+            if start:
+                self.step('models_configurator')
+                self.models_compose(directory, 'up', '-d', '--build', '--wait', timeout=3600)
+            self.models_ready(directory, roles, wait=start)
+        if network:
+            try:
+                self.runner.run(['docker', 'network', 'inspect', '--', network], env=self.environment(),
+                                capture=True, code='MODELS_NETWORK')
+            except Failure:
+                raise Failure('MODELS_NETWORK', 'The selected Docker network is unavailable. Start the manager or run setup --models-configurator-dir.') from None
+
     def compose(self, *args, capture=False, timeout=240, code='COMPOSE'):
         if not self.config.state.get('project'):
             raise Failure('CONFIG_STATE', 'Run setup first.')
@@ -486,8 +660,8 @@ class Installer:
             command += ['-f', str(self.root / 'compose.remote.yml')]
             if device == 'npu':
                 environment['PROJECT_CREATOR_GENERATOR_RUNTIME'] = 'openvino-npu'
-        if self.config.values.get('PROJECT_CREATOR_MODELS_NETWORK') and any(
-                self.config.runtime(role, device) == 'openai-compatible' for role in ('GENERATOR', 'EMBEDDING')):
+        if network := self.client_network(device):
+            environment['PROJECT_CREATOR_MODELS_NETWORK'] = network
             command += ['-f', str(self.root / 'compose.models-configurator.yml')]
         if device == 'none':
             # Keep pins in .env available for a future explicit switch back to local inference.
@@ -1103,7 +1277,7 @@ class Installer:
             self.config.state.setdefault('verification', {})[name] = {'project': project, 'checkedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'device': self.config.state['device']}
             self.config.save()
 
-    def up(self):
+    def up(self, *, start_models=True):
         device = self.config.state.get('device')
         if not device:
             raise Failure('CONFIG_STATE', 'Run setup first.')
@@ -1115,6 +1289,8 @@ class Installer:
         ollama_device = self.config.state.get('ollama_device', 'cpu') if device == 'npu' else device
         if device == 'npu' and ollama_device != 'cpu' and self.config.uses_ollama(device):
             self.prerequisites(ollama_device)
+        if start_models:
+            self.check_models(device, start=True)
         if device == 'npu':
             self.step('runtime')
             self.start_npu()
@@ -1134,13 +1310,14 @@ class Installer:
             raise Failure('UI', 'Frontend is unavailable; inspect docker compose logs.') from None
         self.graphql('{projects(limit:1,offset:0){id}}')
 
-    def setup(self, device=None, project=None, switch=False, gpu_id=None, ollama_device=None):
+    def setup(self, device=None, project=None, switch=False, gpu_id=None, ollama_device=None, models_configurator_dir=None):
         device = device or self.config.state.get('device') or 'none'
         ollama_device = ollama_device or (self.config.state.get('ollama_device') if device == 'npu' else device) or ('cpu' if device == 'npu' else device)
         if device != 'npu' and ollama_device != device:
             raise Failure('CONFIG_STATE', '--ollama-device is only available with --device npu.')
         if gpu_id is not None and ollama_device not in gpu.GPU_DEVICES:
             raise Failure('GPU_SELECTION', '--gpu-id requires arc, nvidia, amd or amd-vulkan.')
+        manager = self.models_directory(models_configurator_dir)
         self.config.validate_providers(device)
         selected = self.prerequisites(device, gpu_id=gpu_id)
         if device == 'npu' and ollama_device != 'cpu' and self.config.uses_ollama(device):
@@ -1150,6 +1327,7 @@ class Installer:
         self.config.ensure(device, project=project, switch=switch, gpu_id=selected, ollama_device=ollama_device)
         self.config.state['verified'] = False
         self.config.save()
+        self.check_models(device, start=True, initialize=True, directory=manager)
         if previous_device == 'npu' and device != 'npu':
             self.stop_npu()
         # A newly selected NPU profile needs a nonempty profile variable even for parsing
@@ -1161,9 +1339,11 @@ class Installer:
         if self.config.uses_ollama(device):
             self.step('models')
             self.compose('up', '-d', '--build', '--wait', 'ollama', timeout=1800)
-            self.compose('pull', 'model-info', timeout=1800, code='TOOLS_DOWNLOAD')
-            for role, default in [('EMBEDDING', 'bge-m3:567m'), ('GENERATOR', 'qwen2.5:7b')]:
-                if self.config.runtime(role) == 'ollama':
+            pins = [(role, default) for role, default in [('EMBEDDING', 'bge-m3:567m'), ('GENERATOR', 'qwen2.5:7b')]
+                    if self.config.runtime(role) == 'ollama']
+            if pins:
+                self.compose('pull', 'model-info', timeout=1800, code='TOOLS_DOWNLOAD')
+                for role, default in pins:
                     self.pin_model(self.config.values.get('PROJECT_CREATOR_'+role+'_MODEL') or default, role)
         elif previous_device and previous_device != device:
             self.compose('stop', 'ollama')
@@ -1174,11 +1354,15 @@ class Installer:
             if not exported:
                 self.download_npu()
                 self.export_npu()
-        self.up()
+        self.up(start_models=False)
 
     def down(self):
         self.compose('down', timeout=300)
         self.stop_npu()
+        if directory := self.models_directory():
+            _, _, project = self.models_configuration(directory)
+            self.validate_models_project(project)
+            self.models_compose(directory, 'stop', timeout=300)
         self.say('stopped')
 
     def doctor(self, device=None):
@@ -1191,6 +1375,7 @@ class Installer:
             self.prerequisites(ollama_device)
         if self.config.state:
             self.config.validate_providers(device)
+            self.check_models(device)
             self.compose('config', '--quiet', capture=True)
             self.check_ui()
             for role in ('EMBEDDING', 'GENERATOR'):
@@ -1241,6 +1426,7 @@ def main(root=None, argv=None):
             command.add_argument('--switch-device', action='store_true', help=messages['switch'])
             command.add_argument('--gpu-id', help=messages['gpu_id'])
             command.add_argument('--ollama-device', choices=('cpu', 'arc'), help=messages['ollama_device'])
+            command.add_argument('--models-configurator-dir', type=Path, help=messages['models_configurator_dir'])
     history = sub.add_parser('clear-analysis-history', help=messages['clear-analysis-history'],
                              description=messages['clear-analysis-history'], allow_abbrev=False)
     history.add_argument('--project-id', required=True, help=messages['history_project'])
@@ -1255,7 +1441,8 @@ def main(root=None, argv=None):
         else:
             with locked(root):
                 if args.command == 'setup':
-                    app.setup(args.device, project=args.project_name, switch=args.switch_device, gpu_id=args.gpu_id, ollama_device=args.ollama_device)
+                    app.setup(args.device, project=args.project_name, switch=args.switch_device, gpu_id=args.gpu_id,
+                              ollama_device=args.ollama_device, models_configurator_dir=args.models_configurator_dir)
                 else:
                     getattr(app, args.command)()
         return 0

@@ -34,6 +34,21 @@ For local inference, `setup` explicitly authorizes downloading local weights, co
 
 `up` uses prepared weights; it does not run `ollama pull`, snapshot downloads, `uv pip install`, or the exporter. Container builds may access registries and dependency repositories. `doctor` checks the environment, UI/API availability, and installed model pins; it does not run inference or claim model quality. The diagnostic-tool container starts with `--pull never`.
 
+## Start both local checkouts with one CLI
+
+Keep Project Creator and Models Configurator in separate checkouts. Configure the desired model profiles, local weights and any hardware Compose overlays in the Models Configurator checkout. For a first start without model profiles, the CLI can create an empty inventory from its example. See [Models Configurator installation](https://github.com/VolkovDani/models-configurator/blob/develop/README.md).
+
+From Project Creator, register the manager checkout and start both stacks.
+
+```sh
+./project-creator setup --models-configurator-dir ../models-configurator
+./project-creator doctor
+```
+
+The CLI remembers the absolute checkout path and Compose project name. Use `down` before linking a different checkout. Later, `./project-creator up` starts Models Configurator before Project Creator, and `./project-creator down` stops them in reverse order. The manager keeps its private configuration and both projects keep their volumes. `doctor` checks running services.
+
+Choose each role explicitly. Set its runtime to `openai-compatible`, its URL to `http://models-configurator:8317/v1` and its model to the ID from the manager inventory. For an existing installation that uses the bundled Ollama classifier, keep the selected local device such as `arc`. For API-only roles with no bundled classifier, choose `--device remote`. Use `--switch-device` when changing a saved device.
+
 ## Remote generation and embeddings
 
 When both embeddings and generation use Models Configurator and the record classifier still uses the bundled Ollama service, keep the local device selected (for example `--device arc`). This keeps Ollama available for classification and connects the backend to the manager network for the other two roles.

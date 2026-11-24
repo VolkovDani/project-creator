@@ -96,10 +96,12 @@ class FakeRunner:
         self.calls = []
         self.responses = {}
         self.envs = []
+        self.directories = []
 
     def run(self, args, *, capture=False, env=None, timeout=120, code='COMMAND', **kwargs):
         self.calls.append([str(arg) for arg in args])
         self.envs.append(env or {})
+        self.directories.append(kwargs.get('cwd'))
         for needle, value in self.responses.items():
             if needle in ' '.join(map(str, args)):
                 if isinstance(value, Exception):
@@ -757,6 +759,203 @@ class RemoteInstallTests(InstallerTestCase):
         with patch.object(self.app, 'graphql', side_effect=graphql) as calls, patch.object(self.app, 'ollama', side_effect=AssertionError):
             self.app.fixture('fixture', ['one', 'two'])
         self.assertEqual(calls.call_count, 4)
+
+
+class ModelsConfiguratorTests(InstallerTestCase):
+    def setUp(self):
+        super().setUp()
+        self.app.config.state.clear()
+        self.manager = self.root / 'manager checkout'
+        self.manager.mkdir()
+        (self.manager / 'compose.yml').write_text('services: {models-configurator: {}}\n')
+        (self.manager / 'models.example.json').write_text('{"models": []}\n')
+        self.runner.responses = {
+            'version --short': '2.30.1',
+            'docker info': '{"OSType":"linux"}',
+            'compose config --format json': json.dumps({
+                'name': 'manager',
+                'services': {'models-configurator': {'volumes': [
+                    {'type': 'bind', 'source': str(self.manager / 'models.json'), 'target': '/etc/models.json'},
+                ]}},
+                'networks': {'clients': {'name': 'manager-clients'}},
+            }),
+            'compose port models-configurator 8317': '127.0.0.1:18317\n',
+        }
+        ui = patch.object(cli.Installer, 'check_ui')
+        ui.start()
+        self.addCleanup(ui.stop)
+        http = patch.object(cli.http.client, 'HTTPConnection')
+        self.http = http.start()
+        self.addCleanup(http.stop)
+        response = self.http.return_value.getresponse.return_value
+        response.status = 200
+        response.read.return_value = b'{"object":"list","data":[]}'
+
+    def inventory(self, *models):
+        response = self.http.return_value.getresponse.return_value
+        response.read.return_value = json.dumps({'object': 'list', 'data': models}).encode()
+        return response
+
+    def test_setup_cli_starts_empty_manager_and_reuses_saved_checkout(self):
+        (self.manager / '.env').write_text('MODELS_PORT=18317\nCOMPOSE_FILE=compose.yml:compose.override.yml\n')
+        with patch.object(cli, 'Installer', return_value=self.app), patch.dict(os.environ, {
+            'COMPOSE_FILE': 'other.yml', 'MODELS_CONFIG': 'other.json', 'PROJECT_CREATOR_TOKEN': 'secret',
+        }):
+            self.assertEqual(cli.main(self.root, ['setup', '--models-configurator-dir', str(self.manager)]), 0)
+        self.assertEqual(self.app.config.state['models_configurator_dir'], str(self.manager))
+        self.assertEqual(self.app.config.path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.app.config.state['device'], 'none')
+        self.assertTrue(self.app.config.state['verified'])
+        self.assertEqual((self.manager / 'models.json').read_text(), '{"models": []}\n')
+        manager_up = self.runner.calls.index(['docker', 'compose', 'up', '-d', '--build', '--wait'])
+        app_up = next(i for i, args in enumerate(self.runner.calls) if '--wait-timeout' in args)
+        self.assertLess(manager_up, app_up)
+        self.assertEqual(self.runner.directories[manager_up], self.manager)
+        self.assertFalse({'COMPOSE_FILE', 'MODELS_CONFIG', 'PROJECT_CREATOR_TOKEN'} & self.runner.envs[manager_up].keys())
+        self.http.assert_called_with('127.0.0.1', 18317, timeout=2)
+
+        fresh_app = cli.Installer(self.root, runner=self.runner, output=io.StringIO())
+        self.runner.calls.clear()
+        fresh_app.up()
+        self.assertIn(['docker', 'compose', 'up', '-d', '--build', '--wait'], self.runner.calls)
+        self.assertFalse(any('pull' in args or 'ollama' in args for args in self.runner.calls))
+
+    def test_public_example_inventory_is_readable_to_container_under_private_umask(self):
+        previous_umask = os.umask(0o077)
+        try:
+            self.app.setup(models_configurator_dir=self.manager)
+        finally:
+            os.umask(previous_umask)
+        self.assertEqual((self.manager / 'models.json').stat().st_mode & 0o777, 0o644)
+        self.assertEqual(self.app.config.path.stat().st_mode & 0o777, 0o600)
+
+    def test_customized_example_inventory_is_not_copied(self):
+        (self.manager / 'models.example.json').write_text('{"models":[{"name":"private-profile"}]}\n')
+        with self.assertRaisesRegex(cli.Failure, 'MODELS_CONFIGURATOR.*empty'):
+            self.app.setup(models_configurator_dir=self.manager)
+        self.assertFalse((self.manager / 'models.json').exists())
+
+    def test_managed_provider_uses_rendered_network_without_changing_role_configuration(self):
+        models = self.manager / 'models.json'
+        models.write_text('{"models": [{"name":"chosen"}]}\n')
+        models.chmod(0o640)
+        self.app.config.update_env({
+            'PROJECT_CREATOR_EMBEDDING_URL': 'http://models-configurator:8317/v1',
+            'PROJECT_CREATOR_EMBEDDING_MODEL': 'immutable-profile',
+        })
+        self.inventory({'id': 'immutable-profile', 'provider': 'ollama', 'role': 'embeddings'})
+        with patch.object(self.app, 'verify'):
+            self.app.setup('remote', models_configurator_dir=self.manager)
+        self.assertEqual(models.read_text(), '{"models": [{"name":"chosen"}]}\n')
+        self.assertEqual(models.stat().st_mode & 0o777, 0o640)
+        app_up = next(i for i, args in enumerate(self.runner.calls) if '--wait-timeout' in args)
+        self.assertIn(str(self.root / 'compose.models-configurator.yml'), self.runner.calls[app_up])
+        self.assertEqual(self.runner.envs[app_up]['PROJECT_CREATOR_MODELS_NETWORK'], 'manager-clients')
+        self.assertEqual(self.app.config.values['PROJECT_CREATOR_EMBEDDING_MODEL'], 'immutable-profile')
+        self.assertNotIn('PROJECT_CREATOR_GENERATOR_MODEL', self.app.config.values)
+
+    def test_doctor_is_read_only_and_down_stops_manager_after_app(self):
+        self.app.setup(models_configurator_dir=self.manager)
+        state = self.app.config.path.stat().st_mtime_ns
+        self.runner.calls.clear()
+        self.app.doctor()
+        self.assertIn(['docker', 'compose', 'port', 'models-configurator', '8317'], self.runner.calls)
+        self.assertFalse(any({'up', 'stop', 'down', 'pull'} & set(args) for args in self.runner.calls))
+        self.assertEqual(self.app.config.path.stat().st_mtime_ns, state)
+        self.runner.calls.clear()
+        self.app.down()
+        self.assertEqual(self.runner.calls[0][-1], 'down')
+        self.assertEqual(self.runner.calls[-1], ['docker', 'compose', 'stop'])
+        self.assertTrue((self.manager / 'models.json').is_file())
+
+    def test_manager_start_failure_never_starts_application(self):
+        self.runner.responses['compose up -d'] = cli.Failure('MODELS_CONFIGURATOR', 'Manager failed.')
+        with self.assertRaisesRegex(cli.Failure, 'MODELS_CONFIGURATOR'):
+            self.app.setup(models_configurator_dir=self.manager)
+        self.assertFalse(any('--wait-timeout' in args for args in self.runner.calls))
+        self.assertFalse(self.app.config.state['verified'])
+
+    def test_down_refuses_to_stop_a_changed_manager_project(self):
+        self.app.setup(models_configurator_dir=self.manager)
+        model = json.loads(self.runner.responses['compose config --format json'])
+        model['name'] = 'another-project'
+        self.runner.responses['compose config --format json'] = json.dumps(model)
+        self.runner.calls.clear()
+        with self.assertRaisesRegex(cli.Failure, 'MODELS_CONFIGURATOR.*project name'):
+            self.app.down()
+        self.assertEqual(self.runner.calls[0][-1], 'down')
+        self.assertFalse(any('stop' in args for args in self.runner.calls))
+
+    def test_setup_preserves_link_when_original_manager_is_running(self):
+        self.app.setup(models_configurator_dir=self.manager)
+        another = self.root / 'another checkout'
+        another.mkdir()
+        (another / 'compose.yml').touch()
+        self.runner.responses['label=com.docker.compose.project=manager'] = 'running-container\n'
+        with self.assertRaisesRegex(cli.Failure, 'MODELS_CONFIGURATOR.*down'):
+            self.app.setup(models_configurator_dir=another)
+        self.assertEqual(cli.Config(self.root).state['models_configurator_dir'], str(self.manager))
+
+    def test_bundled_classifier_starts_ollama_without_pulling_diagnostics_when_roles_are_managed(self):
+        self.app.config.update_env({
+            'PROJECT_CREATOR_GENERATOR_RUNTIME': 'openai-compatible',
+            'PROJECT_CREATOR_GENERATOR_URL': 'http://models-configurator:8317/v1',
+            'PROJECT_CREATOR_GENERATOR_MODEL': 'chat-profile',
+            'PROJECT_CREATOR_EMBEDDING_RUNTIME': 'openai-compatible',
+            'PROJECT_CREATOR_EMBEDDING_URL': 'http://models-configurator:8317/v1',
+            'PROJECT_CREATOR_EMBEDDING_MODEL': 'embeddings-profile',
+            'PROJECT_CREATOR_RECORD_CLASSIFIER': 'laya-review',
+        })
+        self.inventory({'id': 'chat-profile', 'provider': 'ollama', 'role': 'chat'},
+                       {'id': 'embeddings-profile', 'provider': 'ollama', 'role': 'embeddings'})
+        with patch.object(self.app, 'prerequisites', return_value=None), patch.object(self.app, 'verify'):
+            self.app.setup('cpu', models_configurator_dir=self.manager)
+        self.assertTrue(any(args[-1] == 'ollama' for args in self.runner.calls))
+        self.assertFalse(any('model-info' in args for args in self.runner.calls))
+
+    def test_managed_socket_waits_for_bge_weights_and_accepts_reachable_unloaded_npu(self):
+        self.app.config.update_env({
+            'PROJECT_CREATOR_GENERATOR_URL': 'http://models-configurator:8317/v1',
+            'PROJECT_CREATOR_GENERATOR_MODEL': 'npu-profile',
+            'PROJECT_CREATOR_EMBEDDING_URL': 'http://models-configurator:8317/v1',
+            'PROJECT_CREATOR_EMBEDDING_MODEL': 'bge-profile',
+        })
+        response = self.inventory({'id': 'npu-profile', 'provider': 'openvino-npu', 'role': 'chat'},
+                                  {'id': 'bge-profile', 'provider': 'openvino-bge', 'role': 'embeddings'})
+        npu = {'id': 'npu-profile', 'reachability': 'reachable', 'listed': True, 'loaded': False}
+        bge = {'id': 'bge-profile', 'reachability': 'reachable', 'listed': True, 'loaded': False}
+        response.read.side_effect = [
+            response.read.return_value,
+            json.dumps({'models': [npu, bge]}).encode(),
+            json.dumps({'models': [npu, {**bge, 'loaded': True}]}).encode(),
+        ]
+        with patch.object(self.app, 'verify'), patch.object(cli.time, 'sleep') as sleep:
+            self.app.setup('remote', models_configurator_dir=self.manager)
+        self.assertEqual(
+            [call.args for call in self.http.return_value.request.call_args_list],
+            [('GET', '/v1/models'), ('GET', '/status'), ('GET', '/status')],
+        )
+        sleep.assert_called_once()
+
+    def test_missing_linked_manager_profile_blocks_application_start(self):
+        self.app.config.update_env({
+            'PROJECT_CREATOR_GENERATOR_URL': 'http://models-configurator:8317/v1',
+            'PROJECT_CREATOR_GENERATOR_MODEL': 'missing-profile',
+        })
+        with patch.object(self.app, 'verify'), self.assertRaisesRegex(cli.Failure, 'MODELS_CONFIGURATOR.*GENERATOR'):
+            self.app.setup('remote', models_configurator_dir=self.manager)
+        self.assertFalse(any('--wait-timeout' in args for args in self.runner.calls))
+
+    def test_manual_manager_missing_network_gets_actionable_diagnostic(self):
+        self.app.config.update_env({
+            'PROJECT_CREATOR_GENERATOR_URL': 'http://models-configurator:8317/v1',
+            'PROJECT_CREATOR_GENERATOR_MODEL': 'immutable-profile',
+            'PROJECT_CREATOR_MODELS_NETWORK': 'manually-managed',
+        })
+        self.runner.responses['network inspect'] = cli.Failure('MODELS_NETWORK', 'Network unavailable.')
+        with self.assertRaisesRegex(cli.Failure, 'MODELS_NETWORK.*--models-configurator-dir'):
+            self.app.setup('remote')
+        self.assertFalse(any('--wait-timeout' in args for args in self.runner.calls))
 
 
 class VerifyTests(InstallTests):

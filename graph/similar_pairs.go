@@ -51,6 +51,7 @@ func (r *Resolver) SimilarRequirementPairs(ctx context.Context, args SimilarRequ
 			Left:            &AnalysisSource{ID: graphql.ID(pair.Left.ID), Version: int32(pair.Left.Version), Text: pair.Left.Text},
 			Right:           &AnalysisSource{ID: graphql.ID(pair.Right.ID), Version: int32(pair.Right.Version), Text: pair.Right.Text},
 			SimilarityScore: pair.SimilarityScore,
+			GlossaryContext: pairGlossaryHints(pair.ConfirmedGlossary),
 		})
 	}
 	if next := page.Next; next != nil {
@@ -59,5 +60,6 @@ func (r *Resolver) SimilarRequirementPairs(ctx context.Context, args SimilarRequ
 		out.PageInfo.HasNextPage = true
 	}
 	addCacheDependency(ctx, "project:"+projectID+":requirements")
+	addCacheDependency(ctx, "project:"+projectID+":glossary")
 	return out, nil
 }

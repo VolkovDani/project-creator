@@ -11,8 +11,8 @@ func TestAnalysisEventsCoalesceToAuthorizedLatestSnapshot(t *testing.T) {
 	if err := db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 20 {
-		t.Fatalf("migration version = %d, want 20", version)
+	if version != 21 {
+		t.Fatalf("migration version = %d, want 21", version)
 	}
 	if _, err := db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now')`); err != nil {
 		t.Fatal(err)
@@ -24,7 +24,12 @@ func TestAnalysisEventsCoalesceToAuthorizedLatestSnapshot(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO analysis_runs(id,workspace,project_id,status,generator_profile,embedding_profile,source_signature,sources,lease_until) VALUES('r1','a','p','running','g','e','sig','[]','infinity')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`UPDATE analysis_runs SET stage='finding_pairs' WHERE id='r1'; UPDATE analysis_runs SET stage='comparing' WHERE id='r1'`); err != nil {
+	if _, err := db.Exec(`
+		UPDATE analysis_runs SET stage='finding_pairs' WHERE id='r1';
+		INSERT INTO analysis_pairs(id,run_id,workspace,project_id,position,left_source,right_source,generator_profile,cache_key,status,glossary_stale)
+		 VALUES('p1','r1','a','p',0,'{"id":"a","text":"one","version":1}','{"id":"b","text":"two","version":1}','g','key','completed',true);
+		UPDATE analysis_runs SET stage='comparing',source_signature=md5(''),glossary_revision=1 WHERE id='r1';
+	`); err != nil {
 		t.Fatal(err)
 	}
 	batch, err := readEventBatch(context.Background(), db, "a", eventCursor{id: cursorID})
@@ -35,7 +40,9 @@ func TestAnalysisEventsCoalesceToAuthorizedLatestSnapshot(t *testing.T) {
 		t.Fatalf("progress events = %d, want one: %+v", len(batch.progress), batch.progress)
 	}
 	progress := batch.progress[0]
-	if progress.SchemaVersion != 1 || progress.ProjectID != "p" || progress.RunID != "r1" || progress.Snapshot.Stage != "comparing" || progress.Revision == "" || progress.CursorID != batch.cursor.id {
+	if progress.SchemaVersion != 1 || progress.ProjectID != "p" || progress.RunID != "r1" ||
+		progress.Snapshot.Stage != "comparing" || progress.Revision == "" || progress.CursorID != batch.cursor.id ||
+		progress.Snapshot.GlossaryRevision != "1" || !progress.Snapshot.Stale {
 		t.Fatalf("progress event: %+v cursor=%+v", progress, batch.cursor)
 	}
 	foreign, err := readEventBatch(context.Background(), db, "b", eventCursor{})

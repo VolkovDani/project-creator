@@ -221,18 +221,32 @@ type ExternalProposalSourceInput struct {
 	RequirementId graphql.ID
 	Version       int32
 }
+type ExternalProposalGlossarySource struct {
+	TermId  graphql.ID
+	Version int32
+	Status  string
+}
+type ExternalProposalGlossarySourceInput struct {
+	TermId  graphql.ID
+	Version int32
+}
+type ExternalProposalGlossaryInput struct {
+	Sources []ExternalProposalGlossarySourceInput
+}
 type ExternalProposal struct {
-	ID          graphql.ID
-	Analysis    string
-	Limitations string
-	Client      string
-	Model       string
-	Sharing     string
-	Status      string
-	CreatedAt   string
-	Sources     []*ExternalProposalSource
+	GlossarySources []*ExternalProposalGlossarySource
+	ID              graphql.ID
+	Analysis        string
+	Limitations     string
+	Client          string
+	Model           string
+	Sharing         string
+	Status          string
+	CreatedAt       string
+	Sources         []*ExternalProposalSource
 }
 type SaveExternalProposalInput struct {
+	Glossary    *ExternalProposalGlossaryInput
 	ProjectId   graphql.ID
 	RequestId   string
 	Analysis    string
@@ -250,7 +264,17 @@ type ExternalProposalPage struct {
 	Items    []*ExternalProposal
 	PageInfo *PageInfo
 }
+type PairGlossaryHint struct {
+	TermId     *graphql.ID
+	Version    *int32
+	Spelling   string
+	Name       *string
+	Definition *string
+	Context    *string
+	Ambiguous  bool
+}
 type SimilarRequirementPair struct {
+	GlossaryContext []*PairGlossaryHint
 	Left            *AnalysisSource
 	Right           *AnalysisSource
 	SimilarityScore float64
@@ -575,6 +599,8 @@ type AnalysisFinding struct {
 	Explanation  string
 }
 type AnalysisPair struct {
+	GlossaryContext    []*PairGlossaryHint
+	GlossaryStale      bool
 	ExplanationMatches []*GlossaryMatch
 	DetailsVersion     string
 	IsExactDuplicate   bool
@@ -598,6 +624,7 @@ type AnalysisPair struct {
 	ErrorCode          string
 }
 type ProjectAnalysis struct {
+	GlossaryRevision      string
 	DeletionScheduledFor  *string
 	ClassifierProfile     string
 	LayaPendingPairs      int32
@@ -661,6 +688,7 @@ type AnalysisRunMetadata struct {
 	SelectionProfile    string
 }
 type ProjectAnalysisSummary struct {
+	GlossaryRevision      string
 	DeletionScheduledFor  *string
 	ClassifierProfile     string
 	LayaPendingPairs      int32

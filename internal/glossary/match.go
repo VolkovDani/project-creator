@@ -97,6 +97,9 @@ func compile(terms []Term) matcher {
 }
 
 func (byFirst matcher) matches(text string) []Match {
+	if len(byFirst) == 0 {
+		return nil
+	}
 	original := []rune(text)
 	lower := []rune(strings.ToLower(text))
 	var result []Match
@@ -192,6 +195,8 @@ type Hint struct {
 	Context    string `json:"context,omitempty"`
 }
 
+const maxHintBytes = 3072
+
 func SummaryHints(text string, terms []Term) []Hint {
 	var hints []Hint
 	seen := map[string]bool{}
@@ -202,21 +207,65 @@ func SummaryHints(text string, terms []Term) []Hint {
 			continue
 		}
 		seen[key] = true
-		h := Hint{Spelling: m.Text, Ambiguous: len(m.Terms) > 1}
-		if !h.Ambiguous {
-			t := m.Terms[0]
-			h.TermID = t.ID
-			h.Version = t.Version
-			h.Name = t.Name
-			h.Definition = t.Definition
-			h.Context = t.Context
-		}
+		h := hintForMatch(m)
 		encoded, _ := json.Marshal(h)
-		if size+len(encoded)+1 > 3072 {
+		if size+len(encoded)+1 > maxHintBytes {
 			continue
 		}
 		size += len(encoded) + 1
 		hints = append(hints, h)
 	}
 	return hints
+}
+
+func hintForMatch(m Match) Hint {
+	h := Hint{Spelling: m.Text, Ambiguous: len(m.Terms) > 1}
+	if !h.Ambiguous {
+		t := m.Terms[0]
+		h.TermID = t.ID
+		h.Version = t.Version
+		h.Name = t.Name
+		h.Definition = t.Definition
+		h.Context = t.Context
+	}
+	return h
+}
+
+// PairHints prepares confirmed glossary context for repeated source comparisons.
+// The spelling order and capitalization are independent of pair orientation.
+func PairHints(terms []Term) func(left, right string) []Hint {
+	matcher := compile(terms)
+	return func(left, right string) []Hint {
+		bySpelling := map[string]Match{}
+		for _, text := range []string{left, right} {
+			for _, m := range matcher.matches(text) {
+				key := strings.ToLower(m.Text)
+				if previous, ok := bySpelling[key]; !ok || m.Text < previous.Text {
+					bySpelling[key] = m
+				}
+			}
+		}
+
+		spellings := make([]string, 0, len(bySpelling))
+		for spelling := range bySpelling {
+			spellings = append(spellings, spelling)
+		}
+		sort.Strings(spellings)
+
+		size := 2 // JSON array brackets.
+		hints := []Hint{}
+		for _, spelling := range spellings {
+			hint := hintForMatch(bySpelling[spelling])
+			encoded, _ := json.Marshal(hint)
+			added := len(encoded)
+			if len(hints) != 0 {
+				added++ // JSON comma.
+			}
+			if size+added <= maxHintBytes {
+				hints = append(hints, hint)
+				size += added
+			}
+		}
+		return hints
+	}
 }

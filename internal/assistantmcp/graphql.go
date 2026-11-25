@@ -9,7 +9,7 @@ import (
 	"net/http"
 )
 
-const proposalFields = `id analysis limitations client model sharing status createdAt sources { requirementId version status }`
+const proposalFields = `id analysis limitations client model sharing status createdAt sources { requirementId version status } glossarySources { termId version status }`
 
 type pageInfo struct {
 	EndCursor   *string `json:"endCursor,omitempty"`
@@ -42,24 +42,36 @@ type reviewedSource struct {
 	Status string `json:"status"`
 }
 
+type glossarySource struct {
+	TermID  string `json:"termId" jsonschema:"Confirmed term ID returned in a pair's glossaryContext."`
+	Version int32  `json:"version" jsonschema:"Version of the confirmed term you read."`
+}
+
+type reviewedGlossarySource struct {
+	glossarySource
+	Status string `json:"status"`
+}
+
 type proposal struct {
-	ID          string           `json:"id"`
-	Analysis    string           `json:"analysis"`
-	Limitations string           `json:"limitations"`
-	Client      string           `json:"client"`
-	Model       string           `json:"model"`
-	Sharing     string           `json:"sharing"`
-	Status      string           `json:"status"`
-	CreatedAt   string           `json:"createdAt"`
-	Sources     []reviewedSource `json:"sources"`
+	ID              string                   `json:"id"`
+	Analysis        string                   `json:"analysis"`
+	Limitations     string                   `json:"limitations"`
+	Client          string                   `json:"client"`
+	Model           string                   `json:"model"`
+	Sharing         string                   `json:"sharing"`
+	Status          string                   `json:"status"`
+	CreatedAt       string                   `json:"createdAt"`
+	Sources         []reviewedSource         `json:"sources"`
+	GlossarySources []reviewedGlossarySource `json:"glossarySources"`
 }
 
 type saveInput struct {
-	RequestID   string           `json:"requestId" jsonschema:"Your unique ID for this proposal. Keep it unchanged when retrying."`
-	Analysis    string           `json:"analysis" jsonschema:"Your proposed analysis and its reasoning, up to 10000 characters."`
-	Limitations string           `json:"limitations" jsonschema:"Scope limits or uncertainties of the proposal, up to 4000 characters."`
-	Model       string           `json:"model" jsonschema:"Your model identifier, or unknown if unavailable."`
-	Sources     []proposalSource `json:"sources" jsonschema:"Cite 1 to 20 distinct requirements and their versions."`
+	RequestID       string           `json:"requestId" jsonschema:"Your unique ID for this proposal. Keep it unchanged when retrying."`
+	Analysis        string           `json:"analysis" jsonschema:"Your proposed analysis and its reasoning, up to 10000 characters."`
+	Limitations     string           `json:"limitations" jsonschema:"Scope limits or uncertainties of the proposal, up to 4000 characters."`
+	Model           string           `json:"model" jsonschema:"Your model identifier, or unknown if unavailable."`
+	Sources         []proposalSource `json:"sources" jsonschema:"Cite 1 to 20 distinct requirements and their versions."`
+	GlossarySources []glossarySource `json:"glossarySources,omitempty" jsonschema:"Cite up to 20 confirmed glossary term IDs and versions used in the analysis."`
 }
 
 type errorParam struct {

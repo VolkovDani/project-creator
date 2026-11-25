@@ -197,6 +197,12 @@ may return `duplicate` for identical obligations with the same conditions, scope
 and constraints. Partial overlap or clarification is not automatically considered
 a duplicate. Nothing is merged or deleted.
 
+For each model-assisted comparison, the generator receives both originals and
+confirmed project definitions whose names or aliases match either text.
+An ambiguous match is marked for clarification. Definitions are reference
+data. The pair's **Technical information** shows the saved definitions and
+their versions.
+
 Preparation saves source snapshots and builds the queue in bounded batches. Until
 preparation completes, the total number of pairs is unknown (`totalPairs=null`),
 not zero. The interface distinguishes all possible project pairs, selected and
@@ -235,7 +241,8 @@ Set `ANALYSIS_HISTORY_RETENTION_DAYS` in the repository-root `.env` to change th
 
 Successful verdicts `collision`, `compatible`, `insufficient`, and `duplicate` are
 reused between runs only within the same workspace/project, for the same
-canonically ordered snapshots and the same complete immutable generator profile.
+canonically ordered snapshots, applicable glossary context, and complete
+immutable generator profile.
 The profile includes adapter, model/digest or NPU manifest, prompt, response schema,
 and generation parameters. Matching only a model name is insufficient. Errors and
 timeouts are not completed results. Repeating an unchanged project with the same
@@ -243,6 +250,10 @@ profile does not call the generator. In full mode, changing one of N requirement
 requires N−1 new comparisons; adding one requires N; exact duplicates also skip
 inference. Deleted requirements are excluded from the new queue, but history stays.
 A stale overall run does not discard reusable results for its unchanged pairs.
+If a glossary edit changes the applicable context, the affected pairs are
+marked stale. A result with outdated context from a model call already in
+progress is rejected before publication. Start a new analysis to recheck the
+affected pairs and reuse results whose inputs still match.
 Changing embeddings, threshold, or selection rules rebuilds candidates but does
 not by itself change whether comparisons of the same snapshots with the same
 generator are reusable. All history/cache reads and model context are scoped to

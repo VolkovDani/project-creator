@@ -154,3 +154,11 @@ test('removing the latest run allows an older surviving snapshot for that projec
   channel.flush();
   assert.deepEqual(received, [other, survivor]);
 });
+
+test('glossary revisions can restore freshness and reject an older glossary snapshot', () => {
+  const stale = { ...snapshot('run', '2'), stale: true, glossaryRevision: '1' };
+  const restored = { ...stale, stale: false, glossaryRevision: '2' };
+  assert.equal(acceptSnapshot(stale, restored), restored);
+  assert.equal(acceptSnapshot(restored, stale), restored);
+  assert.equal(acceptSnapshot(restored, { ...stale, revision: '3' }), restored);
+});

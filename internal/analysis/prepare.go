@@ -8,7 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
+
+	"github.com/VolkovDani/project-creator/internal/glossary"
 )
 
 const preparationBatch = 128
@@ -19,11 +22,16 @@ func exactDuplicate(p Pair) bool {
 	return normalizedText(p.Left.Text) != "" && normalizedText(p.Left.Text) == normalizedText(p.Right.Text)
 }
 func cacheKey(profile string, p Pair) string {
-	// JSON boundaries preserve IDs, versions and texts as one canonical identity.
-	b, _ := json.Marshal(struct {
-		Profile string
-		Pair    Pair
-	}{profile, p})
+	// Keep existing cache identities for comparisons with no glossary input.
+	key := struct {
+		Profile        string
+		Pair           Pair
+		GlossaryPolicy string `json:"glossaryPolicy,omitempty"`
+	}{Profile: profile, Pair: p}
+	if len(p.ConfirmedGlossary) != 0 {
+		key.GlossaryPolicy = "confirmed-pair-glossary-v1"
+	}
+	b, _ := json.Marshal(key)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
@@ -98,6 +106,9 @@ func (s *Service) prepareBatch(ctx context.Context, workspace string, r *Run) (b
 	if err = s.currentWith(ctx, tx, workspace, r); err != nil {
 		return false, err
 	}
+	if err = checkGlossaryContext(ctx, tx, workspace, r, ""); err != nil {
+		return false, err
+	}
 	var count int64
 	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM analysis_sources WHERE run_id=$1`, r.ID).Scan(&count); err != nil {
 		return false, errStorage
@@ -124,6 +135,11 @@ func (s *Service) prepareBatch(ctx context.Context, workspace string, r *Run) (b
 	if err = tx.QueryRowContext(ctx, `SELECT coalesce(max(position)+1,0) FROM analysis_pairs WHERE run_id=$1`, r.ID).Scan(&position); err != nil {
 		return false, errStorage
 	}
+	terms, err := glossary.List(ctx, tx, workspace, r.ProjectID)
+	if err != nil {
+		return false, errStorage
+	}
+	pairHints := glossary.PairHints(terms)
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return false, errStorage
@@ -153,7 +169,10 @@ func (s *Service) prepareBatch(ctx context.Context, workspace string, r *Run) (b
 		if len(reasons) == 0 {
 			continue
 		}
-		p := PairResult{ID: fmt.Sprintf("%s:%d", r.ID, position), Position: position, Status: "pending", Left: pair.Left, Right: pair.Right, GeneratorProfile: r.GeneratorProfile, SelectionReasons: reasons, SimilarityScore: similarity, ResultOrigin: "model"}
+		if !slices.Contains(reasons, "exact_text") {
+			pair.ConfirmedGlossary = pairHints(pair.Left.Text, pair.Right.Text)
+		}
+		p := PairResult{GlossaryContext: pair.ConfirmedGlossary, ID: fmt.Sprintf("%s:%d", r.ID, position), Position: position, Status: "pending", Left: pair.Left, Right: pair.Right, GeneratorProfile: r.GeneratorProfile, SelectionReasons: reasons, SimilarityScore: similarity, ResultOrigin: "model"}
 		batch = append(batch, entry{p, cacheKey(r.GeneratorProfile, pair)})
 		position++
 	}
@@ -165,9 +184,9 @@ func (s *Service) prepareBatch(ctx context.Context, workspace string, r *Run) (b
 	firstPosition := position - len(batch)
 	if len(batch) > 0 {
 		raw, _ := jsonMarshal(batch)
-		_, err = tx.ExecContext(ctx, `INSERT INTO analysis_pairs(id,run_id,workspace,project_id,position,left_source,right_source,generator_profile,cache_key,status,verdict,explanation,reused_from,checked_at,selection_reasons,similarity_score,result_origin,laya_status,laya_error_code,laya_result,laya_checked_at)
- SELECT x.id,$2,$3,$4,x.position,x."left",x."right",$5,x."cacheKey",CASE WHEN c.id IS NULL THEN 'pending' ELSE 'completed' END,coalesce(c.verdict,''),coalesce(c.explanation,''),coalesce(c.id,''),c.checked_at,x."selectionReasons",x."similarityScore",coalesce(c.result_origin,'model'),CASE WHEN c.id IS NOT NULL THEN c.laya_status WHEN $6<>'' THEN 'pending' ELSE '' END,coalesce(c.laya_error_code,''),c.laya_result,c.laya_checked_at
- FROM jsonb_to_recordset($1::jsonb) AS x(id text,position int,"left" jsonb,"right" jsonb,"cacheKey" text,"selectionReasons" jsonb,"similarityScore" double precision)
+		_, err = tx.ExecContext(ctx, `INSERT INTO analysis_pairs(id,run_id,workspace,project_id,position,left_source,right_source,generator_profile,cache_key,status,verdict,explanation,reused_from,checked_at,selection_reasons,similarity_score,result_origin,laya_status,laya_error_code,laya_result,laya_checked_at,glossary_context)
+ SELECT x.id,$2,$3,$4,x.position,x."left",x."right",$5,x."cacheKey",CASE WHEN c.id IS NULL THEN 'pending' ELSE 'completed' END,coalesce(c.verdict,''),coalesce(c.explanation,''),coalesce(c.id,''),c.checked_at,x."selectionReasons",x."similarityScore",coalesce(c.result_origin,'model'),CASE WHEN c.id IS NOT NULL THEN c.laya_status WHEN $6<>'' THEN 'pending' ELSE '' END,coalesce(c.laya_error_code,''),c.laya_result,c.laya_checked_at,coalesce(x."glossaryContext",'[]'::jsonb)
+ FROM jsonb_to_recordset($1::jsonb) AS x(id text,position int,"left" jsonb,"right" jsonb,"cacheKey" text,"selectionReasons" jsonb,"similarityScore" double precision,"glossaryContext" jsonb)
  LEFT JOIN LATERAL(SELECT p.id,p.verdict,p.explanation,p.checked_at,p.result_origin,p.laya_status,p.laya_error_code,p.laya_result,p.laya_checked_at FROM analysis_pairs p WHERE p.workspace=$3 AND p.project_id=$4 AND p.generator_profile=$5 AND p.cache_key=x."cacheKey" AND p.left_source=x."left" AND p.right_source=x."right" AND p.status='completed' AND p.reused_from='' ORDER BY p.checked_at,p.id LIMIT 1)c ON true`, raw, r.ID, workspace, r.ProjectID, r.GeneratorProfile, r.ClassifierProfile)
 		if err != nil {
 			return false, errStorage

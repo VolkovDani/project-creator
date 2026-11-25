@@ -25,7 +25,12 @@ func TestExternalMCPUsesAuthenticatedGraphQLAndBoundProject(t *testing.T) {
 		INSERT INTO projects VALUES ('p','a','P','G','','now','now'),('q','a','Q','G','','now','now'),('foreign','b','F','G','','now','now');
 		INSERT INTO requirements VALUES ('r','a','p','visible synthetic source',1,'now','now'),
 		 ('r1','a','p','second synthetic source',1,'now','now'),
-		 ('q1','a','q','private sibling',1,'now','now'),('r2','b','foreign','private workspace',1,'now','now');`); err != nil {
+		 ('q1','a','q','private sibling',1,'now','now'),('r2','b','foreign','private workspace',1,'now','now');
+		INSERT INTO glossary_terms(id,workspace,project_id,name,definition,meaning_context,variants,version,source_id,source_version) VALUES
+		 ('current','a','p','Synthetic Source','A fixture for the current project','Test data','[]',1,'',0),
+		 ('second-a','a','p','Second Phase','Fixture A','','[{"text":"second","kind":"synonym"}]',1,'',0),
+		 ('second-b','a','p','Second Stage','Fixture B','','[{"text":"second","kind":"synonym"}]',1,'',0),
+		 ('private','a','q','Visible','A fixture from a sibling project','','[]',1,'',0);`); err != nil {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(s)
@@ -119,13 +124,20 @@ func TestExternalMCPUsesAuthenticatedGraphQLAndBoundProject(t *testing.T) {
 		t.Fatal("cross-project source accepted", output(result))
 	}
 	input["sources"] = []map[string]any{{"requirementId": "r", "version": 1}}
+	input["glossarySources"] = []map[string]any{{"termId": "private", "version": 1}}
+	if result := call(authorized, "save_external_proposal", input); !result.IsError || !strings.Contains(output(result), "glossarySources") {
+		t.Fatal("cross-project glossary source accepted", output(result))
+	}
+	input["glossarySources"] = []map[string]any{{"termId": "current", "version": 1}}
 	saved := call(authorized, "save_external_proposal", input)
 	if saved.IsError || !strings.Contains(output(saved), "pending_review") ||
+		!strings.Contains(output(saved), `"glossarySources":[{"status":"current","termId":"current","version":1}]`) ||
 		!strings.Contains(output(saved), "test-assistant 1") || !strings.Contains(output(saved), `"sharing":"local"`) {
 		t.Fatal(output(saved), saved.Content)
 	}
 	if result := call(authorized, "list_external_proposals", map[string]any{}); result.IsError ||
-		!strings.Contains(output(result), "Check the examples") {
+		!strings.Contains(output(result), "Check the examples") ||
+		!strings.Contains(output(result), `"glossarySources":[{"status":"current","termId":"current","version":1}]`) {
 		t.Fatal(output(result))
 	}
 	checkSimilarMCPPairs(t, s, call, authorized, connect(tokenB, "p", "local"))
@@ -149,6 +161,11 @@ func checkSimilarMCPPairs(
 		Items                    []struct {
 			Left, Right     source
 			SimilarityScore float64
+			GlossaryContext []struct {
+				TermID, Spelling, Name, Definition, Context string
+				Version                                     int
+				Ambiguous                                   bool
+			}
 		}
 		PageInfo struct {
 			EndCursor   string
@@ -206,6 +223,20 @@ func checkSimilarMCPPairs(
 	if pair.Left != (source{ID: "r", Text: "visible synthetic source", Version: 1}) || pair.Right != (source{ID: "r1", Text: "second synthetic source", Version: 1}) || pair.SimilarityScore != 1 {
 		t.Fatal(pair)
 	}
+	if len(pair.GlossaryContext) != 2 {
+		t.Fatal("expected only the current project's glossary context", pair.GlossaryContext)
+	}
+	ambiguous := pair.GlossaryContext[0]
+	if ambiguous.Spelling != "second" || !ambiguous.Ambiguous || ambiguous.TermID != "" || ambiguous.Version != 0 ||
+		ambiguous.Name != "" || ambiguous.Definition != "" || ambiguous.Context != "" {
+		t.Fatal("ambiguous spelling should have no chosen term", ambiguous)
+	}
+	hint := pair.GlossaryContext[1]
+	if hint.TermID != "current" || hint.Version != 1 || hint.Spelling != "synthetic source" ||
+		hint.Name != "Synthetic Source" || hint.Definition != "A fixture for the current project" ||
+		hint.Context != "Test data" || hint.Ambiguous {
+		t.Fatal(hint)
+	}
 	next := result(20, 0.8, first.PageInfo.EndCursor)
 	if next.Status != "ready" || len(next.Items) != 2 || next.PageInfo.HasNextPage {
 		t.Fatal(next)
@@ -234,10 +265,26 @@ func checkSimilarMCPPairs(
 	if got := call(unauthorized, tool, map[string]any{"threshold": 0.8}); !got.IsError || got.StructuredContent != nil {
 		t.Fatal("cross-workspace access", got)
 	}
-	if _, err := s.db.Exec(`UPDATE requirement_index SET attempt='replacement' WHERE requirement_id='s' AND profile='fixture'`); err != nil {
+	if _, err := s.db.Exec(`UPDATE glossary_terms SET version=version+1 WHERE id='private'`); err != nil {
+		t.Fatal(err)
+	}
+	if got := result(20, 0.8, first.PageInfo.EndCursor); got.Status != "ready" {
+		t.Fatal("sibling glossary changed the cursor", got)
+	}
+	if _, err := s.db.Exec(`UPDATE glossary_terms SET definition='Revised fixture',version=2 WHERE id='current'`); err != nil {
 		t.Fatal(err)
 	}
 	if got := result(20, 0.8, first.PageInfo.EndCursor); got.Status != "cursor_stale" || len(got.Items) != 0 {
+		t.Fatal(got)
+	}
+	restarted := result(1, 0.8, "")
+	if hints := restarted.Items[0].GlossaryContext; len(hints) != 2 || hints[1].Version != 2 || hints[1].Definition != "Revised fixture" {
+		t.Fatal(hints)
+	}
+	if _, err := s.db.Exec(`UPDATE requirement_index SET attempt='replacement' WHERE requirement_id='s' AND profile='fixture'`); err != nil {
+		t.Fatal(err)
+	}
+	if got := result(20, 0.8, restarted.PageInfo.EndCursor); got.Status != "cursor_stale" || len(got.Items) != 0 {
 		t.Fatal(got)
 	}
 	newCursor := result(1, 0.8, "").PageInfo.EndCursor

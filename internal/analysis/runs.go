@@ -280,7 +280,7 @@ func (s *Service) startWithOptions(ctx context.Context, workspace, project strin
 		if e != nil {
 			return empty, e
 		}
-		if active.GeneratorProfile == s.generatorProfile() && (opts.Mode == "all" || active.EmbeddingProfile == s.embeddingProfile) && active.Mode == opts.Mode && active.SimilarityThreshold == opts.Threshold && active.signature == sig {
+		if !active.glossaryStale && active.GeneratorProfile == s.generatorProfile() && (opts.Mode == "all" || active.EmbeddingProfile == s.embeddingProfile) && active.Mode == opts.Mode && active.SimilarityThreshold == opts.Threshold && active.signature == sig {
 			if err = tx.Commit(); err != nil {
 				return empty, errStorage
 			}
@@ -289,6 +289,8 @@ func (s *Service) startWithOptions(ctx context.Context, workspace, project strin
 		code := "PROFILE_CHANGED"
 		if active.signature != sig {
 			code = "SOURCE_CHANGED"
+		} else if active.glossaryStale {
+			code = glossaryChangedCode
 		}
 		if err = interruptRun(ctx, tx, workspace, active, code, false); err != nil {
 			return empty, err
@@ -312,6 +314,7 @@ func (s *Service) startWithOptions(ctx context.Context, workspace, project strin
 	r := empty
 	r.ID = id
 	r.Revision = "1"
+	r.GlossaryRevision = "0"
 	r.Status = "running"
 	r.Stage = "checking_index"
 	r.signature = signature
@@ -372,7 +375,7 @@ func (s *Service) Retry(ctx context.Context, workspace, project, id string) (Run
 		return Run{}, err
 	}
 	r, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM analysis_runs WHERE workspace=$1 AND project_id=$2 ORDER BY seq DESC LIMIT 1 FOR UPDATE`, workspace, project))
-	if err != nil || r.ID != id || r.DeletionScheduledFor != nil {
+	if err != nil || r.ID != id || r.DeletionScheduledFor != nil || r.glossaryStale {
 		return Run{}, ErrRetryUnavailable
 	}
 	if r.Status == "running" {

@@ -81,7 +81,7 @@ func (g *OpenAICompatible) Compare(ctx context.Context, pair Pair) (Finding, err
 	if err != nil {
 		return Finding{}, errors.New("invalid comparison input")
 	}
-	return generatePairFinding(ctx, alphabetRetryInstruction, func(prompt string, _ bool) (Finding, error) {
+	return generatePairFinding(ctx, pair, alphabetRetryInstruction, func(prompt string, _ bool) (Finding, error) {
 		return g.generateFinding(ctx, pair, prompt, string(data), g.schema)
 	})
 }

@@ -75,6 +75,22 @@ function ProposalCard({
           </li>
         ))}
       </ul>
+      {!!proposal.glossarySources?.length && (
+        <>
+          <h4>{t(locale, 'externalProposals.glossarySources')}</h4>
+          <ul className={styles.sources}>
+            {proposal.glossarySources.map((source) => (
+              <li key={source.termId}>
+                <span>{source.termId}</span>
+                {' · '}
+                <span>{t(locale, 'requirements.version', { version: source.version })}</span>
+                {' · '}
+                <span>{t(locale, `externalProposals.source.${source.status}`)}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </article>
   );
 }
@@ -84,6 +100,7 @@ export default function ExternalProposalsPage() {
   const projectId = project.id;
   const proposalTag = `project:${projectId}:external-proposals`;
   const requirementTag = `project:${projectId}:requirements`;
+  const glossaryTag = `project:${projectId}:glossary`;
   const load = useCallback(
     async (after: string | null) => {
       const {
@@ -91,15 +108,15 @@ export default function ExternalProposalsPage() {
       } = await query(
         ExternalProposalsDocument,
         { projectId, after },
-        { tags: [proposalTag, requirementTag] },
+        { tags: [proposalTag, requirementTag, glossaryTag] },
       );
       return { edges: items.map((node) => ({ node, cursor: node.id })), pageInfo };
     },
-    [projectId, proposalTag, requirementTag],
+    [projectId, proposalTag, requirementTag, glossaryTag],
   );
   const { rows, loaded, loading, error, hasNextPage, loadMore, retry } = useInfinite({
     identity: JSON.stringify(['externalProposals', projectId]),
-    tags: [proposalTag, requirementTag],
+    tags: [proposalTag, requirementTag, glossaryTag],
     load,
   });
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });

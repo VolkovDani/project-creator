@@ -199,6 +199,8 @@ func (s *Service) process(lockConnection *sql.Conn, workspace string, r *Run) {
 		if code == "" {
 			if err = s.currentWith(finishCtx, tx, workspace, r); err != nil {
 				code = errorCode(err)
+			} else if r.glossaryStale {
+				code = glossaryChangedCode
 			} else if s.classifier == nil && r.FailedPairs > 0 {
 				// Invalid output is the only pair failure the sequential queue runs past.
 				code = "INVALID_OUTPUT"
@@ -280,7 +282,7 @@ func (s *Service) process(lockConnection *sql.Conn, workspace string, r *Run) {
 			finish("")
 			return
 		}
-		pair := Pair{Left: p.Left, Right: p.Right}
+		pair := Pair{Left: p.Left, Right: p.Right, ConfirmedGlossary: p.GlossaryContext}
 		var finding Finding
 		code := ""
 		origin := "model"
@@ -313,7 +315,7 @@ func errorCode(err error) string {
 		return "INTERRUPTED"
 	}
 	switch err.Error() {
-	case "SOURCE_CHANGED", "PROFILE_CHANGED", "INDEX_INCOMPLETE", "QUEUE_TOO_LARGE", "REPLACED":
+	case "SOURCE_CHANGED", glossaryChangedCode, "PROFILE_CHANGED", "INDEX_INCOMPLETE", "QUEUE_TOO_LARGE", "REPLACED":
 		return err.Error()
 	}
 	return "STORAGE_FAILED"
@@ -350,6 +352,9 @@ func (s *Service) nextPair(ctx context.Context, workspace string, r *Run) (*Pair
 		return nil, err
 	}
 	if err = s.currentWith(ctx, tx, workspace, r); err != nil {
+		return nil, err
+	}
+	if err = checkGlossaryContext(ctx, tx, workspace, r, ""); err != nil {
 		return nil, err
 	}
 	var replacement bool
@@ -398,6 +403,9 @@ func (s *Service) savePair(ctx context.Context, workspace string, r *Run, p *Pai
 	// This check is inside the commit transaction, after inference, while source
 	// edits are fenced by the same project lock. Late responses cannot enter cache.
 	if err = s.currentWith(ctx, tx, workspace, r); err != nil {
+		return err
+	}
+	if err = checkGlossaryContext(ctx, tx, workspace, r, p.ID); err != nil {
 		return err
 	}
 	status := "completed"

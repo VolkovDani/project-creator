@@ -14,9 +14,20 @@ type similarPairsInput struct {
 }
 
 type similarPair struct {
-	Left            requirement `json:"left"`
-	Right           requirement `json:"right"`
-	SimilarityScore float64     `json:"similarityScore"`
+	Left            requirement    `json:"left"`
+	Right           requirement    `json:"right"`
+	SimilarityScore float64        `json:"similarityScore"`
+	GlossaryContext []glossaryHint `json:"glossaryContext"`
+}
+
+type glossaryHint struct {
+	TermID     *string `json:"termId,omitempty"`
+	Version    *int32  `json:"version,omitempty"`
+	Spelling   string  `json:"spelling"`
+	Name       *string `json:"name,omitempty"`
+	Definition *string `json:"definition,omitempty"`
+	Context    *string `json:"context,omitempty"`
+	Ambiguous  bool    `json:"ambiguous"`
 }
 
 type similarPairsPage struct {
@@ -39,7 +50,12 @@ func (b backend) similarPairs(ctx context.Context, _ *mcp.CallToolRequest, in si
 	var result struct{ SimilarRequirementPairs similarPairsPage }
 	err = b.query(ctx, `query MCPSimilarRequirementPairs($projectId: ID!, $threshold: Float!, $first: Int!, $after: String) {
 		similarRequirementPairs(projectId: $projectId, threshold: $threshold, first: $first, after: $after) {
-			items { left { id text version } right { id text version } similarityScore }
+			items {
+				left { id text version }
+				right { id text version }
+				similarityScore
+				glossaryContext { termId version spelling name definition context ambiguous }
+			}
 			pageInfo { endCursor hasNextPage }
 			status embeddingProfile missingRequirements
 		}

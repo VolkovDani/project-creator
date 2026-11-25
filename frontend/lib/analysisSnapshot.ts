@@ -58,12 +58,15 @@ export function parseAnalysisSnapshot(value: unknown): AnalysisSnapshot {
     typeof record.similarityThreshold !== 'number' ||
     !Array.isArray(record.missingRequirementIds) ||
     record.missingRequirementIds.some((id) => typeof id !== 'string') ||
+    (record.glossaryRevision !== undefined &&
+      (typeof record.glossaryRevision !== 'string' || !/^\d+$/.test(record.glossaryRevision))) ||
     !/^\d+$/.test(String(record.revision))
   )
     throw Error('invalid analysis snapshot');
   return {
     ...value,
     deletionScheduledFor: record.deletionScheduledFor ?? null,
+    glossaryRevision: record.glossaryRevision ?? '0',
     layaSkippedPairs: record.layaSkippedPairs ?? 0,
   } as AnalysisSnapshot;
 }

@@ -2,7 +2,9 @@ package glossary
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -29,6 +31,57 @@ func TestSummaryHintsExcludeAmbiguityAndRetainVersions(t *testing.T) {
 	hints := SummaryHints("ГП и генподрядчик", []Term{a, b})
 	if len(hints) != 2 || hints[0].TermID != "" || hints[0].Definition != "" || hints[0].Spelling != "ГП" || hints[1].TermID != "a" || hints[1].Version != 2 {
 		t.Fatal(hints)
+	}
+}
+
+func TestPairHintsMatchBothSourcesAndPreserveAmbiguity(t *testing.T) {
+	terms := []Term{
+		{ID: "a", Name: "Генеральный подрядчик", Version: 2, Definition: "Организация", Context: "Строительство", Variants: []Variant{{"ГП", "abbreviation"}, {"Генподрядчик", "synonym"}}},
+		{ID: "b", Name: "Генеральный план", Version: 3, Definition: "Документ", Variants: []Variant{{"ГП", "abbreviation"}}},
+		{ID: "c", Name: "Подрядчик", Version: 1},
+		{ID: "d", Name: "ГПУ", Version: 1},
+	}
+	left := "😀 ГП, ГПУ2 и генеральный подрядчик. генподрядчик."
+	right := "Гп и Генподрядчик. Генеральный план."
+	want := []Hint{
+		{TermID: "b", Version: 3, Spelling: "Генеральный план", Name: "Генеральный план", Definition: "Документ"},
+		{TermID: "a", Version: 2, Spelling: "генеральный подрядчик", Name: "Генеральный подрядчик", Definition: "Организация", Context: "Строительство"},
+		{TermID: "a", Version: 2, Spelling: "Генподрядчик", Name: "Генеральный подрядчик", Definition: "Организация", Context: "Строительство"},
+		{Ambiguous: true, Spelling: "ГП"},
+	}
+	got := PairHints(terms)(left, right)
+	if !slices.Equal(got, want) {
+		t.Fatalf("hints = %+v, want %+v", got, want)
+	}
+	slices.Reverse(terms)
+	reversed := PairHints(terms)(right, left)
+	if !slices.Equal(got, reversed) {
+		t.Fatalf("reversed hints = %+v, want %+v", reversed, got)
+	}
+	if empty, _ := json.Marshal(PairHints(terms)("ГПУ2", "_генподрядчик")); string(empty) != "[]" {
+		t.Fatalf("empty hints = %s", empty)
+	}
+}
+
+func TestPairHintsFitEncodedBudgetDeterministically(t *testing.T) {
+	var terms []Term
+	var labels []string
+	for i := 0; i < 25; i++ {
+		label := fmt.Sprintf("Смысл%02d", i)
+		labels = append(labels, label)
+		terms = append(terms, Term{ID: label, Version: 1, Name: label, Definition: strings.Repeat("😀<&", 50)})
+	}
+	hints := PairHints(terms)
+	left, right := strings.Join(labels[:10], " "), strings.Join(labels[10:], " ")
+	got := hints(left, right)
+	if len(got) == 0 || len(got) >= len(terms) {
+		t.Fatalf("expected truncated, nonempty hints, got %d", len(got))
+	}
+	if encoded, _ := json.Marshal(got); len(encoded) > 3072 {
+		t.Fatalf("encoded hints use %d bytes", len(encoded))
+	}
+	if reversed := hints(right, left); !slices.Equal(got, reversed) {
+		t.Fatalf("reversed hints = %+v, want %+v", reversed, got)
 	}
 }
 

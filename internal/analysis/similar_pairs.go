@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/VolkovDani/project-creator/contracts"
+	"github.com/VolkovDani/project-creator/internal/glossary"
 )
 
 const similarPairWindow = 128
@@ -107,12 +108,14 @@ func (s *Service) ListSimilarPairs(ctx context.Context, workspace, project strin
 		return page, nil
 	}
 
-	// Ready index writes replace their attempt or completion time. Include
-	// both alongside active versions so reindexing also expires a cursor.
+	// Include active sources, ready index attempts, and confirmed term revisions
+	// so each continuation sees the same source and vocabulary snapshot.
 	var snapshot string
 	err = tx.QueryRowContext(ctx, `
 		SELECT md5($3 || ':' || coalesce(string_agg(
-		    md5(jsonb_build_array(r.id,r.version,i.attempt,extract(epoch FROM i.lease_until))::text),'' ORDER BY r.id),'')),
+		    md5(jsonb_build_array(r.id,r.version,i.attempt,extract(epoch FROM i.lease_until))::text),'' ORDER BY r.id),'') ||
+		    coalesce(':' || (SELECT string_agg(md5(jsonb_build_array(t.id,t.version)::text),'' ORDER BY t.id)
+		      FROM glossary_terms t WHERE t.workspace=$1 AND t.project_id=$2),'')),
 		    count(*) FILTER (WHERE i.requirement_id IS NULL)
 		FROM active_requirements r
 		LEFT JOIN requirement_index i ON i.workspace=r.workspace AND i.project_id=r.project_id AND i.requirement_id=r.id
@@ -157,8 +160,19 @@ func (s *Service) ListSimilarPairs(ctx context.Context, workspace, project strin
 			page.Items = append(page.Items, p)
 		}
 	}
-	if rows.Err() != nil {
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return SimilarPairPage{}, errStorage
+	}
+	if len(page.Items) > 0 {
+		terms, err := glossary.List(ctx, tx, workspace, project)
+		if err != nil {
+			return SimilarPairPage{}, errStorage
+		}
+		hints := glossary.PairHints(terms)
+		for i := range page.Items {
+			pair := &page.Items[i]
+			pair.ConfirmedGlossary = hints(pair.Left.Text, pair.Right.Text)
+		}
 	}
 	return page, nil
 }

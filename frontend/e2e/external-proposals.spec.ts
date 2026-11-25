@@ -12,6 +12,7 @@ const saved = {
   sharing: 'local',
   status: 'pending_review',
   createdAt: '2026-11-05T00:00:00Z',
+  glossarySources: [{ termId: 'payment-term', version: 3, status: 'current' }],
   sources: [
     { requirementId: 'payment', version: 2, status: 'current' },
     { requirementId: 'deleted', version: 1, status: 'unavailable' },
@@ -86,6 +87,12 @@ async function fixture(page: Page) {
         sources: [{ ...saved.sources[0], status: 'stale' }, saved.sources[1]],
       };
     },
+    changeGlossary: () => {
+      current = {
+        ...current,
+        glossarySources: [{ ...saved.glossarySources[0], status: 'stale' }],
+      };
+    },
     changeProposal: () => {
       current = { ...current, limitations: 'Updated set of limitations.' };
     },
@@ -120,7 +127,9 @@ test('opens the review from Analysis, loads older proposals and refreshes cited 
   await expect(proposal.locator('time')).toHaveAttribute('datetime', saved.createdAt);
   await expect(proposal.getByText('payment', { exact: true })).toBeVisible();
   await expect(proposal.getByText('Version 2', { exact: true })).toBeVisible();
-  await expect(proposal.getByText('Current', { exact: true })).toBeVisible();
+  const citedTerm = proposal.getByRole('listitem').filter({ hasText: 'payment-term' });
+  await expect(citedTerm.getByText('Version 3', { exact: true })).toBeVisible();
+  await expect(citedTerm.getByText('Current', { exact: true })).toBeVisible();
   await expect(proposal.getByText('Unavailable', { exact: true })).toBeVisible();
   await expect(proposal.getByRole('link')).toHaveCount(1);
   await expect(proposal.getByRole('link')).toHaveAttribute(
@@ -141,17 +150,23 @@ test('opens the review from Analysis, loads older proposals and refreshes cited 
   await expect(page.getByText('Older proposal', { exact: true })).toBeVisible();
   expect(data.cursors).toEqual([null, 'next', null, 'next']);
 
+  data.changeGlossary();
+  await page.evaluate(() =>
+    (window as unknown as EventWindow).sendInvalidation('2', ['project:demo:glossary']),
+  );
+  await expect(citedTerm.getByText('Stale', { exact: true })).toBeVisible();
+
   data.changeProposal();
   await page.evaluate(() =>
-    (window as unknown as EventWindow).sendInvalidation('2', ['project:demo:external-proposals']),
+    (window as unknown as EventWindow).sendInvalidation('3', ['project:demo:external-proposals']),
   );
   await expect(proposal.getByText('Updated set of limitations.', { exact: true })).toBeVisible();
-  expect(data.cursors).toEqual([null, 'next', null, 'next', null, 'next']);
+  expect(data.cursors).toEqual([null, 'next', null, 'next', null, 'next', null, 'next']);
   await expectLayout(page);
 
   data.deny();
   await page.evaluate(() =>
-    (window as unknown as EventWindow).sendInvalidation('3', ['project:demo:requirements']),
+    (window as unknown as EventWindow).sendInvalidation('4', ['project:demo:requirements']),
   );
   await expect(page.getByRole('article')).toHaveCount(0);
 });

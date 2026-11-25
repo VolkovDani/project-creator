@@ -161,7 +161,7 @@ func TestOpenVINOAliasReferencesRoundTripAndRejectUnknownSources(t *testing.T) {
 						if want.Right.Text < want.Left.Text {
 							want.Left.Text, want.Right.Text = want.Right.Text, want.Left.Text
 						}
-						if request.Pair != want {
+						if !reflect.DeepEqual(request.Pair, want) {
 							t.Errorf("model received %+v; want normalized references and unchanged texts %+v", request.Pair, want)
 						}
 						finding := Finding{LeftID: response.leftID, RightID: response.rightID,

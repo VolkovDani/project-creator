@@ -35,12 +35,16 @@ type ClassificationExplanationPayload { status: String! result: ClassificationEx
 
 type ExternalProposalSource { requirementId: ID! version: Int! status: String! }
 input ExternalProposalSourceInput { requirementId: ID! version: Int! }
-type ExternalProposal { id: ID! analysis: String! limitations: String! client: String! model: String! sharing: String! status: String! createdAt: String! sources: [ExternalProposalSource!]! }
-input SaveExternalProposalInput { projectId: ID! requestId: String! analysis: String! limitations: String! client: String! model: String! sharing: String! sources: [ExternalProposalSourceInput!]! }
+type ExternalProposalGlossarySource { termId: ID! version: Int! status: String! }
+input ExternalProposalGlossarySourceInput { termId: ID! version: Int! }
+input ExternalProposalGlossaryInput { sources: [ExternalProposalGlossarySourceInput!]! }
+type ExternalProposal { glossarySources: [ExternalProposalGlossarySource!]! id: ID! analysis: String! limitations: String! client: String! model: String! sharing: String! status: String! createdAt: String! sources: [ExternalProposalSource!]! }
+input SaveExternalProposalInput { glossary: ExternalProposalGlossaryInput projectId: ID! requestId: String! analysis: String! limitations: String! client: String! model: String! sharing: String! sources: [ExternalProposalSourceInput!]! }
 type ExternalProposalPayload { proposal: ExternalProposal fieldErrors: [FieldError!]! }
 type ExternalProposalPage { items: [ExternalProposal!]! pageInfo: PageInfo! }
 
-type SimilarRequirementPair { left: AnalysisSource! right: AnalysisSource! similarityScore: Float! }
+type PairGlossaryHint { termId: ID version: Int spelling: String! name: String definition: String context: String ambiguous: Boolean! }
+type SimilarRequirementPair { glossaryContext: [PairGlossaryHint!]! left: AnalysisSource! right: AnalysisSource! similarityScore: Float! }
 type SimilarRequirementPairPage { items: [SimilarRequirementPair!]! pageInfo: PageInfo! status: String! embeddingProfile: String! missingRequirements: Int! }
 
 type Query {
@@ -70,14 +74,14 @@ type RequirementSearchHit { requirementId: ID! projectId: ID! text: String! sour
 
 type AnalysisSource { id: ID! version: Int! text: String! }
 type AnalysisFinding { leftId: ID! rightId: ID! leftVersion: Int! rightVersion: Int! verdict: String! explanation: String! }
-type AnalysisPair { explanationMatches: [GlossaryMatch!]! detailsVersion: String! isExactDuplicate: Boolean! layaErrorCode: String! layaStatus: String! preclassification: String layaCheckedAt: String selectionReasons: [String!]! similarityScore: Float resultOrigin: String! reusedFrom: ID! checkedAt: String! generatorProfile: String! id: ID! position: Int! status: String! left: AnalysisSource! right: AnalysisSource! verdict: String! explanation: String! errorCode: String! }
-type ProjectAnalysis { deletionScheduledFor: String classifierProfile: String! layaPendingPairs: Int! layaRunningPairs: Int! layaCompletedPairs: Int! layaFailedPairs: Int! layaSkippedPairs: Int! revision: String! mode: String! similarityThreshold: Float! selectionProfile: String! possiblePairs: Int notSelectedPairs: Int duplicatePairs: Int! reusedPairs: Int! newPairs: Int! completedPairs: Int! pendingPairs: Int! runningPairs: Int! failedPairs: Int! collisionPairs: Int! compatiblePairs: Int! insufficientPairs: Int! generatorProvenance: String! stage: String! totalPairs: Int processedPairs: Int! activePairId: ID! pairs: [AnalysisPair!]! reasonCode: String! missingRequirementIds: [ID!]! id: ID! projectId: ID! status: String! outcome: String! errorCode: String! createdAt: String! completedAt: String! stale: Boolean! generatorProfile: String! embeddingProfile: String! sources: [AnalysisSource!]! findings: [AnalysisFinding!]! }
+type AnalysisPair { glossaryContext: [PairGlossaryHint!]! glossaryStale: Boolean! explanationMatches: [GlossaryMatch!]! detailsVersion: String! isExactDuplicate: Boolean! layaErrorCode: String! layaStatus: String! preclassification: String layaCheckedAt: String selectionReasons: [String!]! similarityScore: Float resultOrigin: String! reusedFrom: ID! checkedAt: String! generatorProfile: String! id: ID! position: Int! status: String! left: AnalysisSource! right: AnalysisSource! verdict: String! explanation: String! errorCode: String! }
+type ProjectAnalysis { glossaryRevision: String! deletionScheduledFor: String classifierProfile: String! layaPendingPairs: Int! layaRunningPairs: Int! layaCompletedPairs: Int! layaFailedPairs: Int! layaSkippedPairs: Int! revision: String! mode: String! similarityThreshold: Float! selectionProfile: String! possiblePairs: Int notSelectedPairs: Int duplicatePairs: Int! reusedPairs: Int! newPairs: Int! completedPairs: Int! pendingPairs: Int! runningPairs: Int! failedPairs: Int! collisionPairs: Int! compatiblePairs: Int! insufficientPairs: Int! generatorProvenance: String! stage: String! totalPairs: Int processedPairs: Int! activePairId: ID! pairs: [AnalysisPair!]! reasonCode: String! missingRequirementIds: [ID!]! id: ID! projectId: ID! status: String! outcome: String! errorCode: String! createdAt: String! completedAt: String! stale: Boolean! generatorProfile: String! embeddingProfile: String! sources: [AnalysisSource!]! findings: [AnalysisFinding!]! }
 
 type RequirementIndexProgress { projectId: ID! total: Int! queued: Int! running: Int! ready: Int! failed: Int! profile: String! configured: Boolean! }
 
 type AnalysisRunMetadata { id: ID! projectId: ID! generatorProfile: String! generatorProvenance: String! embeddingProfile: String! selectionProfile: String! }
 
-type ProjectAnalysisSummary { deletionScheduledFor: String classifierProfile: String! layaPendingPairs: Int! layaRunningPairs: Int! layaCompletedPairs: Int! layaFailedPairs: Int! layaSkippedPairs: Int! revision: String! mode: String! similarityThreshold: Float! possiblePairs: Int notSelectedPairs: Int duplicatePairs: Int! reusedPairs: Int! newPairs: Int! completedPairs: Int! pendingPairs: Int! runningPairs: Int! failedPairs: Int! collisionPairs: Int! compatiblePairs: Int! insufficientPairs: Int! stage: String! totalPairs: Int processedPairs: Int! activePairId: ID! reasonCode: String! missingRequirementIds: [ID!]! id: ID! projectId: ID! status: String! outcome: String! errorCode: String! createdAt: String! completedAt: String! stale: Boolean! }
+type ProjectAnalysisSummary { glossaryRevision: String! deletionScheduledFor: String classifierProfile: String! layaPendingPairs: Int! layaRunningPairs: Int! layaCompletedPairs: Int! layaFailedPairs: Int! layaSkippedPairs: Int! revision: String! mode: String! similarityThreshold: Float! possiblePairs: Int notSelectedPairs: Int duplicatePairs: Int! reusedPairs: Int! newPairs: Int! completedPairs: Int! pendingPairs: Int! runningPairs: Int! failedPairs: Int! collisionPairs: Int! compatiblePairs: Int! insufficientPairs: Int! stage: String! totalPairs: Int processedPairs: Int! activePairId: ID! reasonCode: String! missingRequirementIds: [ID!]! id: ID! projectId: ID! status: String! outcome: String! errorCode: String! createdAt: String! completedAt: String! stale: Boolean! }
 
 type RequirementSummary { glossaryMatches: [GlossaryMatch!]! byteLength: Int! layaEligible: Boolean! requirementId: ID! projectId: ID! version: Int! status: String! text: String! profile: String! provenance: String! createdAt: String! errorCode: String! }
 

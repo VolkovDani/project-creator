@@ -1,11 +1,12 @@
 const prereleaseTag = /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/;
 const fullSha = /^[a-f0-9]{40}$/;
 
-export function validateReleaseInput({ tag, sourceSha, ref }) {
+export function validateReleaseInput({ tag, sourceSha, notesSha, ref }) {
   if (ref !== 'refs/heads/main') throw new Error('Release workflow must run from main.');
   if (!prereleaseTag.test(tag ?? '')) throw new Error('A semantic version prerelease tag is required.');
   if (!fullSha.test(sourceSha ?? '')) throw new Error('A full 40-character source SHA is required.');
-  return { tag, sourceSha };
+  if (!fullSha.test(notesSha ?? '')) throw new Error('A full 40-character Wiki notes SHA is required.');
+  return { tag, sourceSha, notesSha };
 }
 
 export function validateAcceptanceIssue(issue, tag, sourceSha) {

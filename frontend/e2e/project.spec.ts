@@ -390,10 +390,17 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
   await expect(page.getByLabel('Название понятия')).toHaveValue('Генеральный подрядчик');
   await page.getByLabel('Определение', { exact: true }).fill('Исполнитель работ');
   await page.getByRole('button', { name: 'Подтвердить и сохранить' }).click();
-  await expect(
-    page.getByRole('button', { name: 'Генеральный подрядчик', exact: true }),
-  ).toBeVisible();
+  await page.getByRole('button', { name: 'Генеральный подрядчик', exact: true }).click();
+  await expect(page.getByRole('cell', { name: 'ГП', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'ГП', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Изменить понятие' }).click();
+  const editor = page.getByRole('dialog', { name: 'Запись словаря' });
+  await editor.getByRole('button', { name: 'Добавить вариант' }).click();
+  const added = editor.getByRole('row').last();
+  await added.getByRole('textbox').fill('Генеральный исполнитель');
+  await added.getByRole('combobox').selectOption('spelling');
+  await editor.getByRole('button', { name: 'Подтвердить и сохранить' }).click();
+  await expect(page.getByRole('cell', { name: 'Генеральный исполнитель' })).toBeVisible();
   await page.getByRole('button', { name: 'Где упоминается' }).click();
   const mention = page.getByRole('dialog').getByRole('link', { name: /Генеральный подрядчик/ });
   await expect(mention).toHaveAttribute('href', /requirements\?requirement=/);

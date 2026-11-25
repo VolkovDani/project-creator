@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import type { GlossaryFieldsFragment } from '../lib/generated';
 import { openProjectMenu } from './layout-assertions';
 
 const candidate = {
@@ -15,13 +16,17 @@ const candidate = {
 };
 const proposed = 'Подпись для подтверждения документа.\nСохраняет  исходный текст.';
 
-const term = {
+const term: GlossaryFieldsFragment = {
   id: 'term',
   name: 'ЭЦП',
   definition: '',
   context: '',
   variants: [],
   version: 1,
+  sourceId: '',
+  sourceVersion: 0,
+  createdAt: '',
+  updatedAt: '',
 };
 
 async function visitGlossary(
@@ -81,6 +86,91 @@ async function visitGlossary(
   await page.goto('/projects/demo/glossary');
   return { requests, saves, release: () => release?.() };
 }
+
+test('opens a selected concept beside the glossary list and edits variants in table rows', async ({
+  page,
+}) => {
+  const concept = {
+    ...term,
+    definition: 'Подпись для подтверждения документа.',
+    context: 'Подписание договоров.',
+    variants: [
+      { text: 'Подпись', kind: 'synonym' },
+      { text: 'Электронная подпись', kind: 'spelling' },
+    ],
+  };
+  const { saves } = await visitGlossary(page, [], [], [concept]);
+  const row = page.getByRole('button', { name: concept.name, exact: true });
+  await expect(page.getByRole('heading', { name: concept.name, exact: true })).toHaveCount(0);
+  await row.click();
+  await expect(row).toHaveAttribute('aria-pressed', 'true');
+  const detail = page.getByRole('article').filter({ hasText: concept.definition });
+  await expect(detail.getByText(concept.context)).toBeVisible();
+  await expect(detail.getByRole('cell', { name: 'Подпись', exact: true })).toBeVisible();
+  expect((await detail.boundingBox())?.x).toBeGreaterThan((await row.boundingBox())?.x ?? 0);
+
+  await detail.getByRole('button', { name: 'Изменить понятие' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Запись словаря' });
+  const table = dialog.getByRole('table');
+  await expect(table.getByRole('columnheader', { name: 'Вариант', exact: true })).toBeVisible();
+  await expect(table.getByRole('columnheader', { name: 'Тип варианта' })).toBeVisible();
+  const first = table.getByRole('row').nth(1);
+  const second = table.getByRole('row').nth(2);
+  await expect(first.getByRole('textbox', { name: /Вариант/ })).toHaveValue('Подпись');
+  await first.getByRole('textbox', { name: /Вариант/ }).fill('ЦП');
+  await first.getByRole('combobox', { name: /Тип варианта/ }).selectOption('abbreviation');
+  await second.getByRole('button', { name: /Убрать вариант/ }).click();
+  await dialog.getByRole('button', { name: 'Добавить вариант' }).click();
+  await second.getByRole('textbox', { name: /Вариант/ }).fill('Цифровая подпись');
+  await dialog.getByRole('button', { name: 'Подтвердить и сохранить' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(saves).toEqual([
+    expect.objectContaining({
+      id: term.id,
+      version: term.version,
+      variants: [
+        { text: 'ЦП', kind: 'abbreviation' },
+        { text: 'Цифровая подпись', kind: 'synonym' },
+      ],
+    }),
+  ]);
+});
+
+test('keeps variant controls in view and returns focus to the concept list on a narrow screen', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  await visitGlossary(
+    page,
+    [],
+    [],
+    [{ ...term, variants: [{ text: 'Электронная цифровая подпись', kind: 'spelling' }] }],
+  );
+  const row = page.getByRole('button', { name: term.name, exact: true });
+  await row.click();
+  const details = page.getByRole('dialog', { name: term.name });
+  await expect(details).toBeVisible();
+  await details.getByRole('button', { name: 'Изменить понятие' }).click();
+  const editor = page.getByRole('dialog', { name: 'Запись словаря' });
+  const variant = editor.getByRole('row').nth(1);
+  const name = variant.getByRole('textbox');
+  const kind = variant.getByRole('combobox');
+  const remove = variant.getByRole('button', { name: /Убрать вариант/ });
+  await expect(name).toBeInViewport();
+  await expect(kind).toBeInViewport();
+  await expect(remove).toBeInViewport();
+  const boxes = await Promise.all([name.boundingBox(), kind.boundingBox(), remove.boundingBox()]);
+  expect(boxes.every((box) => box && box.x >= 0 && box.x + box.width <= 320)).toBe(true);
+  expect(await editor.evaluate((el) => el.scrollWidth)).toBeLessThanOrEqual(
+    await editor.evaluate((el) => el.clientWidth),
+  );
+  await page.keyboard.press('Escape');
+  await expect(editor).toHaveCount(0);
+  await expect(details).toBeVisible();
+  await details.getByRole('button', { name: 'Назад к словарю' }).click();
+  await expect(details).toBeHidden();
+  await expect(row).toBeFocused();
+});
 
 async function openCandidate(page: Page, results = ['suggested']) {
   const operations = await visitGlossary(page, results);
@@ -305,6 +395,7 @@ for (const theme of ['light', 'dark']) {
     await visitGlossary(page, [], [], [term]);
     if (theme === 'light') await page.getByRole('button', { name: 'Тёмная тема' }).click();
     await expect(page.locator('html')).toHaveCSS('color-scheme', theme);
+    await page.getByRole('button', { name: term.name, exact: true }).click();
     const remove = page.getByRole('button', { name: 'Удалить', exact: true });
     const mentions = page.getByRole('button', { name: 'Где упоминается' });
     const neutralColor = await mentions.evaluate((el) => getComputedStyle(el).color);
@@ -318,6 +409,7 @@ for (const theme of ['light', 'dark']) {
     await expect(confirm).toHaveCSS('border', dangerBorder);
     const cancel = page.getByRole('button', { name: 'Отмена' });
     await expect(cancel).toHaveCSS('color', neutralColor);
+    await expect(cancel).toBeFocused();
     await cancel.click();
     await expect(confirm).toHaveCount(0);
   });
@@ -352,8 +444,9 @@ test('scrolling inside the mentions dialog loads the next cursor without moving 
     } else await route.fallback();
   });
   await page.goto('/projects/demo/glossary?listMode=pages&page=2');
+  await page.getByRole('button', { name: term.name, exact: true }).click();
   await page.getByRole('button', { name: 'Где упоминается' }).click();
-  const dialog = page.getByRole('dialog');
+  const dialog = page.getByRole('dialog', { name: /Упоминания понятия/ });
   await expect(dialog.getByRole('link', { name: 'Упоминание 0', exact: true })).toBeVisible();
   expect(cursors).toEqual([null]);
   const pageOffset = await page.evaluate(() => window.scrollY);

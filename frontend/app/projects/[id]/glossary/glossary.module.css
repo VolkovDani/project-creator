@@ -1,0 +1,48 @@
+.search {
+  margin-block-end: var(--space-4);
+}
+
+.variants {
+  margin-block: var(--space-3);
+}
+
+.variants th,
+.variants td {
+  padding: var(--space-1) var(--space-2);
+}
+
+.editor {
+  padding: clamp(var(--space-2), 4vw, var(--space-5));
+}
+
+.editableVariants {
+  table-layout: fixed;
+}
+
+.editableVariants th {
+  overflow-wrap: normal;
+}
+
+.editableVariants th:nth-child(2) {
+  width: min(44%, 12rem);
+}
+
+.editableVariants th:last-child {
+  width: calc(var(--control-height) + var(--space-2));
+}
+
+.editableVariants th,
+.editableVariants td {
+  padding-inline: var(--space-1);
+  vertical-align: middle;
+}
+
+.editableVariants :is(input, select, button) {
+  width: 100%;
+  margin: 0;
+  padding-inline: var(--space-1);
+}
+
+.editableVariants button {
+  font-size: 1.125rem;
+}

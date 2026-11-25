@@ -3,6 +3,7 @@ package analysis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -21,10 +22,12 @@ func TestManagedNPUSummaryLanguageRepairKeepsOneProperty(t *testing.T) {
 		firstSummary        string
 		ignoreFieldCount    bool
 		losesNumberOnRepair bool
+		orderedRepairFails  bool
 		wantErr             error
 	}{
 		{name: "wrong language", firstSummary: "Retain the report for 42 days."},
 		{name: "language repair drops the number", firstSummary: "Retain the report for 42 days.", losesNumberOnRepair: true},
+		{name: "optional numeric retry is unavailable", firstSummary: "Retain the report for 42 days.", losesNumberOnRepair: true, orderedRepairFails: true, wantErr: ErrSummaryNumbers},
 		{name: "missing number", firstSummary: "Хранить отчёт в СЭД."},
 		{name: "provider adds an empty key", firstSummary: "Retain the report for 42 days.", ignoreFieldCount: true, wantErr: ErrSummaryFormat},
 	} {
@@ -41,6 +44,10 @@ func TestManagedNPUSummaryLanguageRepairKeepsOneProperty(t *testing.T) {
 					return
 				}
 				calls++
+				if calls == 3 && tc.orderedRepairFails {
+					w.WriteHeader(http.StatusBadGateway)
+					return
+				}
 				schema := req.Format.Schema.Schema
 				content := fmt.Sprintf(`{"summary":%q}`, tc.firstSummary)
 				if calls == 1 {
@@ -100,7 +107,7 @@ func TestManagedNPUSummaryLanguageRepairKeepsOneProperty(t *testing.T) {
 			if tc.losesNumberOnRepair {
 				wantCalls = 3
 			}
-			if got, err := g.SummarizeWithGlossary(context.Background(), src, hints); got != want || err != tc.wantErr || calls != wantCalls {
+			if got, err := g.SummarizeWithGlossary(context.Background(), src, hints); got != want || !errors.Is(err, tc.wantErr) || calls != wantCalls {
 				t.Fatalf("summary=%q calls=%d err=%v", got, calls, err)
 			}
 		})

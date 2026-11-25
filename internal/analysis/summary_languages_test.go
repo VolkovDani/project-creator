@@ -220,3 +220,26 @@ func TestOrderedSummaryRepairKeepsCompleteNumericSourceTokens(t *testing.T) {
 		}
 	}
 }
+
+func TestOrderedSummaryRepairPreservesNumericSignsAndLeadingDecimals(t *testing.T) {
+	policy, _ := NewSummaryLanguagePolicy("ru")
+	source := "Сохранить порог -42, шаг +12, коэффициент -.5 и поправку −1,25."
+	values := summaryRepairNumbers(source)
+	if want := []string{"-42", "+12", "-.5", "−1,25"}; !slices.Equal(values, want) {
+		t.Fatalf("numeric source tokens %q, want %q", values, want)
+	}
+	pattern := regexp.MustCompile(policy.repairPattern(source, values...))
+	if !pattern.MatchString(source) {
+		t.Fatal("schema rejected source signs and leading decimal point")
+	}
+	for _, changed := range []string{
+		strings.Replace(source, "-42", "42", 1),
+		strings.Replace(source, "+12", "12", 1),
+		strings.Replace(source, "-.5", "-5", 1),
+		strings.Replace(source, "−1,25", "1,25", 1),
+	} {
+		if pattern.MatchString(changed) {
+			t.Errorf("schema accepted a changed numeric value: %q", changed)
+		}
+	}
+}

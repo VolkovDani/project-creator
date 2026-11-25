@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // A word uses either the native alphabet or one complete source spelling.
@@ -122,6 +123,19 @@ func summaryRepairNumbers(source string) []string {
 		start, end := number[0], number[1]
 		for i := word; i < len(words) && words[i][0] < end; i++ {
 			start, end = min(start, words[i][0]), max(end, words[i][1])
+		}
+		if source[start] >= '0' && source[start] <= '9' {
+			// The publication number scan does not include a unary sign or a
+			// leading decimal point. Keep their exact spelling in the grammar.
+			if start > 0 && (source[start-1] == '.' || source[start-1] == ',') {
+				start--
+			}
+			if start > 0 {
+				sign, size := utf8.DecodeLastRuneInString(source[:start])
+				if strings.ContainsRune("+-−", sign) {
+					start -= size
+				}
+			}
 		}
 		if count := len(spans); count > 0 && spans[count-1][1] > start {
 			spans[count-1][1] = max(spans[count-1][1], end)

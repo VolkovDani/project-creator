@@ -229,6 +229,7 @@ func (s *chatSummary) SummarizeWithGlossary(ctx context.Context, src Source, hin
 		return "", err
 	}
 	var lastValidationErr error
+	var orderedConstraint *regexp.Regexp
 	attemptLimit := summaryAttempts
 	russian := len(policy.codes) == 1 && policy.codes[0] == "ru"
 	var russianSource, languageCorrection bool
@@ -238,6 +239,9 @@ func (s *chatSummary) SummarizeWithGlossary(ctx context.Context, src Source, hin
 		}
 		content, err := s.complete(ctx, messages, schema)
 		if err != nil {
+			if orderedConstraint != nil {
+				return "", errors.Join(lastValidationErr, err)
+			}
 			return "", err
 		}
 		text, decodeErr := decodeSummary(content)
@@ -247,7 +251,7 @@ func (s *chatSummary) SummarizeWithGlossary(ctx context.Context, src Source, hin
 		missing := []string{}
 		if decodeErr == nil {
 			missing = missingSummaryNumbers(src.Text, text)
-			if len(missing) > 0 {
+			if len(missing) > 0 || (orderedConstraint != nil && !orderedConstraint.MatchString(text)) {
 				decodeErr = ErrSummaryNumbers
 			}
 		}
@@ -264,8 +268,8 @@ func (s *chatSummary) SummarizeWithGlossary(ctx context.Context, src Source, hin
 		if attempt+1 == summaryAttempts && s.managedNPU && russian && languageCorrection && errors.Is(decodeErr, ErrSummaryNumbers) {
 			// Keep the normal correction when it succeeds. Reserve the stronger
 			// grammar for a language repair that still dropped source numbers.
-			if orderedSchema, encoded := s.orderedNumberRepair(messages, policy, src.Text, russianSource); orderedSchema != nil {
-				schema, schemaBytes = orderedSchema, encoded
+			if orderedSchema, encoded, constraint := s.orderedNumberRepair(messages, policy, src.Text, russianSource); constraint != nil {
+				schema, schemaBytes, orderedConstraint = orderedSchema, encoded, constraint
 				attemptLimit++
 				continue
 			}
@@ -318,14 +322,18 @@ func (s *chatSummary) SummarizeWithGlossary(ctx context.Context, src Source, hin
 
 // orderedNumberRepair installs a more specific correction when it fits. If it
 // does not fit, the caller reports the original missing-number error.
-func (s *chatSummary) orderedNumberRepair(messages []map[string]string, policy SummaryLanguagePolicy, source string, russianSource bool) (map[string]any, []byte) {
+func (s *chatSummary) orderedNumberRepair(messages []map[string]string, policy SummaryLanguagePolicy, source string, russianSource bool) (map[string]any, []byte, *regexp.Regexp) {
 	numbers := summaryRepairNumbers(source)
 	if len(numbers) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	pattern := policy.repairPattern(source, numbers...)
 	if pattern == "" {
-		return nil, nil
+		return nil, nil, nil
+	}
+	constraint, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, nil, nil
 	}
 	schema := s.schemaFor(pattern)
 	encoded, _ := json.Marshal(schema)
@@ -338,9 +346,9 @@ func (s *chatSummary) orderedNumberRepair(messages []map[string]string, policy S
 	}
 	if !summaryRequestFits(messages, len(encoded)) {
 		messages[0]["content"] = previousPrompt
-		return nil, nil
+		return nil, nil, nil
 	}
-	return schema, encoded
+	return schema, encoded, constraint
 }
 
 func decodeSummaryError(content string) error { _, err := decodeSummary(content); return err }

@@ -16,9 +16,11 @@ test('a saved manual classification survives reload and becomes stale when its s
 
   const navigation = page.getByRole('navigation');
   await navigation.getByRole('link', { name: 'Требования', exact: true }).click();
-  await page.getByLabel('Текст требования').fill(original);
+  await page.getByRole('textbox', { name: 'Текст требования', exact: true }).fill(original);
   await page.getByRole('button', { name: 'Добавить требование' }).click();
-  await expect(page.getByText(original, { exact: true })).toBeVisible();
+  await expect(
+    page.locator('#requirements-list').getByRole('button', { name: original, exact: true }),
+  ).toBeVisible();
 
   await navigation.getByRole('link', { name: 'Классификация', exact: true }).click();
   const card = page.locator('[data-classification-id]').filter({ hasText: original });

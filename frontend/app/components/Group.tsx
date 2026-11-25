@@ -8,6 +8,7 @@ export default function Group({
   children,
   defaultOpen = true,
   lazy = false,
+  onOpenChange,
 }: {
   id: string;
   anchorId?: string;
@@ -16,6 +17,7 @@ export default function Group({
   children: React.ReactNode;
   defaultOpen?: boolean;
   lazy?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [restored, setRestored] = useState(false);
@@ -26,6 +28,9 @@ export default function Group({
     } catch {}
     setRestored(true);
   }, [id, defaultOpen]);
+  useEffect(() => {
+    if (restored) onOpenChange?.(open);
+  }, [open, restored, onOpenChange]);
   return (
     <details
       id={anchorId}

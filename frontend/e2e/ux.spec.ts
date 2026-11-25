@@ -1,8 +1,194 @@
 import { expect, type Page, test } from '@playwright/test';
 import { expectLayout, layoutCases, openProjectMenu, setLayout } from './layout-assertions';
 
+const requirementRows = '#requirements-list button[id^="requirement-row-"]';
+
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status === 'passed') await expectLayout(page);
+});
+
+test('business requirement details identify the selected record and preserve the list on return', async ({
+  page,
+}, testInfo) => {
+  await fixture(page, 0);
+  const id = '1978f16b10ca814066a43b3c61277267a';
+  const archivedId = '2459eb712bc922eab03ff27d7ad642fc';
+  const createdAt = '2026-11-24T10:00:00Z';
+  const updatedAt = '2026-11-25T09:00:00Z';
+  const archivedAt = '2026-11-25T10:00:00Z';
+  const active = [
+    {
+      ...requirement(0),
+      id,
+      text: 'Сохранить историю согласования.',
+      version: 2,
+      createdAt,
+      updatedAt,
+    },
+    { ...requirement(1), text: 'Подтвердить ответственного за заявку.' },
+  ];
+  const archived = {
+    ...requirement(2),
+    id: archivedId,
+    text: 'Архивное правило согласования.',
+    archivedAt,
+  };
+  await page.route('**/api/graphql', (route) => {
+    const { operationName } = route.request().postDataJSON();
+    if (operationName !== 'RequirementConnection' && operationName !== 'ArchivedRequirements')
+      return route.fallback();
+    const batch = operationName === 'RequirementConnection' ? active : [archived];
+    return route.fulfill({
+      json: {
+        data: {
+          requirementsConnection: {
+            edges: batch.map((node) => ({ cursor: node.id, node })),
+            pageInfo: { endCursor: null, hasNextPage: false },
+            totalCount: batch.length,
+          },
+        },
+      },
+    });
+  });
+  await page.goto('/projects/demo/requirements');
+  const list = page.locator('#requirements-list');
+  const first = list.getByRole('button', { name: active[0].text, exact: true });
+  const details = page.locator(`#requirement-${id}`);
+  if (testInfo.project.name === 'desktop') await expect(details).toBeVisible();
+  await first.press('Enter');
+  await expect(first).toHaveAttribute('aria-pressed', 'true');
+  await expect(details.getByText(id, { exact: true })).toBeVisible();
+  await expect(details.getByText(project.name, { exact: true })).toBeVisible();
+  await expect(details.getByText('2', { exact: true })).toBeVisible();
+  await expect(details.getByText('Активно', { exact: true })).toBeVisible();
+  await expect(details.locator(`time[datetime="${createdAt}"]`)).toBeVisible();
+  await expect(details.locator(`time[datetime="${updatedAt}"]`)).toBeVisible();
+  await expect(details.getByText(active[0].text, { exact: true })).toBeVisible();
+  if (testInfo.project.name === 'narrow') {
+    await expect(page.getByRole('dialog', { name: 'Сведения о требовании' })).toBeVisible();
+    await expect(first).not.toBeFocused();
+    await page.getByRole('button', { name: 'К списку требований' }).press('Enter');
+    await expect(first).toBeFocused();
+  }
+  const second = list.getByRole('button', { name: active[1].text, exact: true });
+  await second.click();
+  await expect(second).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#requirement-r1').getByText('r1', { exact: true })).toBeVisible();
+  await expect(details).toHaveCount(0);
+
+  await page.goto(`/projects/demo/requirements?requirement=${id}#requirement-${id}`);
+  await expect(details.getByText(id, { exact: true })).toBeVisible();
+  if (testInfo.project.name === 'narrow')
+    await page.getByRole('button', { name: 'К списку требований' }).click();
+  await page.locator('#requirements-archive > summary').click();
+  await page.locator('#requirements-archive').getByRole('button', { name: archived.text }).click();
+  const oldDetails = page.locator(`#requirement-${archivedId}`);
+  await expect(oldDetails.getByText(archivedId, { exact: true })).toBeVisible();
+  await expect(oldDetails.getByText(archived.text, { exact: true })).toBeVisible();
+  await expect(oldDetails.getByText('В архиве', { exact: true })).toBeVisible();
+  await expect(oldDetails.locator(`time[datetime="${archivedAt}"]`)).toBeVisible();
+  await expect(oldDetails.getByRole('button', { name: 'Восстановить' })).toBeVisible();
+  await page.goto(
+    `/projects/demo/requirements?requirement=${archivedId}#requirement-${archivedId}`,
+  );
+  await expect(oldDetails.getByText(archivedId, { exact: true })).toBeVisible();
+  await expect(page.locator('#requirements-archive')).toHaveAttribute('open', '');
+});
+
+test('a glossary definition inside narrow requirement details closes before the details', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'narrow', 'Narrow requirements dialog');
+  await fixture(page, 1);
+  const term = {
+    id: 'term',
+    name: 'Требование',
+    definition: 'Условие, которое нужно выполнить.',
+    context: '',
+    variants: [],
+    version: 1,
+  };
+  await page.route('**/api/graphql', (route) => {
+    const { operationName } = route.request().postDataJSON();
+    if (operationName === 'RequirementGlossary')
+      return route.fulfill({
+        json: {
+          data: {
+            requirementGlossary: {
+              version: 1,
+              matches: [{ start: 0, end: term.name.length, terms: [{ id: term.id }] }],
+            },
+          },
+        },
+      });
+    if (operationName === 'GlossaryTermsByIds')
+      return route.fulfill({ json: { data: { glossaryTermsByIds: [term] } } });
+    return route.fallback();
+  });
+  await page.goto('/projects/demo/requirements');
+  const row = page.locator('#requirement-row-r0');
+  await row.press('Enter');
+  const details = page.getByRole('dialog', { name: 'Сведения о требовании' });
+  const match = details.getByRole('button', { name: term.name, exact: true });
+  await match.press('Enter');
+  const tooltip = details.getByRole('tooltip');
+  await expect(tooltip).toContainText(term.definition);
+  await expect(details.getByRole('button', { name: 'Изменить понятие' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(tooltip).toHaveCount(0);
+  await expect(details).toBeVisible();
+  await expect(match).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(details).toBeHidden();
+  await expect(row).toBeFocused();
+});
+
+test('a classification dialog closes without dismissing narrow requirement details', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'narrow', 'Narrow requirements dialog');
+  await fixture(page, 1);
+  await page.route('**/api/graphql', (route) => {
+    if (route.request().postDataJSON().operationName !== 'RequirementClassification')
+      return route.fallback();
+    return route.fulfill({
+      json: {
+        data: {
+          requirementClassification: {
+            requirementId: 'r0',
+            textVersion: 1,
+            revision: 0,
+            status: 'needs_review',
+            semanticType: 'unknown',
+            representationType: 'unknown',
+            source: 'model',
+            alternatives: [],
+          },
+          classificationExplanationSuggestionRevision: 0,
+        },
+      },
+    });
+  });
+  await page.goto('/projects/demo/requirements');
+  await page.locator('#requirement-row-r0').press('Enter');
+  const details = page.getByRole('dialog', { name: 'Сведения о требовании' });
+  const review = details.getByRole('button', { name: 'Проверить классификацию' });
+  await review.click();
+  const classification = page.getByRole('dialog', { name: 'Проверить классификацию' });
+  await expect(classification).toBeVisible();
+  const offset = await classification.evaluate((dialog) => {
+    const bounds = dialog.getBoundingClientRect();
+    return {
+      vertical: bounds.top + bounds.height / 2 - innerHeight / 2,
+      horizontal: bounds.left + bounds.width / 2 - innerWidth / 2,
+    };
+  });
+  expect(offset.vertical).toBeCloseTo(0, 0);
+  expect(offset.horizontal).toBeCloseTo(0, 0);
+  await page.keyboard.press('Escape');
+  await expect(classification).toBeHidden();
+  await expect(details).toBeVisible();
+  await expect(review).toBeFocused();
 });
 
 test('project menu groups sections and keeps diagnostics accessible on a direct indexing URL', async ({
@@ -243,13 +429,14 @@ test('requirement editing opens a native dialog and Escape discards the draft', 
 }) => {
   await fixture(page, 21);
   await page.goto('/projects/demo/requirements');
-  const addDraft = page.getByLabel('Текст требования');
+  const addDraft = page.locator('#requirement-entry').getByLabel('Текст требования');
   await addDraft.fill('Черновик добавления');
+  await page.locator('#requirement-row-r0').click();
   const edit = page
     .locator('#requirement-r0')
     .getByRole('button', { name: 'Изменить', exact: true });
   await edit.click();
-  const dialog = page.getByRole('dialog');
+  const dialog = page.getByRole('dialog', { name: 'Изменить', exact: true });
   await expect(dialog).toBeVisible();
   const editor = dialog.getByLabel('Текст требования');
   await editor.fill('Черновик');
@@ -269,9 +456,14 @@ test('requirement editing opens a native dialog and Escape discards the draft', 
 test('requirement edit conflict keeps the draft and saving closes the dialog', async ({ page }) => {
   const api = await fixture(page, 3);
   await page.goto('/projects/demo/requirements');
-  await page.getByLabel('Текст требования').fill('Черновик добавления');
-  await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
-  const dialog = page.getByRole('dialog');
+  const addDraft = page.locator('#requirement-entry').getByLabel('Текст требования');
+  await addDraft.fill('Черновик добавления');
+  await page.locator('#requirement-row-r0').click();
+  await page
+    .locator('#requirement-r0')
+    .getByRole('button', { name: 'Изменить', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Изменить', exact: true });
   const editor = dialog.getByLabel('Текст требования');
   await editor.fill('Новая редакция');
   const save = dialog.getByRole('button', { name: 'Сохранить', exact: true });
@@ -293,7 +485,7 @@ test('requirement edit conflict keeps the draft and saving closes the dialog', a
   expect(api.editWrites()).toEqual([
     { id: 'r0', text: 'Новая редакция', version: 2, changeReason: draftReason },
   ]);
-  await expect(page.getByLabel('Текст требования')).toHaveValue('Черновик добавления');
+  await expect(addDraft).toHaveValue('Черновик добавления');
 });
 
 test('revision history pages by version and distinguishes creation from legacy edits', async ({
@@ -330,7 +522,10 @@ test('revision history pages by version and distinguishes creation from legacy e
     });
   });
   await page.goto('/projects/demo/requirements');
-  const history = page.getByRole('group', { name: 'История текста требования' });
+  await page.locator('#requirement-row-r0').click();
+  const history = page
+    .locator('#requirement-r0')
+    .getByRole('group', { name: 'История текста требования' });
   await history.locator('summary').click();
   const entries = history.getByRole('listitem');
   await expect(entries.first()).toContainText('Версия 12 → 13');
@@ -363,8 +558,12 @@ test('a busy requirement dialog rejects Escape and keeps network errors visible'
   const api = await fixture(page, 3);
   const request = api.delayEditFailure();
   await page.goto('/projects/demo/requirements');
-  await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
-  const dialog = page.getByRole('dialog');
+  await page.locator('#requirement-row-r0').click();
+  await page
+    .locator('#requirement-r0')
+    .getByRole('button', { name: 'Изменить', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Изменить', exact: true });
   await dialog.getByLabel('Текст требования').fill('Busy edit');
   await dialog.getByLabel('Причина изменения').fill('User reason');
   const save = dialog.getByRole('button', { name: 'Сохранить', exact: true });
@@ -697,7 +896,7 @@ test('index queue shows project-wide progress and running state after SSE and re
 test('infinite requirements append on scroll and stop at the terminal page', async ({ page }) => {
   const api = await fixture(page, 85);
   await page.goto('/projects/demo/requirements');
-  await expect(page.locator('#requirement-r0')).toBeVisible();
+  await expect(page.locator('#requirement-row-r0')).toBeVisible();
   await expect.poll(() => api.connectionReads().length).toBe(1);
   expect(api.connectionReads()[0]?.first).toBe(40);
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -713,36 +912,45 @@ test('infinite requirements append on scroll and stop at the terminal page', asy
   await expect(page.getByRole('button', { name: 'Загрузить ещё', exact: true })).toHaveCount(0);
 });
 
-test('dynamic requirement cards keep the load button outside their content', async ({ page }) => {
+test('opening a long requirement keeps the load button below the list rows', async ({
+  page,
+}, testInfo) => {
   const api = await fixture(
     page,
-    8,
+    14,
     '\nДлинное условие с пояснениями и ограничениями.'.repeat(20),
     project,
     undefined,
-    4,
+    10,
   );
   // Hold continuation responses before navigation can trigger prefetch.
   const release = api.delay(true);
   await page.goto('/projects/demo/requirements');
-  await expect(page.locator('#requirement-r0')).toBeVisible();
-  const last = page.locator('#requirement-r3');
-  const disclosure = last.getByText('Полный исходный текст требования', { exact: true });
-  await disclosure.click();
-  await expect(last.locator('details[open]')).toContainText('Длинное условие');
-  const group = page.locator('details.data-group').filter({ has: last });
+  const group = page.locator('#requirements-list');
+  const last = group.locator('#requirement-row-r9');
   const more = group.locator(':scope > button');
-  async function expectCardAboveButton() {
+  await last.scrollIntoViewIfNeeded();
+  const scrollBefore = await page.evaluate(() => window.scrollY);
+  await last.click();
+  const details = page.locator('#requirement-r9');
+  await expect(details.locator('[data-source-id="r9"]')).toContainText('Длинное условие');
+  if (testInfo.project.name === 'narrow') {
+    expect(scrollBefore).toBeGreaterThan(0);
+    await page.getByRole('button', { name: 'К списку требований', exact: true }).click();
+    await expect(last).toBeFocused();
+    expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore);
+  }
+  async function expectRowAboveButton() {
     await expect(more).toBeVisible();
     await expect
       .poll(async () => {
-        const card = await last.boundingBox();
+        const row = await last.boundingBox();
         const button = await more.boundingBox();
-        return !!card && !!button && card.y + card.height <= button.y;
+        return !!row && !!button && row.y + row.height <= button.y;
       })
       .toBe(true);
   }
-  await expectCardAboveButton();
+  await expectRowAboveButton();
   await expect
     .poll(async () => {
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -750,21 +958,21 @@ test('dynamic requirement cards keep the load button outside their content', asy
     })
     .toBe(2);
   await expect(more).toBeDisabled();
-  await expectCardAboveButton();
+  await expectRowAboveButton();
   release();
   await expect(more).toHaveCount(0);
-  await expect(page.locator('#requirement-r7')).toBeAttached();
+  await expect(page.locator('#requirement-row-r13')).toBeAttached();
 });
 
 test('infinite page retry keeps the already rendered rows', async ({ page }) => {
   const api = await fixture(page, 100);
   await page.goto('/projects/demo/requirements');
-  await expect(page.locator('#requirement-r0')).toBeVisible();
+  await expect(page.locator('#requirement-row-r0')).toBeVisible();
   await api.fail(503);
   await page.getByRole('button', { name: 'Загрузить ещё', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Повторить', exact: true })).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, 0));
-  await expect(page.locator('#requirement-r0')).toBeVisible();
+  await expect(page.locator('#requirement-row-r0')).toBeVisible();
   api.fail(0);
   await page.getByRole('button', { name: 'Повторить', exact: true }).click();
   await expect
@@ -777,17 +985,17 @@ test('infinite page retry keeps the already rendered rows', async ({ page }) => 
     .toEqual([null, 'cursor-40', 'cursor-40']);
   await expect(page.getByRole('button', { name: 'Повторить', exact: true })).toHaveCount(0);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await expect(page.locator('#requirement-r0')).toBeVisible();
+  await expect(page.locator('#requirement-row-r0')).toBeVisible();
 });
 
 test('virtualized infinite list keeps the rendered DOM bounded', async ({ page }) => {
   const api = await fixture(page, 600);
   await page.goto('/projects/demo/requirements');
-  await expect(page.locator('#requirement-r0')).toBeVisible();
+  await expect(page.locator('#requirement-row-r0')).toBeVisible();
   for (let i = 0; i < 7; i++) {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await expect.poll(() => api.connectionReads().length).toBeGreaterThan(i + 1);
-    await expect.poll(() => page.locator('[id^="requirement-r"]').count()).toBeLessThan(100);
+    await expect.poll(() => page.locator(requirementRows).count()).toBeLessThan(100);
   }
 });
 
@@ -796,7 +1004,7 @@ test('infinite requirements restore loaded rows and scroll after leaving the rou
 }) => {
   const api = await fixture(page, 100);
   await page.goto('/projects/demo/requirements');
-  await expect(page.locator('#requirement-r0')).toBeVisible();
+  await expect(page.locator('#requirement-row-r0')).toBeVisible();
   await page.getByRole('button', { name: 'Загрузить ещё', exact: true }).click();
   await expect.poll(() => api.connectionReads().length).toBe(2);
   await page.evaluate(() => window.scrollTo(0, 1800));
@@ -808,7 +1016,7 @@ test('infinite requirements restore loaded rows and scroll after leaving the rou
   });
   await expect(page).toHaveURL('/projects/demo');
   await page.goBack();
-  await expect(page.locator('[id^="requirement-r"]').first()).toBeVisible();
+  await expect(page.locator(requirementRows).first()).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(savedOffset - 200);
   expect(api.connectionReads()).toHaveLength(savedReads);
 });
@@ -822,7 +1030,7 @@ test('legacy list URLs open the first cursor batch without pagination controls',
   await expect(page.getByLabel('Режим списка')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Назад', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Далее', exact: true })).toHaveCount(0);
-  await expect(page.locator('#requirement-r0')).toBeVisible();
+  await expect(page.locator('#requirement-row-r0')).toBeVisible();
   expect(api.connectionReads()).toEqual([{ first: 40, after: null }]);
   expect(new URL(page.url()).searchParams.get('source')).toBe('bookmark');
 });
@@ -838,46 +1046,41 @@ test('first load reserves space and a failed first request has a local retry', a
   api.fail(503);
   release();
   await expect(page.getByRole('button', { name: 'Повторить', exact: true })).toBeVisible();
-  await expect(page.locator('#requirement-r0')).toHaveCount(0);
+  await expect(page.locator('#requirement-row-r0')).toHaveCount(0);
   api.fail(0);
   await page.getByRole('button', { name: 'Повторить', exact: true }).click();
-  await expect(page.locator('#requirement-r0')).toBeVisible();
+  await expect(page.locator('#requirement-row-r0')).toBeVisible();
 });
 
-test('slow SSE refetch and reconnect reset preserve cards, draft, focus and continuation', async ({
+test('slow SSE refetch and reconnect reset preserve rows, draft, focus and continuation', async ({
   page,
 }) => {
   const api = await fixture(page, 41);
   await page.goto('/projects/demo/requirements');
-  const card = page.locator('#requirement-r0');
-  await expect(card).toBeVisible();
-  const draft = page.getByLabel('Текст требования');
+  const row = page.locator('#requirement-row-r0');
+  await expect(row).toBeVisible();
+  const draft = page.getByRole('textbox', { name: 'Текст требования', exact: true });
   await draft.fill('Несохранённый черновик');
   await draft.focus();
-  const before = await card.boundingBox();
+  const before = await row.boundingBox();
   const reads = api.reads();
   const connections = api.connections();
   const release = api.delay();
   await api.event();
   await expect.poll(api.reads).toBeGreaterThan(reads);
-  await expect(card).toBeVisible();
+  await expect(row).toBeVisible();
   await expect(draft).toHaveValue('Несохранённый черновик');
   await expect(draft).toBeFocused();
-  expect((await card.boundingBox())?.y).toBe(before?.y);
+  expect((await row.boundingBox())?.y).toBe(before?.y);
   api.setText('Обновлённое требование');
   release();
-  await expect(
-    card
-      .getByRole('region', { name: 'Предложение, созданное ИИ', exact: true })
-      .locator(':scope > p')
-      .filter({ hasText: /^Обновлённое требование$/ }),
-  ).toBeVisible();
+  await expect(row).toHaveText('Обновлённое требование');
   await expect.poll(api.connections).toBeGreaterThan(connections);
   const resetReads = api.reads();
   const releaseReset = api.delay();
   await api.event(true);
   await expect.poll(api.reads).toBeGreaterThan(resetReads);
-  await expect(card).toBeVisible();
+  await expect(row).toBeVisible();
   await expect(draft).toHaveValue('Несохранённый черновик');
   releaseReset();
   await expect(draft).toBeFocused();
@@ -885,8 +1088,12 @@ test('slow SSE refetch and reconnect reset preserve cards, draft, focus and cont
   await expect.poll(() => api.connectionReads().at(-1)?.after).toBe('cursor-40');
   await expect(page.getByRole('button', { name: 'Загрузить ещё', exact: true })).toHaveCount(0);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await expect(card).toBeVisible();
+  await expect(row).toBeVisible();
   await expect(draft).toHaveValue('Несохранённый черновик');
+  await row.click();
+  await expect(page.locator('#requirement-r0 [data-source-id="r0"]')).toHaveText(
+    'Обновлённое требование',
+  );
 });
 
 test('failed background request keeps stale data and local retry restores freshness', async ({
@@ -894,7 +1101,8 @@ test('failed background request keeps stale data and local retry restores freshn
 }) => {
   const api = await fixture(page);
   await page.goto('/projects/demo/requirements');
-  await expect(page.locator('#requirement-r0')).toBeVisible();
+  const row = page.locator('#requirement-row-r0');
+  await expect(row).toBeVisible();
   api.fail(503);
   await api.event();
   await expect(
@@ -902,32 +1110,36 @@ test('failed background request keeps stale data and local retry restores freshn
       exact: false,
     }),
   ).toBeVisible();
-  await expect(page.locator('#requirement-r0')).toBeVisible();
+  await expect(row).toBeVisible();
   api.fail(0);
   api.setText('Успешный повтор');
   await page.getByRole('button', { name: 'Повторить', exact: true }).click();
-  await expect(
-    page
-      .locator('#requirement-r0')
-      .getByRole('region', { name: 'Предложение, созданное ИИ', exact: true })
-      .locator(':scope > p')
-      .filter({ hasText: /^Успешный повтор$/ }),
-  ).toBeVisible();
+  await expect(row).toHaveText('Успешный повтор');
   await expect(
     page.getByText('Показаны последние загруженные данные. Они могут быть устаревшими.', {
       exact: false,
     }),
   ).toHaveCount(0);
+  await row.click();
+  await expect(page.locator('#requirement-r0 [data-source-id="r0"]')).toHaveText('Успешный повтор');
 });
 
 test('revoked access clears previously rendered data', async ({ page }) => {
   const api = await fixture(page);
   await page.goto('/projects/demo/requirements');
-  await expect(page.locator('#requirement-r0')).toBeVisible();
-  await page.getByRole('button', { name: 'Изменить', exact: true }).first().click();
-  await page.getByRole('dialog').getByLabel('Текст требования').fill('Закрытый черновик');
+  const row = page.locator('#requirement-row-r0');
+  await row.click();
+  await page
+    .locator('#requirement-r0')
+    .getByRole('button', { name: 'Изменить', exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Изменить' })
+    .getByLabel('Текст требования')
+    .fill('Закрытый черновик');
   api.fail(403);
   await api.event();
+  await expect(row).toHaveCount(0);
   await expect(page.locator('#requirement-r0')).toHaveCount(0);
   await expect(page.getByText('Требование 0', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -946,7 +1158,7 @@ test('project pages share navigation, locale and browser history without overflo
   await expect(page.getByLabel('Название', { exact: true })).toBeVisible();
   await page.goto('/projects/demo');
   await expect(page.getByRole('heading', { name: project.name, exact: true })).toBeVisible();
-  await expect(page.getByLabel('Текст требования')).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Текст требования', exact: true })).toHaveCount(0);
   await openProjectMenu(page);
   await page.getByLabel('Язык').selectOption('en');
   const nav = page.getByRole('navigation', { name: 'Project sections' });
@@ -976,7 +1188,7 @@ test('project pages share navigation, locale and browser history without overflo
   );
 });
 
-test('requirement source links select the correct card and survive direct opening', async ({
+test('requirement source links select the correct record and survive direct opening', async ({
   page,
 }) => {
   const api = await fixture(page, 21, '', project, undefined, 10);
@@ -1259,25 +1471,16 @@ for (const { width, zoom } of layoutCases) {
         if (collapsed) await toggle.click();
         await expect(page.locator('main h2').first()).toBeVisible();
         if (path === 'requirements') {
-          const card = page.locator('#requirement-r0');
-          const original = card.locator('details').filter({
-            has: page.getByText(
-              locale === 'ru' ? 'Полный исходный текст требования' : 'Full original requirement',
-              { exact: true },
-            ),
-          });
-          await original.locator('summary').focus();
-          await page.keyboard.press('Enter');
-          await expect(original).toHaveAttribute('open', '');
-          await expect(original.locator('p')).toHaveText(`Требование 0${longText}`);
-          const edit = card.getByRole('button', {
-            name: locale === 'ru' ? 'Изменить' : 'Edit',
-            exact: true,
-          });
-          await edit.click();
+          await page.locator('#requirement-row-r0').click();
+          const details = page.locator('#requirement-r0');
+          const original = details.locator('[data-source-id="r0"]');
+          await expect(original).toBeVisible();
+          await expect(original).toHaveText(`Требование 0${longText}`);
+          const editLabel = locale === 'ru' ? 'Изменить' : 'Edit';
+          await details.getByRole('button', { name: editLabel, exact: true }).click();
           await expect(
             page
-              .getByRole('dialog')
+              .getByRole('dialog', { name: editLabel, exact: true })
               .getByLabel(locale === 'ru' ? 'Текст требования' : 'Requirement text'),
           ).toHaveValue(`Требование 0${longText}`);
         }
@@ -1337,15 +1540,13 @@ test('page contents and nested disclosures look interactive and toggle from the 
   await fixture(page, 1);
   await page.goto('/projects/demo/requirements');
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-  const contents = page.getByRole('navigation', { name: 'На этой странице' }).locator('details');
-  const source = page
-    .locator('#requirement-r0 details')
-    .filter({
-      has: page.locator('summary', { hasText: 'Полный исходный текст требования' }),
-    })
-    .first();
-  const group = page.getByRole('group', { name: 'Список требований', exact: true });
-  for (const panel of [contents, source, group]) {
+  const contents = page.locator('nav[aria-label="На этой странице"] details');
+  const list = page.locator('#requirements-list');
+  await list.getByRole('button', { name: 'Требование 0', exact: true }).press('Enter');
+  const history = page
+    .locator('#requirement-r0')
+    .getByRole('group', { name: 'История текста требования', exact: true });
+  for (const panel of [contents, history, list]) {
     await expect(panel).toHaveCSS('border-top-style', 'solid');
     await expect(panel).toHaveCSS('border-top-width', '1px');
     await expect(panel).not.toHaveCSS('padding-inline-start', '0px');
@@ -1353,13 +1554,13 @@ test('page contents and nested disclosures look interactive and toggle from the 
     await expect(summary).toHaveCSS('display', 'list-item');
     await expect(summary).toHaveCSS('cursor', 'pointer');
   }
-  const summary = source.locator(':scope > summary');
+  const summary = history.locator(':scope > summary');
   await summary.focus();
   await page.keyboard.press('Enter');
-  await expect(source).toHaveAttribute('open', '');
+  await expect(history).toHaveAttribute('open', '');
   await expect(summary).toHaveCSS('outline-style', 'solid');
   await page.keyboard.press('Space');
-  await expect(source).not.toHaveAttribute('open', '');
+  await expect(history).not.toHaveAttribute('open', '');
 });
 
 test('page contents link to requirement entry and the list', async ({ page }) => {

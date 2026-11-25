@@ -230,7 +230,7 @@ th {
 }
 dialog {
   width: min(40rem, calc(100% - 2rem));
-  max-height: calc(100% - 2rem);
+  max-height: calc(100dvh - 2rem);
   overflow: auto;
   border: var(--line) solid var(--control-border);
   border-radius: var(--radius-panel);
@@ -238,6 +238,12 @@ dialog {
   color: var(--text);
   background: var(--surface);
   box-shadow: var(--shadow);
+}
+:where(dialog:modal) {
+  position: fixed;
+  inset: 50% auto auto 50%;
+  margin: 0;
+  translate: -50% -50%;
 }
 dialog::backdrop {
   background: var(--backdrop);

@@ -175,3 +175,19 @@ func TestLanguageRepairKeepsWholeTechnicalWords(t *testing.T) {
 		}
 	}
 }
+
+func TestLanguageRepairRequiresConfiguredLanguageAlongsideIdentifiers(t *testing.T) {
+	p, _ := NewSummaryLanguagePolicy("ru")
+	source := "QA-42, OPS-19, TICKET-55"
+	re := regexp.MustCompile(p.repairPattern(source))
+	for _, output := range []string{source, "QA-42.", "42, 19, 55"} {
+		if re.MatchString(output) {
+			t.Errorf("repair grammar accepted a preview without Russian wording: %q", output)
+		}
+	}
+	for _, output := range []string{"Указаны QA-42, OPS-19 и TICKET-55.", "QA-42, OPS-19 и TICKET-55."} {
+		if !re.MatchString(output) || !p.ValidForSource(output, source) {
+			t.Errorf("repair grammar or validator rejected a grounded preview: %q", output)
+		}
+	}
+}

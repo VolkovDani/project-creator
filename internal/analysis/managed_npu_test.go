@@ -3,9 +3,11 @@ package analysis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,12 +18,16 @@ import (
 func TestManagedNPUSummaryLanguageRepairKeepsOneProperty(t *testing.T) {
 	const preview = "Хранить отчёт в СЭД 42 дня."
 	for _, tc := range []struct {
-		name             string
-		firstSummary     string
-		ignoreFieldCount bool
-		wantErr          error
+		name                string
+		firstSummary        string
+		ignoreFieldCount    bool
+		losesNumberOnRepair bool
+		orderedRepairFails  bool
+		wantErr             error
 	}{
 		{name: "wrong language", firstSummary: "Retain the report for 42 days."},
+		{name: "language repair drops the number", firstSummary: "Retain the report for 42 days.", losesNumberOnRepair: true},
+		{name: "optional numeric retry is unavailable", firstSummary: "Retain the report for 42 days.", losesNumberOnRepair: true, orderedRepairFails: true, wantErr: ErrSummaryNumbers},
 		{name: "missing number", firstSummary: "Хранить отчёт в СЭД."},
 		{name: "provider adds an empty key", firstSummary: "Retain the report for 42 days.", ignoreFieldCount: true, wantErr: ErrSummaryFormat},
 	} {
@@ -38,6 +44,10 @@ func TestManagedNPUSummaryLanguageRepairKeepsOneProperty(t *testing.T) {
 					return
 				}
 				calls++
+				if calls == 3 && tc.orderedRepairFails {
+					w.WriteHeader(http.StatusBadGateway)
+					return
+				}
 				schema := req.Format.Schema.Schema
 				content := fmt.Sprintf(`{"summary":%q}`, tc.firstSummary)
 				if calls == 1 {
@@ -59,12 +69,21 @@ func TestManagedNPUSummaryLanguageRepairKeepsOneProperty(t *testing.T) {
 					}
 					properties, _ := schema["properties"].(map[string]any)
 					summary, _ := properties["summary"].(map[string]any)
-					if summary["pattern"] == nil {
+					pattern, ok := summary["pattern"].(string)
+					if !ok {
 						t.Error("missing corrective language constraint")
+					} else if calls == 3 {
+						constraint := regexp.MustCompile(pattern)
+						if !constraint.MatchString(preview) || constraint.MatchString("Хранить отчёт в СЭД.") {
+							t.Error("the correction must require the source number alongside Russian text")
+						}
 					}
 					// The managed runtime may emit an empty extra key under the
 					// corrective pattern unless the object has an explicit limit.
 					content = `{"summary":"` + preview + `"}`
+					if tc.losesNumberOnRepair && calls == 2 {
+						content = `{"summary":"Хранить отчёт в СЭД."}`
+					}
 					if schema["minProperties"] != float64(1) || schema["maxProperties"] != float64(1) || tc.ignoreFieldCount {
 						content = `{"summary":"` + preview + `","":""}`
 					}
@@ -84,7 +103,11 @@ func TestManagedNPUSummaryLanguageRepairKeepsOneProperty(t *testing.T) {
 			if tc.wantErr != nil {
 				want = ""
 			}
-			if got, err := g.SummarizeWithGlossary(context.Background(), src, hints); got != want || err != tc.wantErr || calls != 2 {
+			wantCalls := 2
+			if tc.losesNumberOnRepair {
+				wantCalls = 3
+			}
+			if got, err := g.SummarizeWithGlossary(context.Background(), src, hints); got != want || !errors.Is(err, tc.wantErr) || calls != wantCalls {
 				t.Fatalf("summary=%q calls=%d err=%v", got, calls, err)
 			}
 		})

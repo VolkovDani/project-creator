@@ -120,3 +120,8 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.searchResults > section > :global(.resource-status):empty {
+  position: absolute;
+  min-height: 0;
+}

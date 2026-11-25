@@ -12,7 +12,7 @@ import (
 // splice an identifier into native prose or invent one from a source prefix.
 // Require a native letter outside identifiers so copying them alone cannot
 // satisfy the grammar.
-func (p SummaryLanguagePolicy) repairPattern(source string) string {
+func (p SummaryLanguagePolicy) repairPattern(source string, requiredNumbers ...string) string {
 	names, labels := p.sourceNames(source)
 	literals := map[string]bool{}
 	for _, word := range summaryWord.FindAllString(source, -1) {
@@ -65,6 +65,20 @@ func (p SummaryLanguagePolicy) repairPattern(source string) string {
 	}
 	sep := separator.String()
 	nativeWord := nativeClass + "*[" + alphabet + "]" + nativeClass + "*"
+	if len(requiredNumbers) > 0 {
+		// Start with native wording and allow prose around each quoted source value.
+		var pattern strings.Builder
+		pattern.WriteString("^" + sep + "*" + nativeWord)
+		moreWords := "(" + sep + "+" + word + ")*"
+		for _, number := range requiredNumbers {
+			pattern.WriteString(moreWords + sep + "+" + regexp.QuoteMeta(number) + `\.?`)
+			if pattern.Len() > summaryContextBytes {
+				return ""
+			}
+		}
+		pattern.WriteString(moreWords + sep + "*$")
+		return pattern.String()
+	}
 	return "^" + sep + "*(" + word + sep + "+)*" + nativeWord + "(" + sep + "+" + word + ")*" + sep + "*$"
 }
 
@@ -93,4 +107,37 @@ func (p SummaryLanguagePolicy) repairAlphabet() string {
 		}
 	}
 	return class.String()
+}
+
+// summaryRepairNumbers keeps complete source tokens when a number belongs to
+// an identifier, a date, or a unit. Decimal commas may span two word tokens.
+func summaryRepairNumbers(source string) []string {
+	words := summaryWord.FindAllStringIndex(source, -1)
+	var spans [][2]int
+	word := 0
+	for _, number := range summaryNumbers.FindAllStringIndex(source, -1) {
+		for word < len(words) && words[word][1] <= number[0] {
+			word++
+		}
+		start, end := number[0], number[1]
+		for i := word; i < len(words) && words[i][0] < end; i++ {
+			start, end = min(start, words[i][0]), max(end, words[i][1])
+		}
+		if count := len(spans); count > 0 && spans[count-1][1] > start {
+			spans[count-1][1] = max(spans[count-1][1], end)
+		} else {
+			spans = append(spans, [2]int{start, end})
+		}
+	}
+
+	required := make([]string, 0, len(spans))
+	seen := make(map[string]bool, len(spans))
+	for _, span := range spans {
+		value := source[span[0]:span[1]]
+		if !seen[value] {
+			required = append(required, value)
+			seen[value] = true
+		}
+	}
+	return required
 }

@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -188,6 +189,34 @@ func TestLanguageRepairRequiresConfiguredLanguageAlongsideIdentifiers(t *testing
 	for _, output := range []string{"Указаны QA-42, OPS-19 и TICKET-55.", "QA-42, OPS-19 и TICKET-55."} {
 		if !re.MatchString(output) || !p.ValidForSource(output, source) {
 			t.Errorf("repair grammar or validator rejected a grounded preview: %q", output)
+		}
+	}
+}
+
+func TestOrderedSummaryRepairKeepsCompleteNumericSourceTokens(t *testing.T) {
+	p, _ := NewSummaryLanguagePolicy("ru")
+	source := "Дата 2026-11-25, режим config_v2 и пакет pkg-2.1. Порог 1,25, задержка 50мс, код 42. Повторить код 42."
+	numbers := summaryRepairNumbers(source)
+	want := []string{"2026-11-25", "config_v2", "pkg-2.1", "1,25", "50мс", "42"}
+	if !slices.Equal(numbers, want) {
+		t.Fatalf("numeric source tokens %q, want %q", numbers, want)
+	}
+	pattern := regexp.MustCompile(p.repairPattern(source, numbers...))
+	valid := "Дата 2026-11-25, режим config_v2, пакет pkg-2.1. Порог 1,25, задержка 50мс, код 42."
+	if !pattern.MatchString(valid) || !p.ValidForSource(valid, source) || len(missingSummaryNumbers(source, valid)) != 0 {
+		t.Fatal("required values and supported prose must fit both the schema and publication checks")
+	}
+	for _, invalid := range []string{
+		"Дата 2026-11-25, режим config_v2, пакет pkg-2.1. Порог 1,25, задержка 50мс.",
+		"Дата 2026-11-25, пакет pkg-2.1, режим config_v2. Порог 1,25, задержка 50мс, код 42.",
+		strings.Replace(valid, "config_v2", "2", 1),
+		strings.Replace(valid, "1,25", "1, 25", 1),
+		strings.Replace(valid, "50мс", "50", 1),
+		strings.Replace(valid, "код 42", "код 142", 1),
+		"2026-11-25, config_v2, pkg-2.1, 1,25, 50мс, 42.",
+	} {
+		if pattern.MatchString(invalid) {
+			t.Errorf("numeric repair schema accepted %q", invalid)
 		}
 	}
 }

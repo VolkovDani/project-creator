@@ -130,7 +130,8 @@ func NewSummaryOpenAICompatible(baseURL, model, key, allowedLanguages string) (*
 		return nil, err
 	}
 	if managedNPU {
-		summary.outputValidation += "+managed-npu-language-repair-exactly-one-property"
+		summary.managedNPU = true
+		summary.outputValidation += "+managed-npu-language-repair-exactly-one-property+ordered-source-number-retry-v1"
 	}
 	return &SummaryOpenAICompatible{summary}, nil
 }

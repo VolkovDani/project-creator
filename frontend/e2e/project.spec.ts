@@ -295,13 +295,19 @@ test('two tabs receive project and requirement invalidations without reload', as
   await page.goto('/');
   await watcher.addInitScript(() => localStorage.setItem('project-creator-locale', 'en'));
   await watcher.goto('/');
+  const projectCount = watcher
+    .getByRole('region', { name: 'Projects', exact: true })
+    .getByText(/^Total: [0-9]+$/);
+  const initialCount = Number((await projectCount.textContent())?.split(' ').at(-1));
   const name = `Live ${Date.now()}`;
   await page.getByRole('link', { name: 'Создать проект', exact: true }).click();
   await page.getByLabel('Название').fill(name);
   await page.getByLabel('Цель').fill('SSE');
   await page.getByRole('button', { name: 'Создать проект' }).click();
-  await expect(watcher.getByRole('link', { name })).toBeVisible({ timeout: 15000 });
-  await watcher.getByRole('link', { name }).click();
+  await expect(projectCount).toHaveText(`Total: ${initialCount + 1}`, { timeout: 15000 });
+  const projectLink = watcher.getByRole('link', { name, exact: true });
+  if (!(await projectLink.isVisible())) await watcher.keyboard.press('End');
+  await projectLink.click();
   await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
   await watcher.getByRole('link', { name: 'Requirements', exact: true }).first().click();
   await addRequirement(page, 'Live requirement');

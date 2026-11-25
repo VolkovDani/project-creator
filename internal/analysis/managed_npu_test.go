@@ -50,6 +50,9 @@ func TestManagedNPUSummaryLanguageRepairKeepsOneProperty(t *testing.T) {
 						input.Text != src.Text || len(input.Glossary) != 1 || input.Glossary[0] != hints[0] {
 						t.Error("the repair must restart with the original text and glossary")
 					}
+					if !strings.Contains(req.Messages[0]["content"], "В выжимке сохраните следующие числа и обозначения: 42.") {
+						t.Error("the language repair must explicitly carry every source number")
+					}
 					properties, _ := schema["properties"].(map[string]any)
 					summary, _ := properties["summary"].(map[string]any)
 					if summary["pattern"] == nil {

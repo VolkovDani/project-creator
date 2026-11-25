@@ -10,6 +10,8 @@ import (
 // A word uses either the native alphabet or one complete source spelling.
 // Separate the alternatives by non-word characters so the decoder cannot
 // splice an identifier into native prose or invent one from a source prefix.
+// Require a native letter outside identifiers so copying them alone cannot
+// satisfy the grammar.
 func (p SummaryLanguagePolicy) repairPattern(source string) string {
 	names, labels := p.sourceNames(source)
 	literals := map[string]bool{}
@@ -30,7 +32,8 @@ func (p SummaryLanguagePolicy) repairPattern(source string) string {
 	// one as punctuation, but never join it to another word.
 	var native, separator strings.Builder
 	native.WriteString("[0-9_.")
-	native.WriteString(p.repairAlphabet())
+	alphabet := p.repairAlphabet()
+	native.WriteString(alphabet)
 	separator.WriteString("[ ,:;!?/%()+=«»“”…—–")
 	seen := map[rune]bool{}
 	for _, r := range source {
@@ -48,9 +51,10 @@ func (p SummaryLanguagePolicy) repairPattern(source string) string {
 			separator.WriteRune(r)
 		}
 	}
-	native.WriteString("-]+")
+	native.WriteString("-]")
 	separator.WriteByte(']')
-	word := native.String()
+	nativeClass := native.String()
+	word := nativeClass + "+"
 	if len(literals) > 0 {
 		options := make([]string, 0, len(literals))
 		for literal := range literals {
@@ -60,7 +64,8 @@ func (p SummaryLanguagePolicy) repairPattern(source string) string {
 		word = "(" + word + "|[.-]*(" + strings.Join(options, "|") + ")[.-]*)"
 	}
 	sep := separator.String()
-	return "^" + sep + "*(" + word + sep + "+)*(" + word + ")?$"
+	nativeWord := nativeClass + "*[" + alphabet + "]" + nativeClass + "*"
+	return "^" + sep + "*(" + word + sep + "+)*" + nativeWord + "(" + sep + "+" + word + ")*" + sep + "*$"
 }
 
 // Compress the same alphabet tables used for publication into regex ranges.

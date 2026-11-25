@@ -17,7 +17,12 @@ export default function RequirementsPage() {
         </details>
       </nav>
       <Suspense>
-        <Requirements key={project.id} projectId={project.id} locale={locale} />
+        <Requirements
+          key={project.id}
+          projectId={project.id}
+          projectName={project.name}
+          locale={locale}
+        />
       </Suspense>
     </div>
   );

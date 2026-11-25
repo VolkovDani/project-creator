@@ -29,3 +29,61 @@
 }
 .layout > section { margin-block-start: 0; }
 .layout article > section { margin-block: 0 var(--space-4); }
+
+.workspace {
+  display: grid;
+  gap: var(--space-4);
+  align-items: start;
+  grid-template-columns: minmax(15rem, 1fr) minmax(0, 2.2fr);
+}
+.listPane,
+.detailPane {
+  min-width: 0;
+}
+.row {
+  display: block;
+  width: 100%;
+  margin: 0 0 var(--space-2);
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.row[aria-pressed="true"] {
+  border-color: var(--action);
+  background: var(--action-tint);
+}
+.detailPane {
+  position: sticky;
+  top: var(--space-2);
+  max-block-size: calc(100dvh - 2 * var(--space-2));
+  overflow: auto;
+  padding: var(--space-1);
+}
+.detailPane article > dl,
+.mobileDetails article > dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: var(--space-3);
+}
+.detailPane article > dl dd,
+.mobileDetails article > dl dd {
+  margin-inline-start: 0;
+  overflow-wrap: anywhere;
+}
+.mobileDetails {
+  position: fixed;
+  inset: 0;
+  translate: none;
+  inline-size: 100%;
+  block-size: 100%;
+  max-inline-size: none;
+  max-block-size: none;
+  padding: var(--space-4);
+  overflow: auto;
+  background: var(--page);
+}
+@media (max-width: 60rem) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

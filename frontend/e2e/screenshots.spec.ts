@@ -95,15 +95,19 @@ test('screenshots: desktop projects and requirements', async ({ page }, testInfo
     page.getByRole('heading', { name: 'Контроль бизнес-требований', exact: true }),
   ).toBeVisible();
   await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
-  for (const text of [
+  const list = page.locator('#requirements-list');
+  const samples = [
     'Менеджер может создавать проекты и описывать их цели.',
     'Требования сохраняются между перезапусками приложения.',
     'При одновременном редактировании система предотвращает потерю изменений.',
-  ]) {
-    await page.getByLabel('Текст требования').fill(text);
+  ];
+  for (const text of samples) {
+    await page.getByRole('textbox', { name: 'Текст требования', exact: true }).fill(text);
     await page.getByRole('button', { name: 'Добавить требование' }).click();
-    await expect(page.getByText(text, { exact: true })).toBeVisible();
+    await expect(list.getByRole('button', { name: text, exact: true })).toBeVisible();
   }
+  await list.getByRole('button', { name: samples[0], exact: true }).click();
+  await expect(page.getByRole('article', { name: 'Сведения о требовании' })).toBeVisible();
   const requirements = resolve(directory, 'project-requirements-desktop.png');
   await page.screenshot({ path: requirements, fullPage: false });
   await testInfo.attach('Project requirements — 1920×1080', {

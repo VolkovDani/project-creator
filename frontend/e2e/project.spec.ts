@@ -14,17 +14,21 @@ test('create a project and open it after reload', async ({ page }) => {
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   await expect(page.getByText('Найти коллизии')).toBeVisible();
   await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
-  await page.getByLabel('Текст требования').fill('Требование один');
+  await page
+    .getByRole('textbox', { name: 'Текст требования', exact: true })
+    .fill('Требование один');
   await page.getByRole('button', { name: 'Добавить требование' }).click();
-  await expect(page.getByText('Требование один', { exact: true })).toBeVisible();
+  const details = page.locator('article[id^="requirement-"]');
+  await expect(details.getByText('Требование один', { exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByText('Требование один', { exact: true })).toBeVisible();
+  await expect(details.getByText('Требование один', { exact: true })).toBeVisible();
   const other = await page.context().newPage();
   await other.goto(page.url());
-  await other.getByRole('button', { name: 'Изменить' }).click();
+  const otherDetails = other.locator('article[id^="requirement-"]');
+  await otherDetails.getByRole('button', { name: 'Изменить', exact: true }).click();
   await other.getByRole('dialog').getByLabel('Текст требования').fill('Мой черновик');
   await other.getByLabel('Причина изменения').fill('Учесть решение заказчика');
-  await page.getByRole('button', { name: 'Изменить' }).click();
+  await details.getByRole('button', { name: 'Изменить', exact: true }).click();
   await page.getByRole('dialog').getByLabel('Текст требования').fill('Требование два');
   const reason = page.getByRole('dialog').getByLabel('Причина изменения');
   await reason.fill('   ');
@@ -32,7 +36,7 @@ test('create a project and open it after reload', async ({ page }) => {
   await expect(reason).toHaveAttribute('aria-invalid', 'true');
   await reason.fill('Уточнить сроки');
   await page.getByRole('dialog').getByRole('button', { name: 'Сохранить' }).click();
-  await expect(page.getByText('Версия 2')).toBeVisible();
+  await expect(details.getByRole('definition').filter({ hasText: /^2$/ })).toBeVisible();
   await other.getByRole('dialog').getByRole('button', { name: 'Сохранить' }).click();
   await expect(
     other.getByRole('dialog').getByText('Требование изменилось или недоступно. Обновите данные.'),
@@ -46,10 +50,10 @@ test('create a project and open it after reload', async ({ page }) => {
     .getByRole('button', { name: 'Сохранить черновик поверх актуальной версии' })
     .click();
   await other.getByRole('dialog').getByRole('button', { name: 'Сохранить', exact: true }).click();
-  await expect(other.getByText('Версия 3')).toBeVisible();
+  await expect(otherDetails.getByRole('definition').filter({ hasText: /^3$/ })).toBeVisible();
   await page.reload();
-  await expect(page.getByText('Мой черновик', { exact: true })).toBeVisible();
-  const history = page.getByRole('group', { name: 'История текста требования' });
+  await expect(details.getByText('Мой черновик', { exact: true })).toBeVisible();
+  const history = details.getByRole('group', { name: 'История текста требования' });
   await history.locator('summary').click();
   const versions = history.getByRole('listitem');
   await expect(versions).toHaveCount(3);
@@ -71,10 +75,12 @@ test('only the selected archived requirement can be permanently deleted after co
   await page.getByRole('navigation').getByRole('link', { name: 'Требования', exact: true }).click();
   const selected = 'Проверить срок поставки';
   const survivor = 'Согласовать цену поставки';
+  const list = page.locator('#requirements-list');
+  const selectedRow = list.getByRole('button', { name: selected, exact: true });
   for (const text of [selected, survivor]) {
-    await page.getByLabel('Текст требования').fill(text);
+    await page.getByRole('textbox', { name: 'Текст требования', exact: true }).fill(text);
     await page.getByRole('button', { name: 'Добавить требование' }).click();
-    await expect(page.getByText(text, { exact: true })).toBeVisible();
+    await expect(list.getByRole('button', { name: text, exact: true })).toBeVisible();
   }
   const mutations: string[] = [];
   page.on('request', (request) => {
@@ -83,11 +89,10 @@ test('only the selected archived requirement can be permanently deleted after co
       if (operation) mutations.push(operation);
     }
   });
-  const move = page
-    .locator('#requirements-list article')
-    .filter({ hasText: selected })
-    .getByRole('button', { name: 'В архив', exact: true });
+  const details = page.locator('article[id^="requirement-"]').filter({ hasText: selected });
+  const move = details.getByRole('button', { name: 'В архив', exact: true });
   await expect(page.getByRole('button', { name: 'Удалить навсегда' })).toHaveCount(0);
+  await selectedRow.click();
   await move.click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByText(selected, { exact: true })).toBeVisible();
@@ -99,24 +104,25 @@ test('only the selected archived requirement can be permanently deleted after co
   await dialog.getByRole('button', { name: 'Переместить в архив' }).click();
   const archive = page.getByRole('group', { name: 'Архив требований' });
   await archive.locator('summary').click();
-  const purge = archive.getByRole('button', { name: 'Удалить навсегда' });
-  await expect(archive.getByText(selected, { exact: true })).toBeVisible();
+  const archivedRow = archive.getByRole('button', { name: selected, exact: true });
+  await archivedRow.click();
+  const purge = details.getByRole('button', { name: 'Удалить навсегда' });
   await purge.click();
   await expect(dialog.getByRole('button', { name: 'Отмена' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(purge).toBeFocused();
   expect(mutations).not.toContain('RemoveRequirement');
-  await archive.getByRole('button', { name: 'Восстановить' }).click();
+  await details.getByRole('button', { name: 'Восстановить' }).click();
+  await selectedRow.click();
   await expect(move).toBeVisible();
   await move.click();
   await dialog.getByRole('button', { name: 'Переместить в архив' }).click();
+  await archivedRow.click();
   await purge.click();
   await dialog.getByRole('button', { name: 'Удалить навсегда' }).click();
   await expect(archive.getByText('Архив пуст')).toBeVisible();
   expect(mutations.filter((name) => name === 'RemoveRequirement')).toHaveLength(1);
-  await expect(
-    page.locator('#requirements-list').getByText(survivor, { exact: true }),
-  ).toBeVisible();
+  await expect(list.getByRole('button', { name: survivor, exact: true })).toBeVisible();
 });
 test('pair analysis uses the threshold configured on the running backend', async ({ page }) => {
   await page.goto('/projects/new');
@@ -207,13 +213,18 @@ test('two tabs receive project and requirement invalidations without reload', as
   await watcher.getByRole('link', { name }).click();
   await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
   await watcher.getByRole('link', { name: 'Requirements', exact: true }).first().click();
-  await page.getByLabel('Текст требования').fill('Live requirement');
+  await page
+    .getByRole('textbox', { name: 'Текст требования', exact: true })
+    .fill('Live requirement');
   await page.getByRole('button', { name: 'Добавить требование' }).click();
-  await expect(watcher.getByText('Live requirement', { exact: true })).toBeVisible({
+  const watcherList = watcher.locator('#requirements-list');
+  await watcherList.getByRole('button', { name: 'Live requirement', exact: true }).click({
     timeout: 15000,
   });
-  await page.getByRole('button', { name: 'Изменить' }).click();
-  const history = watcher.getByRole('group', { name: 'Requirement text history' });
+  const details = page.locator('article[id^="requirement-"]');
+  const watcherDetails = watcher.locator('article[id^="requirement-"]');
+  await details.getByRole('button', { name: 'Изменить', exact: true }).click();
+  const history = watcherDetails.getByRole('group', { name: 'Requirement text history' });
   await history.locator('summary').click();
   await expect(history.getByRole('listitem')).toHaveCount(1);
   await page.getByRole('dialog').getByLabel('Текст требования').fill('Changed in another tab');
@@ -223,18 +234,17 @@ test('two tabs receive project and requirement invalidations without reload', as
   await expect(revision).toContainText('Version 1 → 2', { timeout: 15000 });
   await expect(revision).toContainText('Changed in another tab');
   await expect(revision).toContainText('Clarify the deadline');
-  await page.getByRole('button', { name: 'В архив', exact: true }).click();
+  await details.getByRole('button', { name: 'В архив', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Переместить в архив' }).click();
   await expect(watcher.getByText('No requirements yet')).toBeVisible({ timeout: 15000 });
   const archive = watcher.getByRole('group', { name: 'Requirements archive' });
   await archive.locator('summary').click();
-  await expect(archive.getByText('Changed in another tab', { exact: true })).toBeVisible();
-  await archive.getByRole('button', { name: 'Restore', exact: true }).click();
-  await expect(
-    page.locator('#requirements-list').getByText('Версия 2', { exact: true }),
-  ).toBeVisible({
+  await archive.getByRole('button', { name: 'Changed in another tab', exact: true }).click();
+  await watcherDetails.getByRole('button', { name: 'Restore', exact: true }).click();
+  await expect(details.getByRole('definition').filter({ hasText: /^2$/ })).toBeVisible({
     timeout: 15000,
   });
+  await watcherList.getByRole('button', { name: 'Changed in another tab', exact: true }).click();
   await expect(revision).toContainText('Clarify the deadline');
   await expect(history.getByRole('listitem')).toHaveCount(2);
   await watcher.close();
@@ -252,9 +262,16 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
     .getByLabel('Текст требования')
     .fill('Генеральный подрядчик (ГП), также Генподрядчик, проверяет документы.');
   await page.getByRole('button', { name: 'Добавить требование' }).click();
-  await page.getByLabel('Текст требования').fill('😀 Запросить ЭЦП у ГП.');
+  await page
+    .getByRole('textbox', { name: 'Текст требования', exact: true })
+    .fill('😀 Запросить ЭЦП у ГП.');
   await page.getByRole('button', { name: 'Добавить требование' }).click();
-  await expect(page.getByText('😀 Запросить ЭЦП у ГП.', { exact: true })).toBeVisible();
+  await expect(
+    page.locator('#requirements-list').getByRole('button', {
+      name: '😀 Запросить ЭЦП у ГП.',
+      exact: true,
+    }),
+  ).toBeVisible();
   await page.getByRole('link', { name: 'Словарь', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'Словарь проекта', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Новое понятие', exact: true }).click();
@@ -297,7 +314,9 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
   await termButton.scrollIntoViewIfNeeded();
   const termPosition = await termButton.boundingBox();
   await termButton.hover();
-  const definition = page.getByRole('tooltip');
+  await expect(termButton).toHaveAttribute('aria-describedby', /.+/);
+  const definitionId = await termButton.getAttribute('aria-describedby');
+  const definition = page.locator(`[role="tooltip"][id="${definitionId}"]`);
   await expect(definition).toContainText('Исполнитель работ');
   expect(await termButton.boundingBox()).toEqual(termPosition);
   await page.keyboard.press('Escape');

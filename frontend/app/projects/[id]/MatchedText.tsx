@@ -1,5 +1,6 @@
 'use client';
 import { type ReactNode, useCallback } from 'react';
+import { clientCache } from '../../../lib/client';
 import type { RequirementGlossaryQuery } from '../../../lib/generated';
 import { loadGlossaryTerms } from '../../../lib/glossaryTerms';
 import type { Locale } from '../../../lib/i18n';
@@ -72,10 +73,16 @@ function HighlightedText({
     () => loadGlossaryTerms(projectId, JSON.parse(idsKey)),
     [projectId, idsKey],
   );
-  const { data, loading, error, reload } = useResource(load, [
+  const retryTag = `project:${projectId}:glossary-term-retry`;
+  const { data, loading, error } = useResource(load, [
     `project:${projectId}`,
     `project:${projectId}:glossary`,
+    retryTag,
   ]);
+  const reload = async () => {
+    // Mounted previews share the term cache but have independent error states.
+    clientCache.invalidate([retryTag]);
+  };
   const details = new Map(data?.map((term) => [term.id, term]));
   const renderMatch: RenderMatch = (match, label, key = match.start) => {
     const terms = match.terms.flatMap(({ id }) => {

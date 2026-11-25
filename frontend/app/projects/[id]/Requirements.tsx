@@ -1,44 +1,79 @@
 'use client';
 import { useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import contract from '../../../../contracts/requirement.json';
 import { query } from '../../../lib/client';
 import {
   AddRequirementDocument,
+  ArchivedRequirementsDocument,
+  type ArchivedRequirementsQuery,
   ArchiveRequirementDocument,
   EditRequirementDocument,
+  RemoveRequirementDocument,
   RequirementConnectionDocument,
+  RestoreRequirementDocument,
 } from '../../../lib/generated';
 import { type Locale, t } from '../../../lib/i18n';
 import { useInvalidation } from '../../../lib/live';
 import { validateChangeReason, validateRequirement } from '../../../lib/requirementValidation';
 import { useInfinite } from '../../../lib/useInfinite';
-import { DesignIcon } from '../../components/DesignIcon';
 import Group from '../../components/Group';
 import { LoadMore } from '../../components/ListControls';
-import rowStyles from '../../components/RecordIcons.module.css';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
-import ClassificationCard from './classification/ClassificationCard';
-import RequirementArchive from './RequirementArchive';
 import RequirementConfirmation from './RequirementConfirmation';
-import RequirementRevisionHistory from './RequirementRevisionHistory';
-import RequirementSummary, { useRequirementSummaries } from './RequirementSummary';
+import RequirementDetails from './RequirementDetails';
+import { useRequirementSummaries } from './RequirementSummary';
 import RetryFailedSummaries from './RetryFailedSummaries';
+import styles from './requirements/requirements.module.css';
 
-export default function Requirements({ projectId, locale }: { projectId: string; locale: Locale }) {
+type Archived = ArchivedRequirementsQuery['requirementsConnection']['edges'][number]['node'];
+type Selection = { id: string; archived: boolean };
+type Confirmation = {
+  id: string;
+  version: number;
+  text: string;
+  archivedAt?: string | null;
+  action: 'archive' | 'delete';
+};
+
+const narrowQuery = '(max-width: 60rem)';
+function subscribeToNarrow(change: () => void) {
+  const media = window.matchMedia(narrowQuery);
+  media.addEventListener('change', change);
+  return () => media.removeEventListener('change', change);
+}
+const isNarrow = () => window.matchMedia(narrowQuery).matches;
+const isWideOnServer = () => false;
+
+export default function Requirements({
+  projectId,
+  projectName,
+  locale,
+}: {
+  projectId: string;
+  projectName: string;
+  locale: Locale;
+}) {
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState('');
   const [editText, setEditText] = useState('');
   const [changeReason, setChangeReason] = useState('');
   const [editing, setEditing] = useState<{ id: string; version: number } | null>(null);
-  const [archiveTarget, setArchiveTarget] = useState<{
-    id: string;
-    version: number;
-    text: string;
-  } | null>(null);
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [archiveError, setArchiveError] = useState<
+    'validation.conflict' | 'requirements.error' | null
+  >(null);
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const narrow = useSyncExternalStore(subscribeToNarrow, isNarrow, isWideOnServer);
   const editTrigger = useRef<HTMLButtonElement>(null);
+  const rowTrigger = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const mobileDetails = useRef<HTMLDialogElement>(null);
+  const detailArticle = useRef<HTMLElement>(null);
+  const detailPane = useRef<HTMLDivElement>(null);
   const [validation, setValidation] = useState<{
     key: string;
     field?: string;
@@ -54,7 +89,10 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     setEditText('');
     setChangeReason('');
     setEditing(null);
-    setArchiveTarget(null);
+    setConfirmation(null);
+    setArchiveError(null);
+    setSelection(null);
+    setShowDetails(false);
     setValidation(null);
     setFailure(false);
     setBusy(false);
@@ -78,6 +116,12 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     tags: [`project:${projectId}`, `project:${projectId}:requirements`],
     load: connectionLoader,
   });
+  const loadArchived = useCallback(
+    async (after: string | null) =>
+      (await query(ArchivedRequirementsDocument, { projectId, first: 40, after }))
+        .requirementsConnection,
+    [projectId],
+  );
   const [mutationFailure, setFailure] = useState(false);
   const { rows, loading, loaded } = infinite;
   const {
@@ -120,21 +164,106 @@ export default function Requirements({ projectId, locale }: { projectId: string;
     setSourceTarget(params.get('requirement') ?? undefined);
   }, [params]);
   const seeking = !!sourceTarget && sourceTarget === source;
-  const found = seeking && rows.some((row) => row.id === sourceTarget);
+  const activeTarget = seeking ? rows.find((row) => row.id === sourceTarget) : undefined;
+  const seekArchive =
+    seeking && loaded && !loading && !infinite.error && !activeTarget && !infinite.hasNextPage;
+  const archived = useInfinite({
+    identity: `archived-requirements:${projectId}`,
+    tags: [`project:${projectId}`, `project:${projectId}:requirements`],
+    load: loadArchived,
+    enabled: archiveOpen || seekArchive || selection?.archived === true,
+  });
+  const archivedTarget = seekArchive
+    ? archived.rows.find((row) => row.id === sourceTarget)
+    : undefined;
+  const activeSelection = selection?.archived
+    ? undefined
+    : selection
+      ? rows.find((row) => row.id === selection.id)
+      : rows[0];
+  const archivedSelection = selection?.archived
+    ? archived.rows.find((row) => row.id === selection.id)
+    : undefined;
+  const selected = activeSelection ?? archivedSelection;
+  const selectedId = selected?.id;
+
   useEffect(() => {
     if (!seeking || !loaded || loading || infinite.error) return;
-    if (!found) {
-      more();
-      return;
-    }
-    const card = document.getElementById(`requirement-${sourceTarget}`);
-    if (!card) return;
-    const group = card.closest('details');
-    if (group) group.open = true;
-    (card.querySelector('mark[data-candidate]') ?? card).scrollIntoView({ block: 'center' });
-    card.focus({ preventScroll: true });
+    const target = activeTarget ?? archivedTarget;
+    if (target) {
+      if (archivedTarget) {
+        const archive = document.querySelector<HTMLDetailsElement>('#requirements-archive');
+        if (archive) archive.open = true;
+      }
+      const trigger = document.getElementById(`requirement-row-${target.id}`);
+      rowTrigger.current = trigger instanceof HTMLButtonElement ? trigger : null;
+      setSelection({ id: target.id, archived: !!archivedTarget });
+      setShowDetails(true);
+    } else if (!seekArchive) more();
+    else if (archived.loaded && !archived.loading && !archived.error && archived.hasNextPage)
+      void archived.loadMore().catch(() => {});
+  }, [
+    seeking,
+    loaded,
+    loading,
+    infinite.error,
+    activeTarget,
+    archivedTarget,
+    seekArchive,
+    more,
+    archived.loaded,
+    archived.loading,
+    archived.error,
+    archived.hasNextPage,
+    archived.loadMore,
+  ]);
+
+  useEffect(() => {
+    const modal = mobileDetails.current;
+    if (narrow && showDetails && selectedId && modal && !modal.open) modal.showModal();
+    if (modal?.open && (!narrow || !showDetails || !selectedId)) modal.close();
+  }, [narrow, showDetails, selectedId]);
+
+  useEffect(() => {
+    if (selectedId && detailPane.current) detailPane.current.scrollTop = 0;
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!seeking || selectedId !== sourceTarget || !showDetails) return;
+    const article = detailArticle.current;
+    if (!article) return;
+    (article.querySelector('mark[data-candidate]') ?? article).scrollIntoView({ block: 'nearest' });
+    article.focus({ preventScroll: true });
     setSourceTarget(undefined);
-  }, [seeking, found, loaded, loading, infinite.error, more, sourceTarget]);
+  }, [seeking, selectedId, sourceTarget, showDetails]);
+
+  function closeDetails() {
+    mobileDetails.current?.close();
+    setShowDetails(false);
+    rowTrigger.current?.focus({ preventScroll: true });
+  }
+
+  function chooseRow(row: { id: string; text: string }, inArchive: boolean) {
+    const excerpt = row.text.trim().replace(/\s+/g, ' ');
+    const preview = excerpt.length > 160 ? `${excerpt.slice(0, 159)}…` : excerpt;
+    return (
+      <button
+        id={`requirement-row-${row.id}`}
+        type="button"
+        className={styles.row}
+        aria-pressed={selectedId === row.id}
+        onClick={(event) => {
+          rowTrigger.current = event.currentTarget;
+          setSourceTarget(undefined);
+          setArchiveError(null);
+          setSelection({ id: row.id, archived: inArchive });
+          setShowDetails(true);
+        }}
+      >
+        {preview}
+      </button>
+    );
+  }
   const current = (epoch: number) => active.current && operation.current === epoch;
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -186,27 +315,9 @@ export default function Requirements({ projectId, locale }: { projectId: string;
         setEditing(null);
         setEditText('');
         setChangeReason('');
-      } else setText('');
-      await infinite.refresh();
-    } catch {
-      if (current(epoch)) setFailure(true);
-    } finally {
-      if (current(epoch)) setBusy(false);
-    }
-  }
-  async function archive(id: string, version: number) {
-    setArchiveTarget(null);
-    setValidation(null);
-    const epoch = ++operation.current;
-    setBusy(true);
-    setFailure(false);
-    try {
-      const result = await query(ArchiveRequirementDocument, { id, projectId, version });
-      if (!current(epoch)) return;
-      if (!result.archiveRequirement) {
-        setValidation({ code: 'CONFLICT', key: 'validation.conflict', params: {} });
-        await infinite.refresh();
-        return;
+      } else {
+        setText('');
+        setSelection({ id: result.requirement.id, archived: false });
       }
       await infinite.refresh();
     } catch {
@@ -215,6 +326,108 @@ export default function Requirements({ projectId, locale }: { projectId: string;
       if (current(epoch)) setBusy(false);
     }
   }
+  async function changeArchive(
+    entry: Pick<Archived, 'id' | 'version'> & { archivedAt?: string | null },
+    action: 'archive' | 'restore' | 'delete',
+  ) {
+    setConfirmation(null);
+    if (busy || (action !== 'archive' && !entry.archivedAt)) return;
+    setArchiveError(null);
+    const epoch = ++operation.current;
+    setBusy(true);
+    const identity = { id: entry.id, projectId, version: entry.version };
+    try {
+      const archivedAt = entry.archivedAt ?? '';
+      const vars = { ...identity, archivedAt };
+      const changed =
+        action === 'archive'
+          ? (await query(ArchiveRequirementDocument, identity)).archiveRequirement
+          : action === 'restore'
+            ? (await query(RestoreRequirementDocument, vars)).restoreRequirement
+            : (await query(RemoveRequirementDocument, vars)).deleteRequirement.deleted;
+      if (!current(epoch)) return;
+      if (changed) {
+        setSelection(null);
+        closeDetails();
+      } else setArchiveError('validation.conflict');
+      await Promise.all([infinite.refresh(), ...(archived.loaded ? [archived.refresh()] : [])]);
+    } catch {
+      if (current(epoch)) setArchiveError('requirements.error');
+    } finally {
+      if (current(epoch)) setBusy(false);
+    }
+  }
+  const details = selected && (!seeking || selectedId === sourceTarget) && (
+    <RequirementDetails
+      key={selected.id}
+      row={selected}
+      projectId={projectId}
+      projectName={projectName}
+      locale={locale}
+      articleRef={detailArticle}
+      highlight={
+        source === selected.id && mentionVersion === selected.version ? mention : undefined
+      }
+      mentionChanged={source === selected.id && !!mention && mentionVersion !== selected.version}
+      summaryProps={
+        activeSelection && {
+          summary: summaries.get(selected.id),
+          loading: summaryLoading,
+          loadFailure: summaryFailure,
+          refresh: refreshSummaries,
+        }
+      }
+    >
+      {archiveError && (
+        <p role="alert" className="error">
+          {t(locale, archiveError)}
+        </p>
+      )}
+      {archivedSelection ? (
+        <>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void changeArchive(archivedSelection, 'restore')}
+          >
+            {t(locale, 'requirements.restore')}
+          </button>
+          <button
+            type="button"
+            className="destructive-action"
+            disabled={busy}
+            onClick={() => setConfirmation({ ...archivedSelection, action: 'delete' })}
+          >
+            {t(locale, 'requirements.purge')}
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={(event) => {
+              editTrigger.current = event.currentTarget;
+              setEditing({ id: selected.id, version: selected.version });
+              setEditText(selected.text);
+              setChangeReason('');
+              setValidation(null);
+              setFailure(false);
+            }}
+          >
+            {t(locale, 'requirements.edit')}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setConfirmation({ ...selected, action: 'archive' })}
+          >
+            {t(locale, 'requirements.archive')}
+          </button>
+        </>
+      )}
+    </RequirementDetails>
+  );
   return (
     <section className="ui-panel" aria-labelledby="requirements-heading">
       <h2 id="requirements-heading">{t(locale, 'requirements.title')}</h2>
@@ -237,13 +450,13 @@ export default function Requirements({ projectId, locale }: { projectId: string;
           {t(locale, 'requirements.add')}
         </button>
       </form>
-      {archiveTarget && (
+      {confirmation && (
         <RequirementConfirmation
-          action="archive"
-          text={archiveTarget.text}
+          action={confirmation.action}
+          text={confirmation.text}
           locale={locale}
-          onCancel={() => setArchiveTarget(null)}
-          onConfirm={() => void archive(archiveTarget.id, archiveTarget.version)}
+          onCancel={() => setConfirmation(null)}
+          onConfirm={() => void changeArchive(confirmation, confirmation.action)}
         />
       )}
       {editing && (
@@ -340,112 +553,90 @@ export default function Requirements({ projectId, locale }: { projectId: string;
           void infinite.retry().catch(() => {});
         }}
       />
-      {seeking && loaded && !loading && !infinite.error && !found && !infinite.hasNextPage && (
-        <p role="alert" className="error">
-          {t(locale, 'ui.sourceNotFound')}
-        </p>
-      )}
+      {seekArchive &&
+        archived.loaded &&
+        !archived.loading &&
+        !archived.error &&
+        !archivedTarget &&
+        !archived.hasNextPage && (
+          <p role="alert" className="error">
+            {t(locale, 'ui.sourceNotFound')}
+          </p>
+        )}
       <RetryFailedSummaries projectId={projectId} locale={locale} />
-      <Group
-        anchorId="requirements-list"
-        id={`${projectId}:requirements`}
-        title={t(locale, 'ui.requirementsGroup')}
-        summary={t(locale, 'list.total', { total: infinite.totalCount })}
-        defaultOpen
-      >
-        {loaded && rows.length === 0 && <p>{t(locale, 'requirements.empty')}</p>}
-        <VirtualList
-          identity={`requirements:${projectId}`}
-          items={rows}
-          keyOf={(row) => row.id}
-          focusedId={editing?.id ?? archiveTarget?.id}
-          scrollToId={sourceTarget}
-          onEndReached={more}
-          renderItem={(row) => (
-            <article
-              className={`card ${rowStyles.documentCard}`}
-              id={`requirement-${row.id}`}
-              key={row.id}
-              tabIndex={-1}
-            >
-              {source === row.id && mention && mentionVersion !== row.version && (
-                <p role="status">{t(locale, 'glossary.mentionChanged')}</p>
-              )}
-              <RequirementSummary
-                showOriginal={source === row.id && !!mention}
-                projectId={projectId}
-                requirementId={row.id}
-                requirementVersion={row.version}
-                highlight={
-                  source === row.id && mentionVersion === row.version ? mention : undefined
-                }
-                original={row.text}
-                locale={locale}
-                summary={summaries.get(row.id)}
-                loadFailure={summaryFailure}
-                loading={summaryLoading}
-                refresh={refreshSummaries}
-              />
-              <Group
-                id={`${projectId}:requirement:${row.id}:classification`}
-                title={t(locale, 'nav.classification')}
-                defaultOpen={false}
-                lazy
-              >
-                <ClassificationCard
-                  projectId={projectId}
-                  requirementId={row.id}
-                  original={row.text}
-                  version={row.version}
-                  locale={locale}
-                />
-              </Group>
-              <Group
-                id={`${projectId}:requirement:${row.id}:revisions`}
-                title={t(locale, 'requirements.history')}
-                defaultOpen={false}
-                lazy
-              >
-                <RequirementRevisionHistory
-                  projectId={projectId}
-                  requirementId={row.id}
-                  version={row.version}
-                  locale={locale}
-                />
-              </Group>
-              <p className="muted">{t(locale, 'requirements.version', { version: row.version })}</p>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={(event) => {
-                  editTrigger.current = event.currentTarget;
-                  setEditing({ id: row.id, version: row.version });
-                  setEditText(row.text);
-                  setChangeReason('');
-                  setValidation(null);
-                  setFailure(false);
-                }}
-              >
-                {t(locale, 'requirements.edit')}
-              </button>
-              <button type="button" disabled={busy} onClick={() => setArchiveTarget(row)}>
-                {t(locale, 'requirements.archive')}
-              </button>
-              <DesignIcon name="requirements" className={rowStyles.documentIcon} />
-            </article>
-          )}
-        />
-        <LoadMore locale={locale} {...infinite} loadMore={more} />
-      </Group>
-      <Group
-        id={`${projectId}:archive`}
-        anchorId="requirements-archive"
-        title={t(locale, 'requirements.archiveTitle')}
-        defaultOpen={false}
-        lazy
-      >
-        <RequirementArchive projectId={projectId} locale={locale} />
-      </Group>
+      <div className={styles.workspace}>
+        <div className={styles.listPane}>
+          <Group
+            anchorId="requirements-list"
+            id={`${projectId}:requirements`}
+            title={t(locale, 'ui.requirementsGroup')}
+            summary={t(locale, 'list.total', { total: infinite.totalCount })}
+            defaultOpen
+          >
+            {loaded && rows.length === 0 && <p>{t(locale, 'requirements.empty')}</p>}
+            <VirtualList
+              identity={`requirements:${projectId}:rows`}
+              items={rows}
+              keyOf={(row) => row.id}
+              focusedId={activeSelection?.id}
+              scrollToId={activeTarget?.id}
+              estimatedRowHeight={60}
+              onEndReached={more}
+              renderItem={(row) => chooseRow(row, false)}
+            />
+            <LoadMore locale={locale} {...infinite} loadMore={more} />
+          </Group>
+          <Group
+            id={`${projectId}:archive`}
+            anchorId="requirements-archive"
+            title={t(locale, 'requirements.archiveTitle')}
+            defaultOpen={false}
+            onOpenChange={setArchiveOpen}
+            lazy
+          >
+            <ResourceState
+              locale={locale}
+              loading={archived.loading}
+              error={archived.error}
+              hasData={archived.loaded}
+              retry={() => void archived.retry().catch(() => {})}
+            />
+            {archived.loaded && archived.rows.length === 0 && (
+              <p>{t(locale, 'requirements.archiveEmpty')}</p>
+            )}
+            {archived.rows.map((row) => (
+              <div key={row.id}>{chooseRow(row, true)}</div>
+            ))}
+            <LoadMore
+              locale={locale}
+              {...archived}
+              observe
+              loadMore={() => void archived.loadMore().catch(() => {})}
+            />
+          </Group>
+        </div>
+        {narrow ? (
+          <dialog
+            ref={mobileDetails}
+            className={styles.mobileDetails}
+            aria-label={t(locale, 'requirements.detailsTitle')}
+            onCancel={(event) => {
+              if (event.target !== event.currentTarget) return;
+              event.preventDefault();
+              closeDetails();
+            }}
+          >
+            <button type="button" onClick={closeDetails}>
+              {t(locale, 'requirements.backToList')}
+            </button>
+            {showDetails && details}
+          </dialog>
+        ) : (
+          <div className={styles.detailPane} ref={detailPane}>
+            {details}
+          </div>
+        )}
+      </div>
     </section>
   );
 }

@@ -20,23 +20,25 @@ export default function GlossaryMatch({
   error: boolean;
   reload: () => Promise<void>;
 }) {
-  const [mode, setMode] = useState<'preview' | 'pinned'>();
+  const [popup, setPopup] = useState<{ mode: 'preview' | 'pinned'; container: Element }>();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const keyboardActionPending = useRef(false);
   const id = useId();
   const edit = useGlossaryEditor();
-  const open = !!mode;
-  function preview() {
+  const mode = popup?.mode;
+  const open = !!popup;
+  function show(anchor: HTMLButtonElement, mode: 'preview' | 'pinned') {
     clearTimeout(timer.current);
-    setMode((value) => value ?? 'preview');
+    const container = anchor.closest('dialog[open]') ?? document.body;
+    setPopup((current) => (mode === 'preview' && current ? current : { mode, container }));
   }
   function leave() {
     clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       if (document.activeElement !== trigger.current)
-        setMode((value) => (value === 'pinned' ? value : undefined));
+        setPopup((current) => (current?.mode === 'pinned' ? current : undefined));
     }, 180);
   }
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -47,7 +49,7 @@ export default function GlossaryMatch({
     function position() {
       const bounds = anchor.getBoundingClientRect();
       if (bounds.bottom < 0 || bounds.top > window.innerHeight) {
-        setMode(undefined);
+        setPopup(undefined);
         return;
       }
       const left = Math.max(8, Math.min(bounds.left, window.innerWidth - box.offsetWidth - 8));
@@ -66,12 +68,14 @@ export default function GlossaryMatch({
     window.addEventListener('resize', position);
     function outside(e: Event) {
       if (e.target instanceof Node && !box.contains(e.target) && !anchor.contains(e.target))
-        setMode(undefined);
+        setPopup(undefined);
     }
     function dismissOnEscape(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        if (box.contains(document.activeElement)) anchor.focus();
-        setMode(undefined);
+        const activeElement = document.activeElement;
+        if (activeElement === anchor || box.contains(activeElement)) e.preventDefault();
+        if (box.contains(activeElement)) anchor.focus();
+        setPopup(undefined);
       }
     }
     document.addEventListener('pointerdown', outside);
@@ -101,10 +105,10 @@ export default function GlossaryMatch({
         className="glossary-match"
         aria-describedby={open ? id : undefined}
         onPointerEnter={(e) => {
-          if (e.pointerType !== 'touch') preview();
+          if (e.pointerType !== 'touch') show(e.currentTarget, 'preview');
         }}
         onPointerLeave={leave}
-        onFocus={preview}
+        onFocus={(e) => show(e.currentTarget, 'preview')}
         onClick={(e) => {
           keyboardActionPending.current = e.detail === 0;
           const action = mode === 'pinned' ? panel.current?.querySelector('button') : undefined;
@@ -112,12 +116,12 @@ export default function GlossaryMatch({
             keyboardActionPending.current = false;
             action.focus();
           }
-          setMode('pinned');
+          show(e.currentTarget, 'pinned');
         }}
       >
         {text}
       </button>
-      {mode &&
+      {popup &&
         createPortal(
           <div
             ref={panel}
@@ -162,7 +166,7 @@ export default function GlossaryMatch({
                   type="button"
                   key={term.id}
                   onClick={() => {
-                    setMode(undefined);
+                    setPopup(undefined);
                     edit({ name: term.name, term });
                   }}
                 >
@@ -171,7 +175,7 @@ export default function GlossaryMatch({
                 </button>
               ))}
           </div>,
-          document.body,
+          popup.container,
         )}
     </>
   );

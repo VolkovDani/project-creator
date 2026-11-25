@@ -194,25 +194,49 @@ async function fixture(
   };
 }
 
-test('summary is primary, original is disclosed, and provenance is visible', async ({ page }) => {
+test('the selected requirement shows its summary, full source and summary provenance', async ({
+  page,
+}) => {
   await fixture(page);
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
   await expect(card.getByText(suggestion, { exact: true })).toBeVisible();
-  const originalDetails = card.locator('details').filter({
-    has: page.getByText('Полный исходный текст требования', { exact: true }),
-  });
-  const originalDisclosure = originalDetails.locator('summary');
-  await expect(originalDetails).not.toHaveAttribute('open');
-  await expect(card.getByText(original, { exact: true })).toBeHidden();
+  await expect(card.getByText(original, { exact: true })).toBeVisible();
 
   await card.getByText('Версия и происхождение резюме', { exact: true }).click();
   await expect(card.getByText('local-test-profile')).toBeVisible();
   await expect(card.getByText('local-test-generator')).toBeVisible();
   await expect(card.getByText('2026-11-06T12:00:00Z')).toBeVisible();
+});
 
-  await originalDisclosure.click();
-  await expect(card.getByText(original, { exact: true })).toBeVisible();
+test('requirement action dialogs stay centered on the viewport after scrolling', async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.goto('/projects/summary-project/requirements');
+  const card = page.locator('#requirement-req-1');
+  for (const name of ['Изменить', 'В архив']) {
+    await page.evaluate(() => {
+      document.body.style.minHeight = '2500px';
+      window.scrollTo(0, 180);
+    });
+    await card.getByRole('button', { name, exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await expect
+      .poll(() =>
+        dialog.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return [
+            Math.round(bounds.left + bounds.width / 2 - window.innerWidth / 2),
+            Math.round(bounds.top + bounds.height / 2 - window.innerHeight / 2),
+          ];
+        }),
+      )
+      .toEqual([0, 0]);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+  }
 });
 
 test('failed summary generation can be retried and cancelled', async ({ page }) => {
@@ -317,7 +341,7 @@ test('saving a new source version refetches its summary without another SSE even
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect.poll(api.summaryReads).toBeGreaterThan(before);
   await expect(card.getByText(`${suggestion} v4`, { exact: true })).toBeVisible();
-  await expect(card.getByText('Обновлённая версия требования.', { exact: true })).toBeHidden();
+  await expect(card.getByText('Обновлённая версия требования.', { exact: true })).toBeVisible();
 });
 
 test('a ready preview over the Laya limit remains visible without an eligibility notice', async ({
@@ -328,19 +352,19 @@ test('a ready preview over the Laya limit remains visible without an eligibility
   const card = page.locator('#requirement-req-1');
   await expect(card.getByText('я'.repeat(176), { exact: true })).toBeVisible();
   await expect(card.getByText(/Предпросмотр занимает 352 байт UTF-8/)).toHaveCount(0);
-  await expect(card.getByText(original, { exact: true })).toBeHidden();
+  await expect(card.getByText(original, { exact: true })).toBeVisible();
 });
 
-test('a summary preloads its glossary details and the original reuses them', async ({ page }) => {
+test('the summary and visible original reuse glossary definitions', async ({ page }) => {
   const api = await fixture(page, { highlight: true });
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
   const term = card.getByRole('button', { name: 'предложение', exact: true });
   await expect(term).toBeVisible();
   await expect.poll(api.termReads).toBe(1);
-  expect(api.matchQueries.filter((query) => query.includes('requirementGlossary('))).toHaveLength(
-    0,
-  );
+  await expect
+    .poll(() => api.matchQueries.filter((query) => query.includes('requirementGlossary(')).length)
+    .toBe(1);
 
   await term.focus();
   await expect(page.getByRole('tooltip')).toContainText('Загрузка определений');
@@ -355,7 +379,6 @@ test('a summary preloads its glossary details and the original reuses them', asy
   await edit.press('Escape');
   await expect(term).toBeFocused();
 
-  await card.getByText('Полный исходный текст требования', { exact: true }).click();
   const originalMatch = card.getByRole('button', { name: 'Полный', exact: true });
   for (const highlight of [originalMatch, term]) {
     await expect(highlight).toHaveCSS('border-top-width', '0px');
@@ -470,8 +493,9 @@ test('formatted summaries and originals open glossary definitions within Markdow
   await summaryMatch.focus();
   await expect(page.getByRole('tooltip')).toContainText('Определение из словаря проекта');
   await page.keyboard.press('Escape');
-  await card.getByText('Полный исходный текст требования', { exact: true }).click();
-  const formatted = card.locator('details .requirement-markdown');
+  const formatted = card
+    .locator('.requirement-markdown')
+    .filter({ has: page.getByRole('link', { name: 'API', exact: true }) });
   await expect(formatted.locator('li strong').getByRole('button', { name: 'API' })).toBeVisible();
   await expect(formatted.getByRole('link', { name: 'API', exact: true })).toHaveAttribute(
     'href',
@@ -479,8 +503,9 @@ test('formatted summaries and originals open glossary definitions within Markdow
   );
   await expect(formatted.locator('p').getByRole('button', { name: 'API' })).toBeVisible();
   await expect(formatted.locator('a button, code button')).toHaveCount(0);
-  await card.locator('details').getByRole('button', { name: 'Исходная разметка' }).click();
-  const source = card.locator('details [data-glossary-text]');
+  const originalGroup = card.getByRole('region', { name: 'Полный исходный текст требования' });
+  await originalGroup.getByRole('button', { name: 'Исходная разметка' }).click();
+  const source = originalGroup.locator('[data-glossary-text][data-source-id="req-1"]');
   await expect(source).toHaveText(markdown);
   await expect(source.getByRole('button', { name: 'API' })).toHaveCount(7);
 });

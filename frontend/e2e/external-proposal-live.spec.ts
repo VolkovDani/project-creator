@@ -60,7 +60,10 @@ test('a saved proposal appears in the open review and retains the cited version 
   await expect(citedRequirement).toHaveAttribute('href', sourceURL);
   const editor = await context.newPage();
   await editor.goto(sourceURL);
-  await editor.getByRole('button', { name: 'Изменить', exact: true }).click();
+  await editor
+    .locator(`#requirement-${requirementId}`)
+    .getByRole('button', { name: 'Изменить', exact: true })
+    .click();
   const dialog = editor.getByRole('dialog');
   const text = dialog.getByLabel('Текст требования');
   await expect(text).toHaveValue('Set a payment deadline.');

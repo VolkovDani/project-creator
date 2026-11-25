@@ -160,9 +160,14 @@ export default function RequirementSummary({
         locale={locale}
       />
     );
+  const sourceContent = showOriginal ? (
+    <section aria-label={t(locale, 'summary.original')}>{source}</section>
+  ) : (
+    source
+  );
   return (
     <section aria-label={hasText ? t(locale, 'summary.section') : undefined}>
-      {hasText ? <p className="muted">{t(locale, 'summary.suggestion')}</p> : source}
+      {hasText ? <p className="muted">{t(locale, 'summary.suggestion')}</p> : sourceContent}
       {hasText && displayedSummary?.text ? (
         <RequirementMarkdown
           text={displayedSummary.text}
@@ -222,7 +227,7 @@ export default function RequirementSummary({
         </button>
       )}
 
-      {hasText && source}
+      {hasText && sourceContent}
     </section>
   );
 }

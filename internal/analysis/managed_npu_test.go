@@ -17,15 +17,19 @@ func TestManagedNPUSummaryLanguageRepairKeepsOneProperty(t *testing.T) {
 	const preview = "Хранить отчёт в СЭД 42 дня."
 	for _, tc := range []struct {
 		name             string
+		firstSummary     string
 		ignoreFieldCount bool
 		wantErr          error
 	}{
-		{name: "bounded object"},
-		{name: "provider adds an empty key", ignoreFieldCount: true, wantErr: ErrSummaryFormat},
+		{name: "wrong language", firstSummary: "Retain the report for 42 days."},
+		{name: "missing number", firstSummary: "Хранить отчёт в СЭД."},
+		{name: "provider adds an empty key", firstSummary: "Retain the report for 42 days.", ignoreFieldCount: true, wantErr: ErrSummaryFormat},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			src := summarySource(preview)
-			hints := []glossary.Hint{{Spelling: "СЭД", Definition: "Система электронного документооборота."}}
+			hint := glossary.Hint{TermID: "term-7", Spelling: "СЭД", Definition: "Система электронного документооборота."}
+			hints := []glossary.Hint{hint}
+			hints[0].Version = 3
 			calls := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var req chatRequestFixture
@@ -35,7 +39,7 @@ func TestManagedNPUSummaryLanguageRepairKeepsOneProperty(t *testing.T) {
 				}
 				calls++
 				schema := req.Format.Schema.Schema
-				content := `{"summary":"Retain the report for 42 days."}`
+				content := fmt.Sprintf(`{"summary":%q}`, tc.firstSummary)
 				if calls == 1 {
 					if schema["minProperties"] != nil || schema["maxProperties"] != nil {
 						t.Error("the initial schema must retain the existing generation profile")
@@ -47,7 +51,7 @@ func TestManagedNPUSummaryLanguageRepairKeepsOneProperty(t *testing.T) {
 					}
 					if len(req.Messages) != 2 ||
 						json.Unmarshal([]byte(req.Messages[1]["content"]), &input) != nil ||
-						input.Text != src.Text || len(input.Glossary) != 1 || input.Glossary[0] != hints[0] {
+						input.Text != src.Text || len(input.Glossary) != 1 || input.Glossary[0] != hint {
 						t.Error("the repair must restart with the original text and glossary")
 					}
 					if !strings.Contains(req.Messages[0]["content"], "В выжимке сохраните следующие числа и обозначения: 42.") {

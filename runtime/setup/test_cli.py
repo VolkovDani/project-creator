@@ -14,6 +14,17 @@ from unittest.mock import patch
 import cli
 
 
+def managed_classifier_settings(url='http://models-configurator:8317/v1'):
+    return {
+        'PROJECT_CREATOR_RECORD_CLASSIFIER': 'systemone-review',
+        'PROJECT_CREATOR_RECORD_CLASSIFIER_RUNTIME': 'managed',
+        'PROJECT_CREATOR_RECORD_CLASSIFIER_URL': url,
+        'PROJECT_CREATOR_RECORD_CLASSIFIER_PROFILE': 'ollama.decision.' + 'a'*64,
+        'PROJECT_CREATOR_RECORD_CLASSIFIER_MODEL': 'd3:4b',
+        'PROJECT_CREATOR_RECORD_CLASSIFIER_DIGEST': 'b'*64,
+    }
+
+
 class ConfigTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -89,6 +100,28 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(cli.Failure, 'DEVICE_CHANGE'):
             config.ensure('npu', ollama_device='cpu')
         config.ensure('npu', ollama_device='cpu', switch=True)
+
+    def test_managed_classifier_requires_explicit_local_api_and_profile(self):
+        config = cli.Config(self.root)
+        for suffix, value in (
+            ('RUNTIME', 'unknown'), ('PROFILE', ''), ('PROFILE', 'decision'), ('URL', ''),
+            ('URL', 'http://ollama:11434/v1'), ('URL', 'https://models-configurator:8317/v1'),
+            ('URL', 'http://external.example/v1'), ('URL', 'http://models-configurator:8317'),
+            ('URL', 'http://models-configurator:11434/v1'), ('URL', 'http://models-configurator:8317/v1//'),
+            ('URL', 'http://private@models-configurator:8317/v1'),
+            ('URL', 'http://models-configurator:8317/v1?secret=private'),
+        ):
+            with self.subTest(suffix=suffix, value=value):
+                config.update_env({**managed_classifier_settings(), f'PROJECT_CREATOR_RECORD_CLASSIFIER_{suffix}': value})
+                with self.assertRaisesRegex(cli.Failure, 'CONFIG_PROVIDER.*CLASSIFIER_'+suffix) as error:
+                    config.validate_providers('remote')
+                self.assertNotIn('private', str(error.exception))
+
+    def test_managed_classifier_allows_explicit_loopback_api(self):
+        config = cli.Config(self.root)
+        config.update_env(managed_classifier_settings('http://127.0.0.1:8317/v1'))
+        config.validate_providers('remote')
+        self.assertFalse(config.uses_ollama('remote'))
 
 
 class FakeRunner:
@@ -631,12 +664,13 @@ class RemoteInstallTests(InstallerTestCase):
         self.assertEqual(self.app.config.state['device'], 'cpu')
         self.assertEqual(pin.call_count, 2)
         self.assertIn(str(self.root/'compose.cpu.yml'), self.runner.calls[-1])
-        values = {'PROJECT_CREATOR_GENERATOR_MODEL': 'local', 'PROJECT_CREATOR_GENERATOR_DIGEST': 'a'*64,
-                  'PROJECT_CREATOR_RECORD_CLASSIFIER': 'systemone-review', 'COMPOSE_PROFILES': 'local-models'}
+        values = {**managed_classifier_settings(), 'PROJECT_CREATOR_GENERATOR_MODEL': 'local',
+                  'PROJECT_CREATOR_GENERATOR_DIGEST': 'a'*64, 'COMPOSE_PROFILES': 'local-models'}
         self.app.config.update_env(values)
         with patch.object(self.app, 'prerequisites', return_value=None), patch.object(self.app, 'up'):
             self.app.setup('none', switch=True)
         self.app.compose('config')
+        self.assertNotIn(str(self.root/'compose.models-configurator.yml'), self.runner.calls[-1])
         for key, value in values.items():
             self.assertEqual(self.app.config.values[key], value)
             self.assertEqual(self.runner.envs[-1][key], '')
@@ -647,9 +681,10 @@ class RemoteInstallTests(InstallerTestCase):
                                     'PROJECT_CREATOR_EMBEDDING_RUNTIME': 'openai-compatible',
                                     'PROJECT_CREATOR_MODELS_NETWORK': 'models-configurator-clients'})
         self.app.config.ensure('arc', switch=True)
-        for mode, url in [('systemone-review', ''), ('laya-review', 'http://ollama:11434')]:
-            with self.subTest(mode=mode):
+        for mode, runtime, url in [('systemone-review', '', ''), ('laya-review', 'ollama', 'http://ollama:11434')]:
+            with self.subTest(mode=mode, runtime=runtime):
                 self.app.config.update_env({'PROJECT_CREATOR_RECORD_CLASSIFIER': mode,
+                                            'PROJECT_CREATOR_RECORD_CLASSIFIER_RUNTIME': runtime,
                                             'PROJECT_CREATOR_RECORD_CLASSIFIER_URL': url})
                 self.app.config.validate_providers('arc')
                 self.app.compose('config')
@@ -796,6 +831,13 @@ class ModelsConfiguratorTests(InstallerTestCase):
         response.read.return_value = json.dumps({'object': 'list', 'data': models}).encode()
         return response
 
+    def decision_inventory(self, settings):
+        profile = settings['PROJECT_CREATOR_RECORD_CLASSIFIER_PROFILE']
+        response = self.inventory({'id': profile, 'provider': 'ollama', 'role': 'decision'})
+        ready = {'id': profile, 'provider': 'ollama', 'role': 'decision', 'reachability': 'reachable',
+                 'installed': True, 'listed': None, 'loaded': False}
+        return response, ready
+
     def test_setup_cli_starts_empty_manager_and_reuses_saved_checkout(self):
         (self.manager / '.env').write_text('MODELS_PORT=18317\nCOMPOSE_FILE=compose.yml:compose.override.yml\n')
         with patch.object(cli, 'Installer', return_value=self.app), patch.dict(os.environ, {
@@ -853,6 +895,66 @@ class ModelsConfiguratorTests(InstallerTestCase):
         self.assertEqual(self.runner.envs[app_up]['PROJECT_CREATOR_MODELS_NETWORK'], 'manager-clients')
         self.assertEqual(self.app.config.values['PROJECT_CREATOR_EMBEDDING_MODEL'], 'immutable-profile')
         self.assertNotIn('PROJECT_CREATOR_GENERATOR_MODEL', self.app.config.values)
+
+    def test_managed_classifier_only_starts_on_manager_network_without_ollama(self):
+        settings = managed_classifier_settings()
+        self.app.config.update_env(settings)
+        response, ready = self.decision_inventory(settings)
+        status = json.dumps({'models': [ready]}).encode()
+        response.read.side_effect = [response.read.return_value,
+                                     json.dumps({'models': [{**ready, 'installed': False}]}).encode(), status,
+                                     response.read.return_value, status]
+        with patch.object(self.app, 'ollama', side_effect=AssertionError), patch.object(cli.time, 'sleep') as sleep:
+            self.app.setup('remote', models_configurator_dir=self.manager)
+            self.app.doctor()
+        sleep.assert_called_once_with(0.5)
+        app_up = next(i for i, args in enumerate(self.runner.calls) if '--wait-timeout' in args)
+        self.assertIn(str(self.root / 'compose.remote.yml'), self.runner.calls[app_up])
+        self.assertIn(str(self.root / 'compose.models-configurator.yml'), self.runner.calls[app_up])
+        self.assertEqual(self.runner.envs[app_up]['PROJECT_CREATOR_MODELS_NETWORK'], 'manager-clients')
+        self.assertFalse(any('ollama' in args or 'model-info' in args for args in self.runner.calls))
+        self.assertTrue(self.app.config.state['verified'])
+        self.assertEqual({key: self.app.config.values[key] for key in settings}, settings)
+
+    @unittest.skipUnless(cli.shutil.which('docker'), 'Docker Compose is required')
+    def test_managed_classifier_compose_preserves_settings_without_bundling_ollama(self):
+        settings = managed_classifier_settings()
+        self.app.config.update_env({**settings, 'PROJECT_CREATOR_MODELS_NETWORK': 'manager-clients'})
+        self.app.config.ensure('remote', switch=True)
+        self.app.compose('config', '--format', 'json')
+        repo = Path(cli.__file__).resolve().parents[2]
+        args = [str(repo/Path(arg).name) if arg.endswith('.yml') else arg for arg in self.runner.calls[-1]]
+        result = json.loads(subprocess.check_output(args, env=self.runner.envs[-1]))
+        services = result['services']
+        self.assertEqual(set(services), {'postgres', 'frontend', 'backend'})
+        self.assertEqual(set(services['backend']['networks']), {'default', 'models'})
+        self.assertEqual(result['networks']['models']['name'], 'manager-clients')
+        environment = services['backend']['environment']
+        self.assertEqual({key: environment[key] for key in settings}, settings)
+        self.assertEqual(environment['PROJECT_CREATOR_GENERATOR_RUNTIME'], '')
+        self.assertEqual(environment['PROJECT_CREATOR_EMBEDDING_RUNTIME'], '')
+
+    def test_managed_classifier_with_local_roles_keeps_ollama_for_those_roles(self):
+        settings = managed_classifier_settings()
+        self.app.config.update_env(settings)
+        response, ready = self.decision_inventory(settings)
+        response.read.side_effect = [response.read.return_value, json.dumps({'models': [ready]}).encode()]
+        with patch.object(self.app, 'prerequisites', return_value=None), patch.object(self.app, 'pin_model') as pin, patch.object(self.app, 'verify'):
+            self.app.setup('cpu', models_configurator_dir=self.manager)
+        app_up = next(i for i, args in enumerate(self.runner.calls) if '--wait-timeout' in args)
+        self.assertIn(str(self.root / 'compose.cpu.yml'), self.runner.calls[app_up])
+        self.assertIn(str(self.root / 'compose.models-configurator.yml'), self.runner.calls[app_up])
+        self.assertEqual(self.runner.envs[app_up]['PROJECT_CREATOR_MODELS_NETWORK'], 'manager-clients')
+        self.assertTrue(any(args[-1] == 'ollama' for args in self.runner.calls))
+        self.assertEqual([call.args for call in pin.call_args_list], [('bge-m3:567m', 'EMBEDDING'), ('qwen2.5:7b', 'GENERATOR')])
+
+    def test_managed_classifier_rejects_profile_of_another_role(self):
+        settings = managed_classifier_settings()
+        self.app.config.update_env(settings)
+        self.inventory({'id': settings['PROJECT_CREATOR_RECORD_CLASSIFIER_PROFILE'], 'provider': 'ollama', 'role': 'chat'})
+        with self.assertRaisesRegex(cli.Failure, 'MODELS_CONFIGURATOR.*RECORD_CLASSIFIER_PROFILE.*decision'):
+            self.app.setup('remote', models_configurator_dir=self.manager)
+        self.assertFalse(any('--wait-timeout' in args for args in self.runner.calls))
 
     def test_doctor_is_read_only_and_down_stops_manager_after_app(self):
         self.app.setup(models_configurator_dir=self.manager)

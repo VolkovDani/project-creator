@@ -58,6 +58,23 @@ CLI запоминает абсолютный путь к репозиторию
 
 Настройте каждую роль явно. Укажите среду `openai-compatible`, URL `http://models-configurator:8317/v1` и ID модели из списка менеджера. Для установленного локального классификатора Ollama сохраните выбранное локальное устройство, например `arc`. Если все роли подключаются через API и встроенный классификатор отключён, выберите `--device remote`. При смене сохранённого устройства используйте `--switch-device`.
 
+## Классификация записей через Models Configurator
+
+Добавьте D3 или Laya с ролью `decision` в Models Configurator и возьмите полный ID из `GET /v1/models`. Для System One D3 укажите в приватном `.env` Project Creator следующие значения.
+
+```dotenv
+PROJECT_CREATOR_RECORD_CLASSIFIER=systemone-review
+PROJECT_CREATOR_RECORD_CLASSIFIER_RUNTIME=managed
+PROJECT_CREATOR_RECORD_CLASSIFIER_URL=http://models-configurator:8317/v1
+PROJECT_CREATOR_RECORD_CLASSIFIER_PROFILE=<полный ID профиля менеджера>
+PROJECT_CREATOR_RECORD_CLASSIFIER_MODEL=d3:4b
+PROJECT_CREATOR_RECORD_CLASSIFIER_DIGEST=<полный SHA-256 артефакта>
+```
+
+Тег и digest описывают проверенный артефакт. ID профиля указывает на его развёртывание в Models Configurator. Для `laya-review` приложение использует закреплённые тег и digest Laya, а ID профиля должен выбирать тот же артефакт. См. [настройку локальных моделей выбора](https://github.com/VolkovDani/models-configurator/blob/develop/docs/decision-models.ru.md).
+
+Когда все роли работают через API менеджера, для переключения существующей установки выполните `./project-creator setup --device remote --switch-device --models-configurator-dir ../models-configurator`. Менеджер продолжает работать локально. Классификация сохраняет подтверждённые решения и записывает профиль менеджера для новых результатов. Существующие установки могут продолжать использовать `PROJECT_CREATOR_RECORD_CLASSIFIER_RUNTIME=ollama` с прямым локальным адресом Ollama.
+
 ## Удалённые модели для генерации и эмбеддингов
 
 Если эмбеддинги и генерация подключены через Models Configurator, а классификатор записей ещё использует встроенный сервис Ollama, сохраните выбор локального устройства (например, `--device arc`). Установщик запустит Ollama для классификации и подключит backend к сети менеджера для двух остальных ролей.

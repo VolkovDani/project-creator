@@ -49,6 +49,23 @@ The CLI remembers the absolute checkout path and Compose project name. Use `down
 
 Choose each role explicitly. Set its runtime to `openai-compatible`, its URL to `http://models-configurator:8317/v1` and its model to the ID from the manager inventory. For an existing installation that uses the bundled Ollama classifier, keep the selected local device such as `arc`. For API-only roles with no bundled classifier, choose `--device remote`. Use `--switch-device` when changing a saved device.
 
+## Record classification through Models Configurator
+
+Add D3 or Laya with role `decision` in Models Configurator and copy the full ID from `GET /v1/models`. For System One D3, set these values in Project Creator's private `.env`.
+
+```dotenv
+PROJECT_CREATOR_RECORD_CLASSIFIER=systemone-review
+PROJECT_CREATOR_RECORD_CLASSIFIER_RUNTIME=managed
+PROJECT_CREATOR_RECORD_CLASSIFIER_URL=http://models-configurator:8317/v1
+PROJECT_CREATOR_RECORD_CLASSIFIER_PROFILE=<full manager profile ID>
+PROJECT_CREATOR_RECORD_CLASSIFIER_MODEL=d3:4b
+PROJECT_CREATOR_RECORD_CLASSIFIER_DIGEST=<full artifact SHA-256>
+```
+
+The model tag and digest describe the verified artifact. The profile ID identifies its deployment in Models Configurator. For `laya-review`, the application uses the pinned Laya tag and digest, and the profile ID must select that same artifact. See [local decision model setup](https://github.com/VolkovDani/models-configurator/blob/develop/docs/decision-models.md).
+
+When all model roles use the manager API, use `./project-creator setup --device remote --switch-device --models-configurator-dir ../models-configurator` to switch an existing installation. The manager remains local. The classification workflow keeps confirmed decisions and records the managed profile for new work. Existing installations can continue using `PROJECT_CREATOR_RECORD_CLASSIFIER_RUNTIME=ollama` with their direct local Ollama endpoint.
+
 ## Remote generation and embeddings
 
 When both embeddings and generation use Models Configurator and the record classifier still uses the bundled Ollama service, keep the local device selected (for example `--device arc`). This keeps Ollama available for classification and connects the backend to the manager network for the other two roles.

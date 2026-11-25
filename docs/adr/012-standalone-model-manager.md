@@ -40,6 +40,8 @@ go build -o /tmp/models-configurator-test ./cmd/models-configurator
 MODELS_CONFIGURATOR_TEST_BIN=/tmp/models-configurator-test go test -count=1 ./internal/api -run 'Test(ModelManagerWorkerIntegration|CompatibleProvidersWithoutLocalRuntime)$'
 ```
 
+To exercise the decision adapter through the same manager binary, run `MODELS_CONFIGURATOR_TEST_BIN=/tmp/models-configurator-test go test -count=1 ./internal/recordclassifier -run '^TestManagedDecisionManagerIntegration$'`. The test uses a synthetic local Ollama endpoint and compares both review axes. Record both source revisions with the result.
+
 The test checks persisted summaries, indexing and search, collision analysis and workspace isolation through the API. Ordinary Go tests use deterministic providers and can run without the manager checkout.
 
 To run the same three hardware fixtures against the managed client, set `MANAGED_NPU_REAL_SMOKE=1`, `MANAGED_NPU_URL=http://127.0.0.1:8317/v1` and `MANAGED_NPU_MODEL` to its full NPU ID, then run `go test -v -count=1 ./internal/analysis -run '^TestManagedOpenVINORealNPUSmoke$'`.

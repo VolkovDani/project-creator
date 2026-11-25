@@ -40,6 +40,8 @@ go build -o /tmp/models-configurator-test ./cmd/models-configurator
 MODELS_CONFIGURATOR_TEST_BIN=/tmp/models-configurator-test go test -count=1 ./internal/api -run 'Test(ModelManagerWorkerIntegration|CompatibleProvidersWithoutLocalRuntime)$'
 ```
 
+Чтобы проверить адаптер классификации через тот же бинарный файл менеджера, выполните `MODELS_CONFIGURATOR_TEST_BIN=/tmp/models-configurator-test go test -count=1 ./internal/recordclassifier -run '^TestManagedDecisionManagerIntegration$'`. Тест использует синтетический локальный endpoint Ollama и сравнивает обе оси ревью. Запишите обе ревизии исходников вместе с результатом.
+
 Тест проверяет сохранённые выжимки, индексацию и поиск, анализ коллизий и изоляцию рабочих областей через API. Обычные Go-тесты используют детерминированные провайдеры и могут запускаться без репозитория менеджера.
 
 Для прогона трёх фиксированных аппаратных примеров через клиент менеджера задайте `MANAGED_NPU_REAL_SMOKE=1`, `MANAGED_NPU_URL=http://127.0.0.1:8317/v1` и полный NPU ID в `MANAGED_NPU_MODEL`, затем выполните `go test -v -count=1 ./internal/analysis -run '^TestManagedOpenVINORealNPUSmoke$'`.

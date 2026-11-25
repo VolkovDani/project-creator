@@ -40,7 +40,7 @@ func TestMigrationUsesSelectedSchemaHistory(t *testing.T) {
 	}
 	defer db.Close()
 	var version int
-	if err = db.QueryRow(`SELECT max(version) FROM ` + selected + `.schema_migrations`).Scan(&version); err != nil || version != 20 {
+	if err = db.QueryRow(`SELECT max(version) FROM ` + selected + `.schema_migrations`).Scan(&version); err != nil || version != 21 {
 		t.Fatalf("selected history: %d %v", version, err)
 	}
 	if err = db.QueryRow(`SELECT max(version) FROM ` + fallback + `.schema_migrations`).Scan(&version); err != nil || version != 999 {

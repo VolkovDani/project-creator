@@ -116,6 +116,17 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
     errorCode: '',
     checkedAt: '2026-11-05',
     resultOrigin: 'model',
+    glossaryContext: [
+      {
+        termId: 'term-a',
+        version: 1,
+        spelling: 'GPA',
+        name: 'Project glossary term',
+        definition: 'Saved project definition',
+        context: 'Context at comparison time',
+        ambiguous: false,
+      },
+    ],
     reusedFrom: '',
     selectionReasons: [],
     similarityScore: null,
@@ -221,8 +232,15 @@ async function fixture(page: Page, firstSummaryGate?: Promise<void>) {
     set(value: ReturnType<typeof snapshot>) {
       current = value;
     },
-    setPair(value: Omit<typeof pair, 'layaErrorCode'> & { layaErrorCode?: string }) {
-      pair = { ...value, layaErrorCode: value.layaErrorCode ?? '' };
+    setPair(
+      value: Omit<typeof pair, 'layaErrorCode' | 'glossaryContext'> &
+        Partial<Pick<typeof pair, 'layaErrorCode' | 'glossaryContext'>>,
+    ) {
+      pair = {
+        ...value,
+        layaErrorCode: value.layaErrorCode ?? '',
+        glossaryContext: value.glossaryContext ?? [],
+      };
     },
     setExplanationMatches(value: typeof explanationMatches) {
       explanationMatches = value;
@@ -299,6 +317,7 @@ test('group loads compact rows and only an opened pair fetches texts; reopen reu
   await expect(
     technical.getByText('Источник: модель; вывод требует проверки человеком'),
   ).toBeVisible();
+  await expect(technical.getByText('Saved project definition', { exact: true })).toBeVisible();
   await technical.locator('summary').click();
   await technical.locator('summary').click();
   expect(live.requests.filter((name) => name === 'AnalysisPairTechnical')).toHaveLength(1);

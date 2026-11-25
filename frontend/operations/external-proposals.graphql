@@ -9,6 +9,7 @@ query ExternalProposals($projectId: ID!, $after: String) {
       sharing
       status
       createdAt
+      glossarySources { termId version status }
       sources {
         requirementId
         version

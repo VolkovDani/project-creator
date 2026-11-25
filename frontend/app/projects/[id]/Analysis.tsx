@@ -70,6 +70,7 @@ const analysisErrorMessages: Record<string, string> = {
   INVALID_OUTPUT: 'analysis.error.INVALID_OUTPUT',
   PROFILE_CHANGED: 'analysis.error.PROFILE_CHANGED',
   SOURCE_CHANGED: 'analysis.error.SOURCE_CHANGED',
+  GLOSSARY_CHANGED: 'analysis.error.GLOSSARY_CHANGED',
 };
 type LiveRun = AnalysisRun & { revision: string };
 function liveRun(snapshot: AnalysisSnapshot): LiveRun {
@@ -380,6 +381,33 @@ function PairTechnical({
           {pair.reusedFrom && (
             <p className="muted">{t(locale, 'analysis.reusedFrom', { id: pair.reusedFrom })}</p>
           )}
+          {!!pair.glossaryContext?.length && (
+            <section>
+              <h5>{t(locale, 'analysis.pair.glossaryContext')}</h5>
+              <dl>
+                {pair.glossaryContext.map((hint) => (
+                  <div key={hint.spelling}>
+                    <dt>
+                      {hint.spelling}
+                      {hint.name && hint.name !== hint.spelling && ` · ${hint.name}`}
+                      {hint.version != null &&
+                        ` · ${t(locale, 'requirements.version', { version: hint.version })}`}
+                    </dt>
+                    <dd>
+                      {hint.ambiguous ? (
+                        <p>{t(locale, 'analysis.pair.ambiguousGlossary')}</p>
+                      ) : (
+                        <>
+                          {hint.definition && <p className="user-content">{hint.definition}</p>}
+                          {hint.context && <p className="user-content">{hint.context}</p>}
+                        </>
+                      )}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
         </>
       )}
     </>
@@ -486,6 +514,11 @@ function PairList({
                   <p className="muted">{t(locale, 'analysis.pair.modelSuggestion')}</p>
                 )}
               </>
+            )}
+            {pair.glossaryStale && (
+              <p role="status" className="muted">
+                {t(locale, 'analysis.pair.glossaryStale')}
+              </p>
             )}
             {(pair.status === 'pending' || pair.status === 'running') && (
               <p role="status">{t(locale, `analysis.pair.${pair.status}`)}</p>

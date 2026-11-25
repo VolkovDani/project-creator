@@ -16,7 +16,14 @@ const selectProposal = `
 	   'status', CASE WHEN r.id IS NULL THEN 'unavailable'
 	                  WHEN r.version <> s.version THEN 'stale' ELSE 'current' END) ORDER BY s."requirementId")
 	  FROM jsonb_to_recordset(p.sources) AS s("requirementId" text, version int)
-	  LEFT JOIN active_requirements r ON r.workspace=p.workspace AND r.project_id=p.project_id AND r.id=s."requirementId")
+	  LEFT JOIN active_requirements r ON r.workspace=p.workspace AND r.project_id=p.project_id AND r.id=s."requirementId"),
+	 coalesce(
+	  (SELECT jsonb_agg(jsonb_build_object('termId', s."termId", 'version', s.version,
+	   'status', CASE WHEN t.id IS NULL THEN 'unavailable'
+	                  WHEN t.version <> s.version THEN 'stale' ELSE 'current' END) ORDER BY s."termId")
+	   FROM jsonb_to_recordset(p.glossary_sources) AS s("termId" text, version int)
+	   LEFT JOIN glossary_terms t ON t.workspace=p.workspace AND t.project_id=p.project_id AND t.id=s."termId"),
+	  '[]'::jsonb)
 	FROM external_proposals p WHERE p.workspace=$1 AND p.project_id=$2
 `
 
@@ -39,6 +46,11 @@ func (s *Service) save(ctx context.Context, workspace, projectID string, in Inpu
 		return nil, err
 	}
 
+	glossaryRefs, err := json.Marshal(in.GlossarySources)
+	if err != nil {
+		return nil, err
+	}
+
 	// Take the source locks before inserting a proposal. The insert trigger
 	// takes the outbox lock, which also follows requirement changes.
 	var sourceCount int
@@ -53,22 +65,40 @@ func (s *Service) save(ctx context.Context, workspace, projectID string, in Inpu
 	`, workspace, projectID, string(refs)).Scan(&sourceCount); err != nil {
 		return nil, err
 	}
-	if sourceCount == len(in.Sources) {
+	// projectAccess holds the project lock against glossary edits until commit.
+	var glossaryCount int
+	if len(in.GlossarySources) > 0 {
+		if err = tx.QueryRowContext(ctx, `
+			SELECT count(*) FROM glossary_terms t
+			JOIN jsonb_to_recordset($3::jsonb) AS s("termId" text, version int)
+			  ON t.id=s."termId" AND t.version=s.version
+			WHERE t.workspace=$1 AND t.project_id=$2
+		`, workspace, projectID, string(glossaryRefs)).Scan(&glossaryCount); err != nil {
+			return nil, err
+		}
+	}
+	if sourceCount == len(in.Sources) && glossaryCount == len(in.GlossarySources) {
 		if _, err = tx.ExecContext(ctx, `
-			INSERT INTO external_proposals(id,workspace,project_id,request_id,analysis,limitations,client,model,sharing,sources)
-			VALUES($3,$1,$2,$4,$5,$6,$7,$8,$9,$10::jsonb)
+			INSERT INTO external_proposals(id,workspace,project_id,request_id,analysis,limitations,client,model,sharing,sources,glossary_sources)
+			VALUES($3,$1,$2,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb)
 			ON CONFLICT(workspace,project_id,request_id) DO NOTHING
-		`, workspace, projectID, hex.EncodeToString(nonce[:]), in.RequestID, in.Analysis, in.Limitations, in.Client, in.Model, in.Sharing, string(refs)); err != nil {
+		`, workspace, projectID, hex.EncodeToString(nonce[:]), in.RequestID, in.Analysis, in.Limitations, in.Client, in.Model, in.Sharing, string(refs), string(glossaryRefs)); err != nil {
 			return nil, err
 		}
 	}
 	var same bool
 	err = tx.QueryRowContext(ctx, `
-		SELECT analysis=$4 AND limitations=$5 AND client=$6 AND model=$7 AND sharing=$8 AND sources=$9::jsonb
+		SELECT analysis=$4 AND limitations=$5 AND client=$6 AND model=$7 AND sharing=$8
+		 AND sources=$9::jsonb AND glossary_sources=$10::jsonb
 		FROM external_proposals WHERE workspace=$1 AND project_id=$2 AND request_id=$3
-	`, workspace, projectID, in.RequestID, in.Analysis, in.Limitations, in.Client, in.Model, in.Sharing, string(refs)).Scan(&same)
+	`, workspace, projectID, in.RequestID, in.Analysis, in.Limitations, in.Client, in.Model, in.Sharing, string(refs), string(glossaryRefs)).Scan(&same)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, errSourceChanged
+		if sourceCount != len(in.Sources) {
+			return nil, errSourceChanged
+		}
+		if glossaryCount != len(in.GlossarySources) {
+			return nil, errGlossarySourceChanged
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -132,11 +162,14 @@ func projectAccess(ctx context.Context, tx *sql.Tx, workspace, projectID string,
 
 func scanProposal(row interface{ Scan(...any) error }) (Proposal, error) {
 	var p Proposal
-	var sources []byte
-	if err := row.Scan(&p.ID, &p.Analysis, &p.Limitations, &p.Client, &p.Model, &p.Sharing, &p.CreatedAt, &sources); err != nil {
+	var sources, glossarySources []byte
+	if err := row.Scan(&p.ID, &p.Analysis, &p.Limitations, &p.Client, &p.Model, &p.Sharing, &p.CreatedAt, &sources, &glossarySources); err != nil {
 		return Proposal{}, err
 	}
 	if err := json.Unmarshal(sources, &p.Sources); err != nil {
+		return Proposal{}, err
+	}
+	if err := json.Unmarshal(glossarySources, &p.GlossarySources); err != nil {
 		return Proposal{}, err
 	}
 	return p, nil

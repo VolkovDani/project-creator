@@ -48,6 +48,7 @@ VERSIONS = {'openvino': '2026.4.1', 'openvino-genai': '2026.4.1.0',
             'openvino-tokenizers': '2026.4.1.0', 'numpy': '2.5.4',
             'openvino-telemetry': '2025.2.0'}
 MAX_BODY = 65536
+MAX_CONFIRMED_GLOSSARY_BYTES = 3072
 HEX = re.compile(r'[0-9a-f]{64}')
 REQUIRED_FILES = {'openvino_model.xml', 'openvino_model.bin',
                   'openvino_tokenizer.xml', 'openvino_detokenizer.xml'}
@@ -202,6 +203,28 @@ def valid_preclassification(value):
     return abs(total - 1.0) <= 1e-6
 
 
+def valid_confirmed_glossary(value):
+    if not isinstance(value, list) or not value:
+        return False
+    for entry in value:
+        if not isinstance(entry, dict):
+            return False
+        if 'ambiguous' in entry:
+            if set(entry) != {'ambiguous', 'spelling'} or entry['ambiguous'] is not True:
+                return False
+        else:
+            required = {'termId', 'version', 'spelling', 'name'}
+            if (not required <= entry.keys() or set(entry) - required - {'definition', 'context'}
+                    or type(entry['version']) is not int or not 0 < entry['version'] <= 2147483647):
+                return False
+        if any(not isinstance(text, str) or not text
+               for key, text in entry.items() if key not in ('ambiguous', 'version')):
+            return False
+    # Go's compact JSON budget also escapes HTML and the two Unicode line
+    # separators. Python's compact UTF-8 form is no larger than Go's.
+    return len(json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode()) <= MAX_CONFIRMED_GLOSSARY_BYTES
+
+
 def validate_request(value, profile):
     if not isinstance(value, dict) or set(value) != {'profile', 'system', 'pair', 'schema'}:
         raise ValueError('invalid request')
@@ -211,10 +234,11 @@ def validate_request(value, profile):
         raise ValueError('profile or prompt mismatch')
     pair = value['pair']
     if (not isinstance(pair, dict) or not {'left', 'right'} <= pair.keys()
-            or set(pair) - {'left', 'right', 'preclassification'}
+            or set(pair) - {'left', 'right', 'preclassification', 'confirmedGlossary'}
             or not valid_source(pair['left']) or not valid_source(pair['right'])
             or pair['left']['id'] == pair['right']['id']
-            or ('preclassification' in pair and not valid_preclassification(pair['preclassification']))):
+            or ('preclassification' in pair and not valid_preclassification(pair['preclassification']))
+            or ('confirmedGlossary' in pair and not valid_confirmed_glossary(pair['confirmedGlossary']))):
         raise ValueError('invalid source pair')
 
 

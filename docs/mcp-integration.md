@@ -83,10 +83,14 @@ arguments, shared configurations, and logs.
   text. Use the returned end cursor to continue a page.
 - `list_similar_requirement_pairs` reads distinct pairs of active requirements
   whose measured cosine similarity meets the threshold. Each match returns both
-  original texts, IDs, versions and the score. The page identifies the
-  embedding profile used.
+  original texts, IDs, versions, the score, and `glossaryContext` with the
+  confirmed definitions matching either source. An ambiguous spelling is
+  marked for clarification. The page identifies the embedding profile used.
 - `save_external_proposal` stores analysis, limitations, client and model
   provenance, sharing mode, and between 1 and 20 distinct requirement versions.
+  Include up to 20 distinct glossary citations in `glossarySources`, each
+  with a `termId` and its version. Save checks both types of citation against
+  the project. The review shows when a cited concept changed or was removed.
   The model identifier is supplied by the client. Client identity is
   self-reported through MCP. If a cited requirement changes or becomes
   unavailable before saving, refresh it and analyze the current text again.
@@ -107,7 +111,7 @@ remote MCP hosting.
 
 For example, ask the connected assistant to use
 `list_similar_requirement_pairs` with `threshold: 0.8`, compare each returned
-pair for overlap or contradictions, and cite both source IDs and versions.
+pair for overlap or contradictions, and cite both source IDs and versions along with the definitions it used.
 The score is the maximum cosine similarity across the two requirements'
 indexed chunks for their current versions. Even identical texts must meet
 the requested score. The assistant decides what the similarities and
@@ -116,8 +120,8 @@ when you ask.
 
 Use the same threshold and the returned `pageInfo.endCursor` while
 `hasNextPage` is true. The tool scans bounded groups of pairs, so an empty
-page can still have a continuation. If the requirements, profile or indexes
-change, restart from the first page after `cursor_stale`. If the index is
+page can still have a continuation. If the requirements, profile, indexes or
+glossary change, restart from the first page after `cursor_stale`. If the index is
 incomplete, wait for the active requirements to finish indexing and try
 again. The tool reads existing embeddings and returns
 `embeddings_not_configured` when no profile is active.

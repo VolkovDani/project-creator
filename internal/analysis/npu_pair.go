@@ -42,13 +42,14 @@ func compareNPUPair(ctx context.Context, pair Pair, generate func(context.Contex
 		Left:              Source{ID: "left", Version: 1, Text: pair.Left.Text},
 		Right:             Source{ID: "right", Version: 1, Text: pair.Right.Text},
 		Preclassification: pair.Preclassification,
+		ConfirmedGlossary: pair.ConfirmedGlossary,
 	}
 	// Contradiction is symmetric. Canonical text order keeps the same comparison
 	// independent of the caller's source order while preserving every source byte.
 	if aliases.Right.Text < aliases.Left.Text {
 		aliases.Left.Text, aliases.Right.Text = aliases.Right.Text, aliases.Left.Text
 	}
-	finding, err := generatePairFinding(ctx, npuAlphabetRetryInstruction, func(prompt string, retry bool) (Finding, error) {
+	finding, err := generatePairFinding(ctx, aliases, npuAlphabetRetryInstruction, func(prompt string, retry bool) (Finding, error) {
 		schema := findingSchema()
 		if retry {
 			schema = npuAlphabetRetrySchema()
@@ -101,7 +102,39 @@ func npuUserMessage(pair Pair) (string, error) {
 		}
 		hint = `"preclassification": {"decision": ` + npuJSONString(pre.Decision) + `, "scores": {` + strings.Join(fields, ", ") + `}}, `
 	}
-	return "{" + hint + `"left": ` + source(pair.Left) + `, "right": ` + source(pair.Right) + "}", nil
+	message := "{" + hint + `"left": ` + source(pair.Left) + `, "right": ` + source(pair.Right)
+	if len(pair.ConfirmedGlossary) > 0 {
+		data, err := json.Marshal(pair.ConfirmedGlossary)
+		if err != nil {
+			return "", errors.New("invalid comparison glossary")
+		}
+		message += `, "confirmedGlossary": ` + npuPythonJSON(string(data))
+	}
+	return message + "}", nil
+}
+
+// Render compact, valid Go JSON with Python's default separators. Glossary
+// fields contain only strings, integers and booleans, whose Python and Go JSON
+// forms agree after undoing Go's optional escapes.
+func npuPythonJSON(compact string) string {
+	var spaced strings.Builder
+	inString := false
+	for i := 0; i < len(compact); i++ {
+		b := compact[i]
+		spaced.WriteByte(b)
+		switch b {
+		case '\\':
+			i++
+			spaced.WriteByte(compact[i])
+		case '"':
+			inString = !inString
+		case ',', ':':
+			if !inString {
+				spaced.WriteByte(' ')
+			}
+		}
+	}
+	return npuJSONEscapes.Replace(spaced.String())
 }
 
 // encoding/json escapes HTML and JavaScript line separators, while Python

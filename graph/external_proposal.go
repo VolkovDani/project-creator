@@ -50,6 +50,7 @@ func (r *Resolver) ExternalProposals(ctx context.Context, args ExternalProposals
 	}
 	addCacheDependency(ctx, externalProposalTag(projectID))
 	addCacheDependency(ctx, "project:"+projectID+":requirements")
+	addCacheDependency(ctx, "project:"+projectID+":glossary")
 	return page, nil
 }
 
@@ -62,9 +63,16 @@ func (r *Resolver) SaveExternalProposal(ctx context.Context, args SaveExternalPr
 	for _, source := range in.Sources {
 		sources = append(sources, proposal.Reference{RequirementID: string(source.RequirementId), Version: source.Version})
 	}
+	var glossarySources []proposal.GlossaryReference
+	if in.Glossary != nil {
+		glossarySources = make([]proposal.GlossaryReference, 0, len(in.Glossary.Sources))
+		for _, source := range in.Glossary.Sources {
+			glossarySources = append(glossarySources, proposal.GlossaryReference{TermID: string(source.TermId), Version: source.Version})
+		}
+	}
 	saved, fields, err := r.Proposals.Save(ctx, workspace(ctx), string(in.ProjectId), proposal.Input{
 		RequestID: in.RequestId, Analysis: in.Analysis, Limitations: in.Limitations,
-		Client: in.Client, Model: in.Model, Sharing: in.Sharing, Sources: sources,
+		Client: in.Client, Model: in.Model, Sharing: in.Sharing, Sources: sources, GlossarySources: glossarySources,
 	})
 	if err != nil {
 		return nil, externalProposalError(err)
@@ -74,6 +82,7 @@ func (r *Resolver) SaveExternalProposal(ctx context.Context, args SaveExternalPr
 		result.Proposal = externalProposal(*saved)
 		addCacheDependency(ctx, externalProposalTag(string(in.ProjectId)))
 		addCacheDependency(ctx, "project:"+string(in.ProjectId)+":requirements")
+		addCacheDependency(ctx, "project:"+string(in.ProjectId)+":glossary")
 	}
 	return result, nil
 }
@@ -83,11 +92,17 @@ func externalProposal(item proposal.Proposal) *ExternalProposal {
 		ID: graphql.ID(item.ID), Status: proposal.PendingReview,
 		Analysis: item.Analysis, Limitations: item.Limitations, Client: item.Client,
 		Model: item.Model, Sharing: item.Sharing, CreatedAt: item.CreatedAt.UTC().Format(time.RFC3339Nano),
-		Sources: make([]*ExternalProposalSource, 0, len(item.Sources)),
+		Sources:         make([]*ExternalProposalSource, 0, len(item.Sources)),
+		GlossarySources: make([]*ExternalProposalGlossarySource, 0, len(item.GlossarySources)),
 	}
 	for _, source := range item.Sources {
 		result.Sources = append(result.Sources, &ExternalProposalSource{
 			RequirementId: graphql.ID(source.RequirementID), Version: source.Version, Status: source.Status,
+		})
+	}
+	for _, source := range item.GlossarySources {
+		result.GlossarySources = append(result.GlossarySources, &ExternalProposalGlossarySource{
+			TermId: graphql.ID(source.TermID), Version: source.Version, Status: source.Status,
 		})
 	}
 	return result

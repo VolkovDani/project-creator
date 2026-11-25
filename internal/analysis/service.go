@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/VolkovDani/project-creator/contracts"
+	"github.com/VolkovDani/project-creator/internal/glossary"
 	"github.com/VolkovDani/project-creator/internal/rag"
 )
 
@@ -23,6 +24,8 @@ var errStorage = errors.New("analysis storage unavailable")
 var errOwnership = errors.New("analysis worker no longer owns attempt")
 
 type PairResult struct {
+	GlossaryContext   []glossary.Hint    `json:"glossaryContext"`
+	GlossaryStale     bool               `json:"glossaryStale"`
 	LayaStatus        string             `json:"layaStatus"`
 	LayaErrorCode     string             `json:"layaErrorCode"`
 	Preclassification *Preclassification `json:"preclassification"`
@@ -57,7 +60,7 @@ type Run struct {
 	ReasonCode                                                                                                                                         string
 	MissingRequirementIDs                                                                                                                              []string
 	ID, ProjectID, Status, Outcome, ErrorCode, CreatedAt, CompletedAt, GeneratorProfile, GeneratorProvenance, EmbeddingProfile                         string
-	Revision                                                                                                                                           string
+	Revision, GlossaryRevision                                                                                                                         string
 	Stage                                                                                                                                              string
 	TotalPairs                                                                                                                                         *int
 	PossiblePairs                                                                                                                                      *int
@@ -76,6 +79,7 @@ type Run struct {
 	incomplete                                                                                                                                         bool
 	workerID                                                                                                                                           string
 	cursorLeft, cursorRight                                                                                                                            string
+	glossaryStale                                                                                                                                      bool
 	fullQueue                                                                                                                                          bool
 }
 
@@ -175,19 +179,21 @@ func sourceSignature(ctx context.Context, q queryer, workspace, project string) 
 
 // Compatibility collections are bounded pages, never the complete queue. All
 // counters below cover the run, independently of those pages.
-const pairJSON = `jsonb_build_object('id',p.id,'position',p.position,'status',p.status,'left',p.left_source,'right',p.right_source,'verdict',p.verdict,'explanation',p.explanation,'errorCode',p.error_code,'reusedFrom',p.reused_from,'checkedAt',coalesce(to_char(p.checked_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),''),'generatorProfile',p.generator_profile,'selectionReasons',p.selection_reasons,'similarityScore',p.similarity_score,'resultOrigin',p.result_origin,'layaStatus',p.laya_status,'layaErrorCode',p.laya_error_code,'preclassification',p.laya_result,'layaCheckedAt',coalesce(to_char(p.laya_checked_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),''))`
+const pairJSON = `jsonb_build_object('id',p.id,'position',p.position,'status',p.status,'left',p.left_source,'right',p.right_source,'verdict',p.verdict,'explanation',p.explanation,'errorCode',p.error_code,'reusedFrom',p.reused_from,'checkedAt',coalesce(to_char(p.checked_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),''),'generatorProfile',p.generator_profile,'selectionReasons',p.selection_reasons,'similarityScore',p.similarity_score,'resultOrigin',p.result_origin,'glossaryContext',p.glossary_context,'glossaryStale',p.glossary_stale,'layaStatus',p.laya_status,'layaErrorCode',p.laya_error_code,'preclassification',p.laya_result,'layaCheckedAt',coalesce(to_char(p.laya_checked_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),''))`
 const runColumns = `id,project_id,status,outcome,error_code,generator_profile,embedding_profile,source_signature,
  coalesce((SELECT jsonb_agg(source ORDER BY requirement_id) FROM (SELECT source,requirement_id FROM analysis_sources WHERE run_id=analysis_runs.id ORDER BY requirement_id LIMIT 100) s),'[]'::jsonb),
  coalesce((SELECT jsonb_agg(jsonb_build_object('leftId',p.left_source->>'id','rightId',p.right_source->>'id','leftVersion',p.left_source->'version','rightVersion',p.right_source->'version','verdict',p.verdict,'explanation',p.explanation) ORDER BY p.position) FROM (SELECT * FROM analysis_pairs WHERE run_id=analysis_runs.id AND status='completed' ORDER BY position LIMIT 100) p),'[]'::jsonb),
  created_at,completed_at,reason_code,missing_requirement_ids,stage,total_pairs,processed_pairs,active_pair_id,
  coalesce((SELECT jsonb_agg(` + pairJSON + ` ORDER BY p.position) FROM (SELECT * FROM analysis_pairs WHERE run_id=analysis_runs.id ORDER BY position LIMIT 100) p),'[]'::jsonb),
  incomplete,worker_id,generator_provenance,mode,similarity_threshold,selection_profile,possible_pairs,pair_cursor_left,pair_cursor_right,full_queue,
- (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs,count(*) FILTER(WHERE laya_status='pending' AND status<>'failed'),count(*) FILTER(WHERE laya_status='running'),count(*) FILTER(WHERE laya_status='completed'),count(*) FILTER(WHERE laya_status='failed'),count(*) FILTER(WHERE laya_status='skipped')) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text,classifier_profile,deletion_scheduled_for`
+ (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs,count(*) FILTER(WHERE laya_status='pending' AND status<>'failed'),count(*) FILTER(WHERE laya_status='running'),count(*) FILTER(WHERE laya_status='completed'),count(*) FILTER(WHERE laya_status='failed'),count(*) FILTER(WHERE laya_status='skipped')) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text,classifier_profile,deletion_scheduled_for,glossary_revision::text,
+ EXISTS(SELECT FROM analysis_pairs WHERE run_id=analysis_runs.id AND glossary_stale)`
 
 const compactRunColumns = `id,project_id,status,outcome,error_code,generator_profile,embedding_profile,source_signature,
  '[]'::jsonb,'[]'::jsonb,created_at,completed_at,reason_code,missing_requirement_ids,stage,total_pairs,processed_pairs,active_pair_id,
  '[]'::jsonb,incomplete,worker_id,''::text,mode,similarity_threshold,''::text,possible_pairs,pair_cursor_left,pair_cursor_right,full_queue,
- (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs,count(*) FILTER(WHERE laya_status='pending' AND status<>'failed'),count(*) FILTER(WHERE laya_status='running'),count(*) FILTER(WHERE laya_status='completed'),count(*) FILTER(WHERE laya_status='failed'),count(*) FILTER(WHERE laya_status='skipped')) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text,classifier_profile,deletion_scheduled_for`
+ (SELECT jsonb_build_array(count(*) FILTER(WHERE status='completed' AND reused_from<>''),count(*) FILTER(WHERE status='completed' AND reused_from=''),count(*) FILTER(WHERE status='completed'),count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='running'),count(*) FILTER(WHERE status='failed'),count(*) FILTER(WHERE status='completed' AND verdict='collision'),count(*) FILTER(WHERE status='completed' AND verdict='compatible'),count(*) FILTER(WHERE status='completed' AND verdict='insufficient'),count(*) FILTER(WHERE status='completed' AND verdict='duplicate'),analysis_runs.processed_pairs,count(*) FILTER(WHERE laya_status='pending' AND status<>'failed'),count(*) FILTER(WHERE laya_status='running'),count(*) FILTER(WHERE laya_status='completed'),count(*) FILTER(WHERE laya_status='failed'),count(*) FILTER(WHERE laya_status='skipped')) FROM analysis_pairs WHERE run_id=analysis_runs.id),revision::text,classifier_profile,deletion_scheduled_for,glossary_revision::text,
+ EXISTS(SELECT FROM analysis_pairs WHERE run_id=analysis_runs.id AND glossary_stale)`
 
 func scanRun(row *sql.Row) (*Run, error) {
 	r := &Run{Sources: []Source{}, Findings: []Finding{}, Pairs: []PairResult{}, MissingRequirementIDs: []string{}}
@@ -195,7 +201,7 @@ func scanRun(row *sql.Row) (*Run, error) {
 	var created time.Time
 	var completed, deletionScheduledFor sql.NullTime
 	var total, possible sql.NullInt64
-	err := row.Scan(&r.ID, &r.ProjectID, &r.Status, &r.Outcome, &r.ErrorCode, &r.GeneratorProfile, &r.EmbeddingProfile, &r.signature, &sources, &findings, &created, &completed, &r.ReasonCode, &missing, &r.Stage, &total, &r.ProcessedPairs, &r.ActivePairID, &pairs, &r.incomplete, &r.workerID, &r.GeneratorProvenance, &r.Mode, &r.SimilarityThreshold, &r.SelectionProfile, &possible, &r.cursorLeft, &r.cursorRight, &r.fullQueue, &counts, &r.Revision, &r.ClassifierProfile, &deletionScheduledFor)
+	err := row.Scan(&r.ID, &r.ProjectID, &r.Status, &r.Outcome, &r.ErrorCode, &r.GeneratorProfile, &r.EmbeddingProfile, &r.signature, &sources, &findings, &created, &completed, &r.ReasonCode, &missing, &r.Stage, &total, &r.ProcessedPairs, &r.ActivePairID, &pairs, &r.incomplete, &r.workerID, &r.GeneratorProvenance, &r.Mode, &r.SimilarityThreshold, &r.SelectionProfile, &possible, &r.cursorLeft, &r.cursorRight, &r.fullQueue, &counts, &r.Revision, &r.ClassifierProfile, &deletionScheduledFor, &r.GlossaryRevision, &r.glossaryStale)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +238,7 @@ func (s *Service) markStale(ctx context.Context, workspace, project string, r *R
 	if err != nil {
 		return err
 	}
-	r.Stale = signature != r.signature || r.GeneratorProfile != s.generatorProfile() || (r.Mode == "related" && r.EmbeddingProfile != s.embeddingProfile)
+	r.Stale = r.glossaryStale || signature != r.signature || r.GeneratorProfile != s.generatorProfile() || (r.Mode == "related" && r.EmbeddingProfile != s.embeddingProfile)
 	return nil
 }
 

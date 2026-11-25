@@ -131,6 +131,28 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             npu.validate_request(value, 'a'*64)
 
+    def test_confirmed_glossary_is_optional_but_strict_when_present(self):
+        value = request()
+        npu.validate_request(value, 'a'*64)
+        resolved = {'termId': 'term-7', 'version': 3, 'spelling': 'СЭД',
+                    'name': 'Система электронного документооборота', 'definition': 'Система для работы с документами.',
+                    'context': 'Внутренние процессы.'}
+        ambiguity = {'ambiguous': True, 'spelling': 'СХ'}
+        value['pair']['confirmedGlossary'] = [resolved, ambiguity]
+        npu.validate_request(value, 'a'*64)
+        value['pair']['confirmedGlossary'] = [{'termId': 'term-8', 'version': 1, 'spelling': 'ТС', 'name': 'Тест'}]
+        npu.validate_request(value, 'a'*64)
+        for invalid in [None, {}, [], [None], [dict(ambiguity, definition='Guessed definition')],
+                        [dict(ambiguity, ambiguous=False)], [dict(ambiguity, spelling='')],
+                        [dict(resolved, version=True)], [dict(resolved, version=0)],
+                        [dict(resolved, context=7)], [dict(resolved, extra='unknown')],
+                        [dict(resolved, termId='')], [dict(resolved, name='')],
+                        [dict(resolved, definition='x'*3073)]]:
+            with self.subTest(invalid=invalid):
+                value['pair']['confirmedGlossary'] = invalid
+                with self.assertRaises(ValueError):
+                    npu.validate_request(value, 'a'*64)
+
     def test_output_is_strict_and_references_exact_versions(self):
         pair = request()['pair']
         self.assertEqual(npu.parse_finding(json.dumps(finding()), pair)['verdict'], 'collision')

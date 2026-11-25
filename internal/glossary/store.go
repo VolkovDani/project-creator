@@ -7,11 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/VolkovDani/project-creator/contracts"
-	"github.com/VolkovDani/project-creator/internal/project"
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/VolkovDani/project-creator/contracts"
+	"github.com/VolkovDani/project-creator/internal/project"
 )
 
 type Reader interface {
@@ -99,6 +100,38 @@ func validate(t *Term) []project.FieldError {
 	return errs
 }
 
+// lockProjectChange fences the edit against analysis commits while preserving
+// the outbox order. Requirement writes can take the advisory lock before the
+// project row, so never wait for the advisory lock with the project row held.
+func lockProjectChange(ctx context.Context, db *sql.DB, workspace, projectID string) (*sql.Tx, error) {
+	for {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, err
+		}
+		var id string
+		if err = tx.QueryRowContext(ctx, `SELECT id FROM projects WHERE workspace=$1 AND id=$2 FOR UPDATE`, workspace, projectID).Scan(&id); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		var locked bool
+		if err = tx.QueryRowContext(ctx, `SELECT pg_try_advisory_xact_lock(724183092)`).Scan(&locked); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		if locked {
+			return tx, nil
+		}
+		if err = tx.Rollback(); err != nil {
+			return nil, err
+		}
+		// This standalone statement releases the advisory lock on completion.
+		if _, err = db.ExecContext(ctx, `SELECT pg_advisory_xact_lock(724183092)`); err != nil {
+			return nil, err
+		}
+	}
+}
+
 // Change serializes with requirement edits and queue claims. In-flight generations
 // lose their attempt token when their matching vocabulary changes.
 func Change(ctx context.Context, db *sql.DB, w, p string, t Term, remove bool) (Term, []project.FieldError, error) {
@@ -108,18 +141,14 @@ func Change(ctx context.Context, db *sql.DB, w, p string, t Term, remove bool) (
 			return Term{}, errs, nil
 		}
 	}
-	tx, e := db.BeginTx(ctx, nil)
+	tx, e := lockProjectChange(ctx, db, w, p)
+	if e == sql.ErrNoRows {
+		return Term{}, conflict, nil
+	}
 	if e != nil {
 		return Term{}, nil, e
 	}
 	defer tx.Rollback()
-	if _, e = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(724183092)`); e != nil {
-		return Term{}, nil, e
-	}
-	var ok bool
-	if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM projects WHERE workspace=$1 AND id=$2)`, w, p).Scan(&ok); e != nil || !ok {
-		return Term{}, conflict, e
-	}
 	existing, e := List(ctx, tx, w, p)
 	if e != nil {
 		return Term{}, nil, e
@@ -137,6 +166,7 @@ func Change(ctx context.Context, db *sql.DB, w, p string, t Term, remove bool) (
 		return Term{}, conflict, nil
 	}
 	if !remove && t.SourceID != "" && (old == nil || old.SourceID != t.SourceID || old.SourceVersion != t.SourceVersion) {
+		var ok bool
 		if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM active_requirements WHERE workspace=$1 AND project_id=$2 AND id=$3 AND version=$4)`, w, p, t.SourceID, t.SourceVersion).Scan(&ok); e != nil || !ok {
 			return Term{}, conflict, e
 		}
@@ -176,7 +206,19 @@ func Change(ctx context.Context, db *sql.DB, w, p string, t Term, remove bool) (
 	if e = requeue(ctx, tx, w, p, changed); e != nil {
 		return Term{}, nil, e
 	}
-	_, e = tx.ExecContext(ctx, `INSERT INTO cache_events(id,workspace,keys) VALUES(md5(random()::text||clock_timestamp()::text),$1,ARRAY['project:'||$2||':glossary']);`, w, p)
+	current := slices.DeleteFunc(existing, func(term Term) bool { return term.ID == t.ID })
+	if !remove {
+		current = append(current, t)
+	}
+	stalenessChanged, e := reconcilePairContext(ctx, tx, w, p, changed, current)
+	if e != nil {
+		return Term{}, nil, e
+	}
+	keys := []string{"project:" + p + ":glossary"}
+	if stalenessChanged {
+		keys = append(keys, "project:"+p+":analysis", "project:"+p+":analysis-history")
+	}
+	_, e = tx.ExecContext(ctx, `INSERT INTO cache_events(id,workspace,keys) VALUES(md5(random()::text||clock_timestamp()::text),$1,$2)`, w, keys)
 	if e != nil {
 		return Term{}, nil, e
 	}

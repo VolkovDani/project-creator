@@ -104,7 +104,7 @@ func (s *Service) processPipeline(ctx context.Context, workspace string, r *Run)
 					continue
 				}
 			}
-			pair := Pair{Left: p.Left, Right: p.Right, Preclassification: p.Preclassification}
+			pair := Pair{Left: p.Left, Right: p.Right, Preclassification: p.Preclassification, ConfirmedGlossary: p.GlossaryContext}
 			callCtx, stop := context.WithTimeout(ctx, s.timeout)
 			callCtx = context.WithValue(callCtx, npuCallKey{}, npuCall{RunID: r.ID, PairID: p.ID})
 			var finding Finding
@@ -174,6 +174,9 @@ func (s *Service) claimPipelinePair(ctx context.Context, workspace string, r *Ru
 		return nil, err
 	}
 	defer tx.Rollback()
+	if err = checkGlossaryContext(ctx, tx, workspace, r, ""); err != nil {
+		return nil, err
+	}
 	var replacement bool
 	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM analysis_replacements WHERE run_id=$1 AND successor_id IS NULL)`, r.ID).Scan(&replacement); err != nil {
 		return nil, errStorage
@@ -263,6 +266,9 @@ func (s *Service) savePipelineFinding(ctx context.Context, workspace string, r *
 		return err
 	}
 	defer tx.Rollback()
+	if err = checkGlossaryContext(ctx, tx, workspace, r, p.ID); err != nil {
+		return err
+	}
 	status := "completed"
 	if code != "" {
 		status = "failed"

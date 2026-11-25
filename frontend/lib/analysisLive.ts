@@ -3,6 +3,7 @@ export type AnalysisVersion = {
   id: string;
   projectId: string;
   revision: string;
+  glossaryRevision?: string;
   createdAt: string;
   stale?: boolean;
 };
@@ -14,6 +15,10 @@ export function acceptSnapshot<T extends AnalysisVersion>(
   if (current.projectId !== next.projectId) return current;
   if (current.id === next.id) {
     const revision = BigInt(next.revision) - BigInt(current.revision);
+    const glossaryRevision =
+      BigInt(next.glossaryRevision || '0') - BigInt(current.glossaryRevision || '0');
+    if (revision < 0n || glossaryRevision < 0n) return current;
+    if (glossaryRevision > 0n) return next;
     if (revision > 0n) return current.stale && !next.stale ? { ...next, stale: true } : next;
     return revision === 0n && next.stale === true && !current.stale ? next : current;
   }

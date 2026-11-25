@@ -4,6 +4,7 @@ import contextlib
 import fcntl
 import hashlib
 import http.client
+import ipaddress
 import json
 import math
 import os
@@ -271,9 +272,14 @@ class Config:
     def validate_providers(self, device):
         if device == 'none':
             return
+        classifier = self.classifier_runtime(device)
+        if classifier not in (None, 'ollama', 'managed'):
+            raise Failure('CONFIG_PROVIDER', 'Set PROJECT_CREATOR_RECORD_CLASSIFIER_RUNTIME to ollama or managed.')
+        if classifier == 'managed':
+            self.validate_managed_classifier()
         if device == 'remote' and self.uses_bundled_classifier():
             raise Failure('CONFIG_PROVIDER', 'Select a local device for the bundled Ollama record classifier.')
-        if device == 'remote' and not any(self.runtime(role, device) for role in ('GENERATOR', 'EMBEDDING')):
+        if device == 'remote' and classifier != 'managed' and not any(self.runtime(role, device) for role in ('GENERATOR', 'EMBEDDING')):
             raise Failure('CONFIG_PROVIDER', 'Configure at least one API role in .env for remote mode.')
         for role in ('GENERATOR', 'EMBEDDING'):
             prefix = 'PROJECT_CREATOR_'+role
@@ -295,8 +301,33 @@ class Config:
         if device not in ('remote', 'npu') and not self.uses_ollama(device):
             raise Failure('CONFIG_PROVIDER', 'Select --device remote when both providers are external.')
 
+    def classifier_runtime(self, device=None):
+        if device == 'none' or self.values.get('PROJECT_CREATOR_RECORD_CLASSIFIER') not in ('systemone-review', 'laya-review'):
+            return None
+        return self.values.get('PROJECT_CREATOR_RECORD_CLASSIFIER_RUNTIME') or 'ollama'
+
+    def validate_managed_classifier(self):
+        profile = self.values.get('PROJECT_CREATOR_RECORD_CLASSIFIER_PROFILE', '')
+        if not re.fullmatch(r'ollama\.[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}\.[a-f0-9]{64}', profile):
+            raise Failure('CONFIG_PROVIDER', 'Set PROJECT_CREATOR_RECORD_CLASSIFIER_PROFILE to the immutable decision profile ID.')
+        endpoint = self.values.get('PROJECT_CREATOR_RECORD_CLASSIFIER_URL', '')
+        try:
+            url = urllib.parse.urlsplit(endpoint)
+            host = url.hostname
+            local = url.netloc == 'models-configurator:8317' or url.netloc.split(':', 1)[0] == 'localhost'
+            if host and not local and '%' not in host:
+                address = ipaddress.ip_address(host)
+                mapped = getattr(address, 'ipv4_mapped', None)
+                local = (mapped or address).is_loopback
+            if (local and url.scheme == 'http' and url.port != 0 and url.username is None
+                    and url.path in ('/v1', '/v1/') and not any(c.isspace() or c in '?#' for c in endpoint)):
+                return
+        except ValueError:
+            pass
+        raise Failure('CONFIG_PROVIDER', 'Set PROJECT_CREATOR_RECORD_CLASSIFIER_URL to http://models-configurator:8317/v1 or a loopback HTTP API base ending in /v1.')
+
     def uses_bundled_classifier(self):
-        if self.values.get('PROJECT_CREATOR_RECORD_CLASSIFIER') not in ('systemone-review', 'laya-review'):
+        if self.classifier_runtime() != 'ollama':
             return False
         endpoint = self.values.get('PROJECT_CREATOR_RECORD_CLASSIFIER_URL') or 'http://ollama:11434'
         try:
@@ -534,47 +565,58 @@ class Installer:
             'The running manager did not return a valid /v1/models inventory on its published port.',
             wait_seconds=30 if wait else 0,
         )['data']
-        socket_profiles = {}
-        for role, profile in roles.items():
-            capability = 'chat' if role == 'GENERATOR' else 'embeddings'
+        readiness_profiles = {}
+        for setting, (profile, capability) in roles.items():
             model = next((model for model in inventory if isinstance(model, dict) and
                           model.get('id') == profile and model.get('role') == capability), None)
             if model is None:
-                raise Failure('MODELS_CONFIGURATOR', f'PROJECT_CREATOR_{role}_MODEL must be a {capability} profile listed by the linked manager at /v1/models.')
+                raise Failure('MODELS_CONFIGURATOR', f'{setting} must be a {capability} profile listed by the linked manager at /v1/models.')
             provider = model.get('provider')
-            if provider in ('openvino-npu', 'openvino-bge'):
-                socket_profiles[profile] = provider
-        if socket_profiles:
+            if capability == 'decision':
+                readiness_profiles[profile] = 'decision'
+            elif provider in ('openvino-npu', 'openvino-bge'):
+                readiness_profiles[profile] = provider
+        if readiness_profiles:
             self.wait_models_metadata(
-                port, '/status', lambda payload: self.models_sockets_ready(payload.get('models'), socket_profiles),
-                'The selected OpenVINO profiles are not ready. Check the linked manager /status and the runtime logs.',
+                port, '/status', lambda payload: self.models_profiles_ready(payload.get('models'), readiness_profiles),
+                'The selected model profiles are not ready. Check the linked manager /status and the runtime logs.',
                 wait_seconds=120 if wait else 0, timeout=7,
             )
 
-    def models_sockets_ready(self, models, socket_profiles):
+    def models_profiles_ready(self, models, profiles):
         if not isinstance(models, list):
             return False
-        ready = {
-            model['id'] for model in models
-            if isinstance(model, dict) and isinstance(model.get('id'), str)
-            and model.get('reachability') == 'reachable' and model.get('listed') is True
+        ready = set()
+        for model in models:
+            if not isinstance(model, dict) or not isinstance(model.get('id'), str) or model.get('reachability') != 'reachable':
+                continue
+            profile = model['id']
+            kind = profiles.get(profile)
+            if kind == 'decision':
+                if model.get('role') == 'decision' and model.get('installed') is True:
+                    ready.add(profile)
             # BGE needs its weights loaded. NPU may reload on demand after a cancelled request.
-            and (socket_profiles.get(model['id']) != 'openvino-bge' or model.get('loaded') is True)
-        }
-        return socket_profiles.keys() <= ready
+            elif model.get('listed') is True and (kind != 'openvino-bge' or model.get('loaded') is True):
+                ready.add(profile)
+        return profiles.keys() <= ready
 
-    def compatible_roles(self, device):
-        return [role for role in ('GENERATOR', 'EMBEDDING') if self.config.runtime(role, device) == 'openai-compatible']
+    def model_clients(self, device):
+        clients = [(role, 'MODEL', capability) for role, capability in (('GENERATOR', 'chat'), ('EMBEDDING', 'embeddings'))
+                   if self.config.runtime(role, device) == 'openai-compatible']
+        if self.config.classifier_runtime(device) == 'managed':
+            clients.append(('RECORD_CLASSIFIER', 'PROFILE', 'decision'))
+        return clients
 
     def models_roles(self, device):
         roles = {}
-        for role in self.compatible_roles(device):
+        for role, selection, capability in self.model_clients(device):
             try:
                 host = urllib.parse.urlsplit(self.config.values.get(f'PROJECT_CREATOR_{role}_URL', '')).hostname
             except ValueError:
                 continue
             if host == 'models-configurator':
-                roles[role] = self.config.values.get(f'PROJECT_CREATOR_{role}_MODEL')
+                setting = f'PROJECT_CREATOR_{role}_{selection}'
+                roles[setting] = (self.config.values.get(setting), capability)
         return roles
 
     def client_network(self, device):
@@ -582,7 +624,7 @@ class Installer:
         configured_network = self.config.values.get('PROJECT_CREATOR_MODELS_NETWORK')
         if matches_manager and self.models_network and configured_network and self.models_network != configured_network:
             raise Failure('MODELS_NETWORK', 'PROJECT_CREATOR_MODELS_NETWORK must match the linked manager checkout’s MODELS_NETWORK.')
-        if self.compatible_roles(device):
+        if self.model_clients(device):
             return configured_network or (self.models_network if matches_manager else None)
         return None
 

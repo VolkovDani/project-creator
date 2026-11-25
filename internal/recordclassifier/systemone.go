@@ -79,6 +79,7 @@ var modelTag = regexp.MustCompile(`^(?:[a-zA-Z0-9][a-zA-Z0-9._-]*:[0-9]+/)?(?:[a
 
 type Adapter struct {
 	model, digest string
+	managedID     string
 	measured      measuredProfile
 	base          string
 	client        *http.Client
@@ -90,6 +91,23 @@ func New(base string) (*Adapter, error) { return NewSystemOne(base, Model, Diges
 
 // NewSystemOne configures one local decision model pinned to an installed Ollama manifest.
 func NewSystemOne(base, model, digest string) (*Adapter, error) {
+	a, err := newAdapter(base, model, digest, "")
+	if err != nil {
+		return nil, err
+	}
+	u, err := url.Parse(base)
+	if err != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Path != "" && u.Path != "/" {
+		return nil, errors.New("record classifier requires a local HTTP origin")
+	}
+	host := u.Hostname()
+	if ip := net.ParseIP(host); host != "localhost" && host != "ollama" && (ip == nil || !ip.IsLoopback()) {
+		return nil, errors.New("record classifier requires loopback or the local ollama service")
+	}
+	a.measured = measuredProfiles[a.digest]
+	return a, nil
+}
+
+func newAdapter(base, model, digest, managedID string) (*Adapter, error) {
 	digest = strings.TrimPrefix(digest, "sha256:")
 	rawDigest, err := hex.DecodeString(digest)
 	if err != nil || len(rawDigest) != sha256.Size {
@@ -100,21 +118,19 @@ func NewSystemOne(base, model, digest string) (*Adapter, error) {
 		return nil, errors.New("record classifier requires an explicit local model:tag")
 	}
 	digest = hex.EncodeToString(rawDigest)
-	u, err := url.Parse(base)
-	if err != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Path != "" && u.Path != "/" {
-		return nil, errors.New("record classifier requires a local HTTP origin")
-	}
-	host := u.Hostname()
-	if ip := net.ParseIP(host); host != "localhost" && host != "ollama" && (ip == nil || !ip.IsLoopback()) {
-		return nil, errors.New("record classifier requires loopback or the local ollama service")
-	}
 	var questions map[string]question
 	if err := json.Unmarshal(flatQuestions, &questions); err != nil {
 		return nil, err
 	}
-	hash := sha256.Sum256(append([]byte(model+":"+digest+":taxonomy2:ollama0.40.16:review-only-v1:"), flatQuestions...))
-	return &Adapter{model: model, digest: digest, measured: measuredProfiles[digest], base: strings.TrimRight(base, "/"), questions: questions, profile: hex.EncodeToString(hash[:]),
-		client: &http.Client{Timeout: 120 * time.Second, Transport: &http.Transport{}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	runtime := "ollama0.40.16"
+	if managedID != "" {
+		runtime = "models-configurator-decisions-v1:" + managedID
+	}
+	hash := sha256.Sum256(append([]byte(model+":"+digest+":taxonomy2:"+runtime+":review-only-v1:"), flatQuestions...))
+	return &Adapter{
+		model: model, digest: digest, managedID: managedID, base: strings.TrimRight(base, "/"), questions: questions, profile: hex.EncodeToString(hash[:]),
+		client: &http.Client{Timeout: 120 * time.Second, Transport: &http.Transport{}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+	}, nil
 }
 
 func (a *Adapter) Profile() string         { return a.profile }
@@ -258,38 +274,54 @@ type answer struct {
 	Probabilities map[string]*float64
 }
 
+type usage struct {
+	Input  *int `json:"input_tokens"`
+	Output *int `json:"output_tokens"`
+}
+
 func validScore(v *float64) bool {
 	return v != nil && *v >= 0 && *v <= 1 && !math.IsNaN(*v) && !math.IsInf(*v, 0)
 }
 
-func (a *Adapter) axis(ctx context.Context, axis, source string, contextLimit int) ([]classification.Alternative, string, error) {
-	q := a.questions[axis]
+func (a *Adapter) systemOneDecision(ctx context.Context, q question, source string) (answer, usage, string, error) {
 	payload, err := json.Marshal(map[string]any{"model": a.model, "state": source, "questions": map[string]json.RawMessage{"classification": q.Wire}, "keep_alive": "5m"})
 	if err != nil {
-		return nil, "", err
+		return answer{}, usage{}, "", err
 	}
 	if len(payload) > maxBodyBytes {
-		return nil, "input_limit", nil
+		return answer{}, usage{}, "input_limit", nil
 	}
 	var res struct {
 		Model   string
 		Answers map[string]answer
-		Usage   struct {
-			Input  *int `json:"input_tokens"`
-			Output *int `json:"output_tokens"`
-		}
+		Usage   usage
 	}
 	if err = a.request(ctx, "/v1/systemone", payload, &res); err != nil {
 		if err == runtimeError(http.StatusRequestEntityTooLarge) {
-			return nil, "input_limit", nil
+			return answer{}, usage{}, "input_limit", nil
 		}
-		return nil, "", err
+		return answer{}, usage{}, "", err
 	}
 	if err = a.verifyPin(ctx); err != nil {
-		return nil, "", err
+		return answer{}, usage{}, "", err
 	}
-	ans := res.Answers["classification"]
-	if res.Model != a.model || res.Usage.Input == nil || res.Usage.Output == nil || *res.Usage.Input < 0 || *res.Usage.Output < 0 || len(res.Answers) != 1 || ans.Type != "choice" || q.Labels[ans.Choice] == "" || !validScore(ans.Confidence) || len(ans.Probabilities) != len(q.Labels) {
+	if res.Model != a.model || len(res.Answers) != 1 {
+		return answer{}, usage{}, "", errors.New("invalid single-record choice")
+	}
+	return res.Answers["classification"], res.Usage, "", nil
+}
+
+func (a *Adapter) axis(ctx context.Context, axis, source string, contextLimit int) ([]classification.Alternative, string, error) {
+	q := a.questions[axis]
+	decide := a.systemOneDecision
+	if a.managedID != "" {
+		decide = a.managedDecision
+	}
+	ans, tokens, reason, err := decide(ctx, q, source)
+	if err != nil || reason != "" {
+		return nil, reason, err
+	}
+	if tokens.Input == nil || tokens.Output == nil || *tokens.Input < 0 || *tokens.Output < 0 || ans.Type != "choice" || q.Labels[ans.Choice] == "" || !validScore(ans.Confidence) || len(ans.Probabilities) != len(q.Labels) {
 		return nil, "", errors.New("invalid single-record choice")
 	}
 	var items []classification.Alternative
@@ -311,10 +343,10 @@ func (a *Adapter) axis(ctx context.Context, axis, source string, contextLimit in
 	if math.Abs(total-1) > 1e-6 {
 		return nil, "", errors.New("invalid single-record score distribution")
 	}
-	if contextLimit > 0 && *res.Usage.Input >= contextLimit {
+	if contextLimit > 0 && *tokens.Input >= contextLimit {
 		return nil, "input_limit", nil
 	}
-	if a.measured.trainingContext > 0 && *res.Usage.Input > a.measured.trainingContext {
+	if a.measured.trainingContext > 0 && *tokens.Input > a.measured.trainingContext {
 		return nil, "outside_training_context", nil
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -338,9 +370,13 @@ func (a *Adapter) Classify(ctx context.Context, source string) (classification.P
 		result.Reason = "input_limit"
 		return result, nil
 	}
-	contextLimit, err := a.verifyRuntime(ctx)
-	if err != nil {
-		return classification.Prediction{}, err
+	contextLimit := 0
+	if a.managedID == "" {
+		var err error
+		contextLimit, err = a.verifyRuntime(ctx)
+		if err != nil {
+			return classification.Prediction{}, err
+		}
 	}
 	for _, axis := range []string{"semantic", "representation"} {
 		options, reason, err := a.axis(ctx, axis, source, contextLimit)

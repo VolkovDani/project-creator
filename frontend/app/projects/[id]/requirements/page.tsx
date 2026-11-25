@@ -11,6 +11,7 @@ export default function RequirementsPage() {
       <nav className={styles.contents} aria-label={t(locale, 'ui.onThisPage')}>
         <details open>
           <summary>{t(locale, 'ui.onThisPage')}</summary>
+          <a href="#requirement-search">{t(locale, 'rag.requirementsSearchTitle')}</a>
           <a href="#requirement-entry">{t(locale, 'requirements.add')}</a>
           <a href="#requirements-list">{t(locale, 'ui.requirementsGroup')}</a>
           <a href="#requirements-archive">{t(locale, 'requirements.archiveTitle')}</a>

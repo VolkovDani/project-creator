@@ -84,6 +84,9 @@ test('screenshots: desktop projects and requirements', async ({ page }, testInfo
   ).toBeVisible();
   await page.getByRole('link', { name: 'Все проекты', exact: true }).click();
   const link = page.getByRole('link', { name: 'Контроль бизнес-требований', exact: true });
+  const projectList = page.getByRole('region', { name: 'Проекты', exact: true });
+  await expect(projectList).toHaveAttribute('aria-busy', 'false');
+  if (!(await link.isVisible())) await page.keyboard.press('End');
   await expect(link).toBeVisible();
   const directory = resolve('screenshots');
   await mkdir(directory, { recursive: true });
@@ -102,8 +105,11 @@ test('screenshots: desktop projects and requirements', async ({ page }, testInfo
     'При одновременном редактировании система предотвращает потерю изменений.',
   ];
   for (const text of samples) {
-    await page.getByRole('textbox', { name: 'Текст требования', exact: true }).fill(text);
-    await page.getByRole('button', { name: 'Добавить требование' }).click();
+    await page.getByRole('button', { name: 'Добавить требование', exact: true }).click();
+    const create = page.getByRole('dialog', { name: 'Добавить требование', exact: true });
+    await create.getByLabel('Текст требования').fill(text);
+    await create.getByRole('button', { name: 'Добавить требование', exact: true }).click();
+    await expect(create).toBeHidden();
     await expect(list.getByRole('button', { name: text, exact: true })).toBeVisible();
   }
   await list.getByRole('button', { name: samples[0], exact: true }).click();

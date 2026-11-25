@@ -215,7 +215,6 @@ test('project menu groups sections and keeps diagnostics accessible on a direct 
   await expect(nav.getByRole('link')).toHaveText([
     'Обзор',
     'Требования',
-    'Поиск',
     'Классификация',
     'Словарь',
     'Анализ',
@@ -246,7 +245,6 @@ test('project menu groups sections and keeps diagnostics accessible on a direct 
   await page.getByRole('link', { name: project.name, exact: true }).click();
   await expect(page.locator('.overview-links strong')).toHaveText([
     'Требования',
-    'Поиск',
     'Классификация',
     'Словарь',
     'Анализ',
@@ -429,8 +427,6 @@ test('requirement editing opens a native dialog and Escape discards the draft', 
 }) => {
   await fixture(page, 21);
   await page.goto('/projects/demo/requirements');
-  const addDraft = page.locator('#requirement-entry').getByLabel('Текст требования');
-  await addDraft.fill('Черновик добавления');
   await page.locator('#requirement-row-r0').click();
   const edit = page
     .locator('#requirement-r0')
@@ -445,19 +441,18 @@ test('requirement editing opens a native dialog and Escape discards the draft', 
   await expect(dialog).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).not.toBeVisible();
-  await expect(addDraft).toHaveValue('Черновик добавления');
   await expect(edit).toBeFocused();
   expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore);
   await expect(
     page.locator('#requirement-r0').getByText('Требование 0', { exact: true }).first(),
   ).toBeVisible();
+  await edit.press('Enter');
+  await expect(editor).toHaveValue('Требование 0');
 });
 
 test('requirement edit conflict keeps the draft and saving closes the dialog', async ({ page }) => {
   const api = await fixture(page, 3);
   await page.goto('/projects/demo/requirements');
-  const addDraft = page.locator('#requirement-entry').getByLabel('Текст требования');
-  await addDraft.fill('Черновик добавления');
   await page.locator('#requirement-row-r0').click();
   await page
     .locator('#requirement-r0')
@@ -485,7 +480,6 @@ test('requirement edit conflict keeps the draft and saving closes the dialog', a
   expect(api.editWrites()).toEqual([
     { id: 'r0', text: 'Новая редакция', version: 2, changeReason: draftReason },
   ]);
-  await expect(addDraft).toHaveValue('Черновик добавления');
 });
 
 test('revision history pages by version and distinguishes creation from legacy edits', async ({
@@ -679,7 +673,7 @@ async function fixture(
     await route.fulfill({ status: 200, contentType: 'text/event-stream', body }).catch(() => {});
   });
   await page.route('**/api/graphql', async (route) => {
-    const { query, variables } = route.request().postDataJSON();
+    const { operationName, query, variables } = route.request().postDataJSON();
     let data: unknown;
     if (query.includes('updateRequirement(') && editGate) {
       editStarted?.();
@@ -741,6 +735,14 @@ async function fixture(
             createdAt: 'now',
             errorCode: '',
           })),
+      };
+    } else if (operationName === 'RequirementMatches') {
+      data = {
+        requirementsConnection: {
+          edges: [],
+          totalCount: 0,
+          pageInfo: { endCursor: null, hasNextPage: false },
+        },
       };
     } else if (query.includes('requirementsConnection(')) {
       reads++;
@@ -1059,7 +1061,10 @@ test('slow SSE refetch and reconnect reset preserve rows, draft, focus and conti
   await page.goto('/projects/demo/requirements');
   const row = page.locator('#requirement-row-r0');
   await expect(row).toBeVisible();
-  const draft = page.getByRole('textbox', { name: 'Текст требования', exact: true });
+  const opener = page.locator('#requirement-entry');
+  await opener.click();
+  const create = page.getByRole('dialog', { name: 'Добавить требование', exact: true });
+  const draft = create.getByLabel('Текст требования');
   await draft.fill('Несохранённый черновик');
   await draft.focus();
   const before = await row.boundingBox();
@@ -1084,12 +1089,14 @@ test('slow SSE refetch and reconnect reset preserve rows, draft, focus and conti
   await expect(draft).toHaveValue('Несохранённый черновик');
   releaseReset();
   await expect(draft).toBeFocused();
-  await page.getByRole('button', { name: 'Загрузить ещё', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(create).toBeHidden();
+  await expect(opener).toBeFocused();
+  await page.getByRole('button', { name: 'Загрузить ещё', exact: true }).press('Enter');
   await expect.poll(() => api.connectionReads().at(-1)?.after).toBe('cursor-40');
   await expect(page.getByRole('button', { name: 'Загрузить ещё', exact: true })).toHaveCount(0);
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(row).toBeVisible();
-  await expect(draft).toHaveValue('Несохранённый черновик');
   await row.click();
   await expect(page.locator('#requirement-r0 [data-source-id="r0"]')).toHaveText(
     'Обновлённое требование',
@@ -1166,7 +1173,6 @@ test('project pages share navigation, locale and browser history without overflo
     ['Requirements', 'requirements'],
     ['Technical section', 'technical'],
     ['Indexing', 'indexing'],
-    ['Search', 'search'],
     ['Analysis', 'analysis'],
   ] as const) {
     const link = nav.getByRole('link', { name, exact: true });
@@ -1177,7 +1183,7 @@ test('project pages share navigation, locale and browser history without overflo
     await expect(page.getByLabel('Language')).toHaveValue('en');
   }
   await page.goBack();
-  await expect(page).toHaveURL(/\/search$/);
+  await expect(page).toHaveURL(/\/indexing$/);
   await page.goForward();
   await expect(page).toHaveURL(/\/analysis$/);
   await page.reload();
@@ -1192,17 +1198,21 @@ test('requirement source links select the correct record and survive direct open
   page,
 }) => {
   const api = await fixture(page, 21, '', project, undefined, 10);
-  await page.goto('/projects/demo/search');
-  await page.getByLabel('Поисковый запрос').fill('20');
-  await page.getByRole('button', { name: 'Найти требования', exact: true }).click();
-  await page.getByRole('link', { name: 'Перейти к требованию', exact: true }).click();
+  await page.goto('/projects/demo/requirements#requirement-search');
+  const search = page.locator('#requirement-search');
+  await search.getByRole('searchbox', { name: 'Поисковый запрос' }).fill('20');
+  await search.getByRole('button', { name: 'Найти требования', exact: true }).click();
+  await search
+    .getByRole('region', { name: 'Поиск по смыслу', exact: true })
+    .getByRole('link', { name: 'Перейти к требованию', exact: true })
+    .click();
   await expect(page).toHaveURL(/\/requirements\?requirement=r20(?:&[^#]*)?#requirement-r20$/);
   await expect(page.locator('#requirement-r20')).toBeVisible();
   expect(api.connectionReads().map((read) => read.after)).toEqual([null, 'cursor-10', 'cursor-20']);
   await page.reload();
   await expect(page.locator('#requirement-r20')).toBeVisible();
   await page.goBack();
-  await expect(page).toHaveURL(/\/search(?:\?.*)?$/);
+  await expect(page).toHaveURL(/\/requirements#requirement-search$/);
 });
 
 test('indexing appends on scroll with matching statuses and stops at the end', async ({ page }) => {
@@ -1212,8 +1222,6 @@ test('indexing appends on scroll with matching statuses and stops at the end', a
   await expect(page.getByText('Требование 2', { exact: true })).toBeVisible();
   await expect.poll(() => api.indexReads().length).toBe(1);
   expect(api.indexReads()[0]).toHaveLength(40);
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await expect.poll(() => api.indexReads().length).toBeGreaterThan(1);
   await expect
     .poll(async () => {
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -1456,7 +1464,7 @@ for (const { width, zoom } of layoutCases) {
     for (const locale of ['ru', 'en']) {
       await openProjectMenu(page);
       await page.locator('.language select').selectOption(locale);
-      for (const path of ['requirements', 'indexing', 'search', 'analysis']) {
+      for (const path of ['requirements', 'indexing', 'analysis']) {
         await page.goto(`/projects/demo/${path}`);
         const toggle = page.locator('button[aria-controls="project-sidebar"]');
         const collapsed = (await toggle.getAttribute('aria-expanded')) === 'false';
@@ -1471,6 +1479,19 @@ for (const { width, zoom } of layoutCases) {
         if (collapsed) await toggle.click();
         await expect(page.locator('main h2').first()).toBeVisible();
         if (path === 'requirements') {
+          const search = page.locator('#requirement-search');
+          const searchbox = search.getByRole('searchbox', {
+            name: locale === 'ru' ? 'Поисковый запрос' : 'Search query',
+          });
+          await searchbox.fill('text');
+          await searchbox.press('Enter');
+          const semantic = search.getByRole('region', {
+            name: locale === 'ru' ? 'Поиск по смыслу' : 'Semantic search',
+            exact: true,
+          });
+          await semantic.locator('article details summary').click();
+          await expect(semantic.locator('article details p')).toHaveText(`Требование 0${longText}`);
+          await expectLayout(page);
           await page.locator('#requirement-row-r0').click();
           const details = page.locator('#requirement-r0');
           const original = details.locator('[data-source-id="r0"]');
@@ -1491,14 +1512,6 @@ for (const { width, zoom } of layoutCases) {
           if ((await ready.getAttribute('open')) === null) await ready.locator('summary').click();
           await expect(page.locator('#indexing-r0')).toBeVisible();
         }
-        if (path === 'search') {
-          await page
-            .locator('#semantic-search-form textarea, #semantic-search-form input')
-            .fill('text');
-          await page.locator('#semantic-search-form button').click();
-          await page.locator('article details summary').click();
-          await expect(page.locator('article details p')).toHaveText(`Требование 0${longText}`);
-        }
         await expectLayout(page);
       }
     }
@@ -1516,8 +1529,10 @@ for (const route of ['requirements', 'analysis']) {
     });
     await fixture(page, 3);
     await page.goto(`/projects/demo/${route}`);
-    const section = page.locator('main section[aria-labelledby]').last();
-    const button = section.locator('button:enabled').first();
+    const button =
+      route === 'requirements'
+        ? page.locator('#requirement-entry')
+        : page.locator('main section[aria-labelledby]').last().locator('button:enabled').first();
     await expect(button).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`${route}.png`) });
     const rest = await button.evaluate((el) => getComputedStyle(el).backgroundColor);
@@ -1563,11 +1578,14 @@ test('page contents and nested disclosures look interactive and toggle from the 
   await expect(history).not.toHaveAttribute('open', '');
 });
 
-test('page contents link to requirement entry and the list', async ({ page }) => {
+test('page contents link to requirement search and the list', async ({ page }) => {
   await fixture(page, 3);
   await page.goto('/projects/demo/requirements');
   const contents = page.getByRole('navigation', { name: 'На этой странице' });
   await expect(contents).toBeVisible();
+  await contents.getByRole('link', { name: 'Поиск требований', exact: true }).click();
+  await expect(page).toHaveURL(/#requirement-search$/);
+  await expect(page.locator('#requirement-search')).toBeInViewport();
   await contents.getByRole('link', { name: 'Список требований' }).click();
   await expect(page).toHaveURL(/#requirements-list$/);
   await expect(page.locator('#requirements-list')).toBeInViewport();

@@ -1,4 +1,99 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
+
+async function addRequirement(page: Page, text: string) {
+  await page.locator('#requirement-entry').click();
+  const dialog = page.getByRole('dialog', { name: 'Добавить требование' });
+  await dialog.getByRole('textbox', { name: 'Текст требования', exact: true }).fill(text);
+  await dialog.getByRole('button', { name: 'Добавить требование' }).click();
+  await expect(dialog).toBeHidden();
+}
+
+test('requirement creation restores focus and the saved record can be found by ID and text', async ({
+  page,
+}) => {
+  await page.goto('/projects/new');
+  await page.getByLabel('Название').fill('Проверка создания требования');
+  await page.getByLabel('Цель').fill('Проверить диалог');
+  await page.getByRole('button', { name: 'Создать проект' }).click();
+  await page.getByRole('navigation').getByRole('link', { name: 'Требования', exact: true }).click();
+
+  const opener = page.locator('#requirement-entry');
+  const dialog = page.getByRole('dialog', { name: 'Добавить требование' });
+  const draft = dialog.getByRole('textbox', { name: 'Текст требования' });
+  const submit = dialog.getByRole('button', { name: 'Добавить требование' });
+  await expect(page.getByRole('textbox', { name: 'Текст требования' })).toHaveCount(0);
+  await opener.press('Enter');
+  await expect(dialog).toBeVisible();
+  await expect(draft).toBeFocused();
+  await submit.click();
+  await expect(draft).toHaveAttribute('aria-invalid', 'true');
+  await draft.fill('Отменённый черновик');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(opener).toBeFocused();
+  await expect(page.getByText('Требований пока нет')).toBeVisible();
+
+  await opener.click();
+  await expect(draft).toHaveValue('');
+  await draft.fill('Сохранённое требование');
+  await submit.click();
+  await expect(dialog).toBeHidden();
+  await expect(opener).toBeFocused();
+  const saved = page.locator('#requirements-list').getByRole('button', {
+    name: 'Сохранённое требование',
+  });
+  await expect(saved).toBeVisible();
+  const id = (await saved.getAttribute('id'))?.replace('requirement-row-', '');
+  if (!id) throw Error('Missing requirement ID');
+  const search = page.getByRole('searchbox', { name: 'Поисковый запрос' });
+  const matches = page.getByRole('region', { name: 'Совпадения по ID и тексту' });
+  await search.fill('СОХРАНЁННОЕ');
+  await search.press('Enter');
+  await expect(matches).toContainText('Сохранённое требование');
+  await search.fill(id);
+  await search.press('Enter');
+  await expect(matches.getByText(id, { exact: true })).toBeVisible();
+  await matches.getByRole('link', { name: 'Перейти к требованию' }).click();
+  await expect(page.locator(`#requirement-${id}`)).toBeFocused();
+});
+
+test('project section help is shown on hover and keyboard focus without a click', async ({
+  page,
+}) => {
+  await page.goto('/projects/new');
+  await page.getByLabel('Название').fill('Проверка справки');
+  await page.getByLabel('Цель').fill('Проверить подсказки меню');
+  await page.getByRole('button', { name: 'Создать проект' }).click();
+
+  const nav = page.getByRole('navigation', { name: 'Разделы проекта' });
+  const requirements = nav.getByRole('button', { name: 'Справка о разделе «Требования»' });
+  const tooltip = nav.getByRole('tooltip');
+  await expect(requirements).toBeVisible();
+  await expect(tooltip).toHaveCount(0);
+  await requirements.hover();
+  await expect(tooltip).toContainText('Ищите и редактируйте бизнес-требования');
+  await page.mouse.move(0, 0);
+  await expect(tooltip).toHaveCount(0);
+
+  await nav.getByRole('link', { name: 'Требования', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(requirements).toBeFocused();
+  await expect(tooltip).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(tooltip).toHaveCount(0);
+  await expect(requirements).toBeFocused();
+  await expect(nav.getByRole('link', { name: 'Поиск', exact: true })).toHaveCount(0);
+  await expect(nav.getByRole('button', { name: /Справка о разделе/ })).toHaveCount(6);
+
+  await nav.getByRole('link', { name: 'Технический раздел' }).click();
+  const indexing = nav.getByRole('link', { name: 'Индексация', exact: true });
+  await indexing.focus();
+  await page.keyboard.press('Tab');
+  await expect(tooltip).toContainText(/индексац/i);
+  await expect(
+    nav.getByRole('button', { name: 'Справка о разделе «История запусков»' }),
+  ).toBeVisible();
+});
 
 test('create a project and open it after reload', async ({ page }) => {
   const name = `Проект ${Date.now()}`;
@@ -14,10 +109,7 @@ test('create a project and open it after reload', async ({ page }) => {
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   await expect(page.getByText('Найти коллизии')).toBeVisible();
   await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
-  await page
-    .getByRole('textbox', { name: 'Текст требования', exact: true })
-    .fill('Требование один');
-  await page.getByRole('button', { name: 'Добавить требование' }).click();
+  await addRequirement(page, 'Требование один');
   const details = page.locator('article[id^="requirement-"]');
   await expect(details.getByText('Требование один', { exact: true })).toBeVisible();
   await page.reload();
@@ -78,8 +170,7 @@ test('only the selected archived requirement can be permanently deleted after co
   const list = page.locator('#requirements-list');
   const selectedRow = list.getByRole('button', { name: selected, exact: true });
   for (const text of [selected, survivor]) {
-    await page.getByRole('textbox', { name: 'Текст требования', exact: true }).fill(text);
-    await page.getByRole('button', { name: 'Добавить требование' }).click();
+    await addRequirement(page, text);
     await expect(list.getByRole('button', { name: text, exact: true })).toBeVisible();
   }
   const mutations: string[] = [];
@@ -204,19 +295,22 @@ test('two tabs receive project and requirement invalidations without reload', as
   await page.goto('/');
   await watcher.addInitScript(() => localStorage.setItem('project-creator-locale', 'en'));
   await watcher.goto('/');
+  const projectCount = watcher
+    .getByRole('region', { name: 'Projects', exact: true })
+    .getByText(/^Total: [0-9]+$/);
+  const initialCount = Number((await projectCount.textContent())?.split(' ').at(-1));
   const name = `Live ${Date.now()}`;
   await page.getByRole('link', { name: 'Создать проект', exact: true }).click();
   await page.getByLabel('Название').fill(name);
   await page.getByLabel('Цель').fill('SSE');
   await page.getByRole('button', { name: 'Создать проект' }).click();
-  await expect(watcher.getByRole('link', { name })).toBeVisible({ timeout: 15000 });
-  await watcher.getByRole('link', { name }).click();
+  await expect(projectCount).toHaveText(`Total: ${initialCount + 1}`, { timeout: 15000 });
+  const projectLink = watcher.getByRole('link', { name, exact: true });
+  if (!(await projectLink.isVisible())) await watcher.keyboard.press('End');
+  await projectLink.click();
   await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
   await watcher.getByRole('link', { name: 'Requirements', exact: true }).first().click();
-  await page
-    .getByRole('textbox', { name: 'Текст требования', exact: true })
-    .fill('Live requirement');
-  await page.getByRole('button', { name: 'Добавить требование' }).click();
+  await addRequirement(page, 'Live requirement');
   const watcherList = watcher.locator('#requirements-list');
   await watcherList.getByRole('button', { name: 'Live requirement', exact: true }).click({
     timeout: 15000,
@@ -258,14 +352,11 @@ test('an abbreviation candidate becomes a glossary term only after confirmation'
   await page.getByLabel('Цель').fill('Проверить сокращения');
   await page.getByRole('button', { name: 'Создать проект' }).click();
   await page.getByRole('link', { name: 'Требования', exact: true }).first().click();
-  await page
-    .getByLabel('Текст требования')
-    .fill('Генеральный подрядчик (ГП), также Генподрядчик, проверяет документы.');
-  await page.getByRole('button', { name: 'Добавить требование' }).click();
-  await page
-    .getByRole('textbox', { name: 'Текст требования', exact: true })
-    .fill('😀 Запросить ЭЦП у ГП.');
-  await page.getByRole('button', { name: 'Добавить требование' }).click();
+  await addRequirement(
+    page,
+    'Генеральный подрядчик (ГП), также Генподрядчик, проверяет документы.',
+  );
+  await addRequirement(page, '😀 Запросить ЭЦП у ГП.');
   await expect(
     page.locator('#requirements-list').getByRole('button', {
       name: '😀 Запросить ЭЦП у ГП.',

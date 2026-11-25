@@ -428,6 +428,7 @@ type RequirementsConnectionArgs struct {
 	Archived  *bool
 	First     *int32
 	After     *string
+	Match     *string
 }
 type ProjectArgs struct {
 	ID graphql.ID

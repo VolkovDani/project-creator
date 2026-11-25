@@ -333,9 +333,9 @@ database.
 | `/` | Project list |
 | `/projects/new` | Create a project |
 | `/projects/:id` | Project overview |
-| `/projects/:id/requirements` | Create, edit and archive requirements. Restore or permanently delete an entry from the archive |
+| `/projects/:id/requirements` | Search by ID, text and meaning. Create, edit and archive requirements |
 | `/projects/:id/indexing` | Overall background queue progress, statuses, and reindexing |
-| `/projects/:id/search` | Semantic search |
+| `/projects/:id/search` | Redirect to search on the requirements page |
 | `/projects/:id/analysis` | Streaming pair analysis and results |
 
 Project navigation and selected RU/EN language are shared across all pages. The

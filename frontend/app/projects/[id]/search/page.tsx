@@ -1,7 +1,5 @@
-'use client';
-import { useProject } from '../ProjectShell';
-import ProjectSearch from '../RagTools';
-export default function SearchPage() {
-  const { project, locale } = useProject();
-  return <ProjectSearch key={project.id} projectId={project.id} locale={locale} />;
+import { redirect } from 'next/navigation';
+export default async function SearchPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  redirect(`/projects/${encodeURIComponent(id)}/requirements#requirement-search`);
 }

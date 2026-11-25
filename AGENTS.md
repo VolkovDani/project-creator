@@ -197,6 +197,11 @@
   comments in English only. Keep Russian text in documentation, including its
   required Russian translations; do not duplicate GitHub discussions in Russian.
 
+- When another GitHub Issue blocks completion or verification, add it as a
+  **Blocked by** dependency and explain in the blocked issue's description which
+  outcome or acceptance criterion depends on it. If the blocker has no GitHub
+  Issue, describe the prerequisite and what it prevents in the issue description.
+
 - Format milestone descriptions in readable Markdown: separate the goal,
   release contents, required release conditions, and scope boundaries using
   headings and paragraphs. Use lists for tasks and conditions; leave blank

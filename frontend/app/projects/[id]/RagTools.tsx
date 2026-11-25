@@ -60,6 +60,24 @@ export function RequirementIndexAction({
     </div>
   );
 }
+function highlightLiteral(text: string, pattern: RegExp) {
+  const match = pattern.exec(text);
+  if (!match) return text;
+
+  const context = 80;
+  const before = Array.from(text.slice(0, match.index));
+  const after = Array.from(text.slice(match.index + match[0].length));
+  return (
+    <>
+      {before.length > context && '…'}
+      {before.slice(-context).join('')}
+      <mark>{match[0]}</mark>
+      {after.slice(0, context).join('')}
+      {after.length > context && '…'}
+    </>
+  );
+}
+
 function LiteralResults({
   projectId,
   locale,
@@ -74,6 +92,7 @@ function LiteralResults({
   onSource?: (id: string) => void;
 }) {
   const id = useId();
+  const pattern = new RegExp(match.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'iu');
   const load = useCallback(
     async (after: string | null) => {
       if (clientSessionVersion() !== session) throw Error('session changed');
@@ -115,11 +134,11 @@ function LiteralResults({
       </div>
       {list.rows.map((hit) => (
         <article className="card" key={hit.id}>
-          <GlossaryText sourceId={hit.id} version={hit.version}>
-            {hit.text}
+          <GlossaryText sourceId={hit.id} version={hit.version} className="user-content">
+            {highlightLiteral(hit.text, pattern)}
           </GlossaryText>
           <p className="muted">
-            {t(locale, 'requirements.metaId')} <code>{hit.id}</code> ·{' '}
+            {t(locale, 'requirements.metaId')} <code>{highlightLiteral(hit.id, pattern)}</code> ·{' '}
             {t(locale, 'requirements.version', { version: hit.version })}
             {hit.archivedAt && <> · {t(locale, 'requirements.statusArchived')}</>}
           </p>

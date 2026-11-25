@@ -13,6 +13,58 @@ function connection<T extends { id: string }>(rows: T[], variables: Record<strin
   };
 }
 
+test('literal search shows the original matching passage and distinguishes an ID-only hit', async ({
+  page,
+}) => {
+  const matchedText = 'Согласовать [этап 2].';
+  const hit = {
+    id: 'source-1',
+    text:
+      'Введение к длинному требованию. '.repeat(12) +
+      `Перед запуском. ${matchedText} После проверки.`,
+    version: 1,
+    archivedAt: null,
+  };
+  await page.route('**/api/events', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': heartbeat\n\n' }),
+  );
+  await page.route('**/api/graphql', (route) => {
+    const { operationName, variables } = route.request().postDataJSON();
+    const project = { id: 'demo', name: 'Поиск требований', goal: 'G', description: '' };
+    const data =
+      operationName === 'SearchRequirements'
+        ? { searchRequirements: [] }
+        : operationName === 'ProjectDetail'
+          ? { project }
+          : {
+              requirementsConnection: connection(
+                operationName === 'RequirementMatches' ? [hit] : [],
+                variables,
+              ),
+            };
+    return route.fulfill({ json: { data } });
+  });
+  await page.goto('/projects/demo/requirements');
+  const search = page.getByRole('searchbox', { name: 'Поисковый запрос' });
+  const result = page
+    .getByRole('region', { name: 'Совпадения по ID и тексту' })
+    .getByRole('article');
+  await search.fill('согласовать [ЭТАП 2].');
+  await search.press('Enter');
+  await expect(result.locator('p mark')).toHaveText(matchedText);
+  await expect(result).toContainText(`Перед запуском. ${matchedText} После проверки.`);
+  await expect(result.locator('[data-glossary-text]')).not.toHaveText(hit.text);
+  await expect(result.getByRole('link', { name: 'Перейти к требованию' })).toHaveAttribute(
+    'href',
+    '/projects/demo/requirements?requirement=source-1#requirement-source-1',
+  );
+
+  await search.fill('SOURCE-1');
+  await search.press('Enter');
+  await expect(result.locator('code mark')).toHaveText(hit.id);
+  await expect(result.locator('[data-glossary-text]')).toContainText(matchedText);
+});
+
 test('requirements search submits both queries and keeps text matches when semantic search fails', async ({
   page,
 }) => {

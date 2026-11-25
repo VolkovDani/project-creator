@@ -536,7 +536,7 @@ bun run e2e
 
 ## Business requirements
 
-Use **Add requirement** to open the create dialog. In **Search requirements**, submit an ID or text with Enter or **Search**. One submission shows case-insensitive ID and text matches from active and archived requirements, plus separate semantic results from the project's index. ID and text matches are available independently of the embedding provider. Open a result to see its details. The previous search URL redirects to this form.
+Use **Add requirement** to open the create dialog. In **Search requirements**, submit an ID or text with Enter or **Search**. One submission shows case-insensitive ID and text matches from active and archived requirements, plus separate semantic results from the project's index. ID and text matches are available independently of the embedding provider. Text results mark the matching passage in its original casing and show the surrounding context. A matching ID is highlighted beside the requirement text. Open a result to see its details. The previous search URL redirects to this form.
 
 Select a row to open its details beside the list. The panel shows the full requirement ID used by the API and MCP, the project, version, dates and status. It also contains the original text, classification and revision history. On narrow screens, **Back to requirements** returns to the selected row. Archived rows open in the same panel.
 

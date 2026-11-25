@@ -13,9 +13,7 @@ function connection<T extends { id: string }>(rows: T[], variables: Record<strin
   };
 }
 
-test('literal search shows the original matching passage and distinguishes an ID-only hit', async ({
-  page,
-}) => {
+test('search result groups align and literal hits show the original match', async ({ page }) => {
   const matchedText = 'Согласовать [этап 2].';
   const hit = {
     id: 'source-1',
@@ -33,7 +31,20 @@ test('literal search shows the original matching passage and distinguishes an ID
     const project = { id: 'demo', name: 'Поиск требований', goal: 'G', description: '' };
     const data =
       operationName === 'SearchRequirements'
-        ? { searchRequirements: [] }
+        ? {
+            searchRequirements: [
+              {
+                requirementId: hit.id,
+                projectId: 'demo',
+                text: hit.text.slice(0, 25),
+                sourceText: hit.text,
+                version: hit.version,
+                start: 0,
+                end: 25,
+                score: 0.9,
+              },
+            ],
+          }
         : operationName === 'ProjectDetail'
           ? { project }
           : {
@@ -46,14 +57,23 @@ test('literal search shows the original matching passage and distinguishes an ID
   });
   await page.goto('/projects/demo/requirements');
   const search = page.getByRole('searchbox', { name: 'Поисковый запрос' });
-  const result = page
-    .getByRole('region', { name: 'Совпадения по ID и тексту' })
-    .getByRole('article');
+  const literal = page.getByRole('region', { name: 'Совпадения по ID и тексту' });
+  const semantic = page.getByRole('region', { name: 'Поиск по смыслу' });
+  const result = literal.getByRole('article');
   await search.fill('согласовать [ЭТАП 2].');
   await search.press('Enter');
   await expect(result.locator('p mark')).toHaveText(matchedText);
   await expect(result).toContainText(`Перед запуском. ${matchedText} После проверки.`);
   await expect(result.locator('[data-glossary-text]')).not.toHaveText(hit.text);
+  const countLabel = 'Результаты поиска: 1';
+  const literalCount = literal.getByText(countLabel, { exact: true });
+  const semanticCount = semantic.getByText(countLabel, { exact: true });
+  const semanticCard = semantic.getByRole('article');
+  await expect(literalCount).toBeVisible();
+  await expect(semanticCount).toBeVisible();
+  await expect(semanticCard).toBeVisible();
+  expect((await literalCount.boundingBox())?.y).toBe((await semanticCount.boundingBox())?.y);
+  expect((await result.boundingBox())?.y).toBe((await semanticCard.boundingBox())?.y);
   await expect(result.getByRole('link', { name: 'Перейти к требованию' })).toHaveAttribute(
     'href',
     '/projects/demo/requirements?requirement=source-1#requirement-source-1',

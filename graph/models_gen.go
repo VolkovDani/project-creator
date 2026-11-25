@@ -250,6 +250,24 @@ type ExternalProposalPage struct {
 	Items    []*ExternalProposal
 	PageInfo *PageInfo
 }
+type SimilarRequirementPair struct {
+	Left            *AnalysisSource
+	Right           *AnalysisSource
+	SimilarityScore float64
+}
+type SimilarRequirementPairPage struct {
+	Items               []*SimilarRequirementPair
+	PageInfo            *PageInfo
+	Status              string
+	EmbeddingProfile    string
+	MissingRequirements int32
+}
+type SimilarRequirementPairsArgs struct {
+	ProjectId graphql.ID
+	Threshold float64
+	First     *int32
+	After     *string
+}
 type ExternalProposalsArgs struct {
 	ProjectId graphql.ID
 	First     *int32

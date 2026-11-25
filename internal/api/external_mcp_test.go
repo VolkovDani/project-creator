@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"math"
 	"net/http/httptest"
 	"net/url"
 	"slices"
@@ -83,7 +84,7 @@ func TestExternalMCPUsesAuthenticatedGraphQLAndBoundProject(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	slices.Sort(names)
-	if !slices.Equal(names, []string{"list_external_proposals", "list_requirements", "save_external_proposal"}) {
+	if !slices.Equal(names, []string{"list_external_proposals", "list_requirements", "list_similar_requirement_pairs", "save_external_proposal"}) {
 		t.Fatal(names)
 	}
 	first := call(authorized, "list_requirements", map[string]any{"first": 1})
@@ -126,5 +127,175 @@ func TestExternalMCPUsesAuthenticatedGraphQLAndBoundProject(t *testing.T) {
 	if result := call(authorized, "list_external_proposals", map[string]any{}); result.IsError ||
 		!strings.Contains(output(result), "Check the examples") {
 		t.Fatal(output(result))
+	}
+	checkSimilarMCPPairs(t, s, call, authorized, connect(tokenB, "p", "local"))
+	checkSparseMCPPairs(t, s, call, connect(tokenA, "sparse", "local"))
+}
+
+func checkSimilarMCPPairs(
+	t *testing.T, s *Server,
+	call func(*mcp.ClientSession, string, any) *mcp.CallToolResult,
+	authorized, unauthorized *mcp.ClientSession,
+) {
+	t.Helper()
+	const tool = "list_similar_requirement_pairs"
+	type source struct {
+		ID, Text string
+		Version  int
+	}
+	type page struct {
+		Status, EmbeddingProfile string
+		MissingRequirements      int
+		Items                    []struct {
+			Left, Right     source
+			SimilarityScore float64
+		}
+		PageInfo struct {
+			EndCursor   string
+			HasNextPage bool
+		}
+	}
+	result := func(first int, threshold float64, after string) page {
+		t.Helper()
+		args := map[string]any{"first": first, "threshold": threshold}
+		if after != "" {
+			args["after"] = after
+		}
+		response := call(authorized, tool, args)
+		var p page
+		raw, err := json.Marshal(response.StructuredContent)
+		if err != nil || json.Unmarshal(raw, &p) != nil || p.Status == "" || (p.Status == "ready") == response.IsError {
+			t.Fatalf("unexpected tool response: %s %v", raw, response.Content)
+		}
+		return p
+	}
+	if got := result(1, 0.8, ""); got.Status != "embeddings_not_configured" || len(got.Items) != 0 {
+		t.Fatal(got)
+	}
+	if _, err := s.db.Exec(`
+		INSERT INTO requirements(id,workspace,project_id,text,version,created_at,updated_at,archived_at) VALUES
+		 ('s','a','p','another similar requirement',1,'now','now',NULL),
+		 ('t','a','p','visible synthetic source',1,'now','now',NULL),
+		 ('archived','a','p','archived requirement',1,'now','now','now');
+		UPDATE embedding_profiles SET profile='fixture' WHERE workspace='a';
+		INSERT INTO requirement_index(workspace,project_id,requirement_id,profile,version,status,attempt,lease_until)
+		SELECT workspace,project_id,id,'fixture',version,'ready','fixture','now' FROM requirements;
+		INSERT INTO requirement_chunks(workspace,project_id,requirement_id,profile,version,ordinal,start_offset,end_offset,text,embedding)
+		SELECT r.workspace,r.project_id,r.id,'fixture',r.version,c.ordinal,0,1,r.text,
+		 ('[' || c.components || repeat(',0',1022) || ']')::public.vector
+		FROM requirements r JOIN (VALUES
+		  ('r',0,'0,1'),('r',1,'1,0'),('r1',0,'1,0'),('s',0,'0.9,0.1'),
+		  ('archived',0,'1,0'),('q1',0,'1,0'),('r2',0,'1,0')
+		) c(id,ordinal,components) ON c.id=r.id;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if got := result(1, 0.8, ""); got.Status != "index_incomplete" || got.MissingRequirements != 1 || len(got.Items) != 0 {
+		t.Fatal(got)
+	}
+	if _, err := s.db.Exec(`INSERT INTO requirement_chunks(workspace,project_id,requirement_id,profile,version,ordinal,start_offset,end_offset,text,embedding)
+		VALUES ('a','p','t','fixture',1,0,0,1,'visible synthetic source', ('[0,-1' || repeat(',0',1022) || ']')::public.vector)`); err != nil {
+		t.Fatal(err)
+	}
+
+	first := result(1, 0.8, "")
+	if first.Status != "ready" || first.EmbeddingProfile != "fixture" || len(first.Items) != 1 || !first.PageInfo.HasNextPage || first.PageInfo.EndCursor == "" {
+		t.Fatal(first)
+	}
+	pair := first.Items[0]
+	if pair.Left != (source{ID: "r", Text: "visible synthetic source", Version: 1}) || pair.Right != (source{ID: "r1", Text: "second synthetic source", Version: 1}) || pair.SimilarityScore != 1 {
+		t.Fatal(pair)
+	}
+	next := result(20, 0.8, first.PageInfo.EndCursor)
+	if next.Status != "ready" || len(next.Items) != 2 || next.PageInfo.HasNextPage {
+		t.Fatal(next)
+	}
+	for i, pair := range next.Items {
+		if pair.Left.ID != []string{"r", "r1"}[i] || pair.Right.ID != "s" || pair.SimilarityScore < 0.8 || pair.SimilarityScore >= 1 {
+			t.Fatal(pair)
+		}
+	}
+	zeroCursor := result(1, 0, "").PageInfo.EndCursor
+	if got := result(20, math.Copysign(0, -1), zeroCursor); got.Status != "ready" {
+		t.Fatal("equivalent zero threshold rejected", got)
+	}
+	atBoundary := result(20, 1, "")
+	if atBoundary.Status != "ready" || len(atBoundary.Items) != 1 || atBoundary.Items[0].SimilarityScore != 1 {
+		t.Fatal(atBoundary)
+	}
+	for _, args := range []map[string]any{
+		{"threshold": 1.01}, {"threshold": 0.8, "projectId": "q"},
+		{"first": 1, "threshold": 0.9, "after": first.PageInfo.EndCursor},
+	} {
+		if got := call(authorized, tool, args); !got.IsError {
+			t.Fatal("invalid input accepted", args)
+		}
+	}
+	if got := call(unauthorized, tool, map[string]any{"threshold": 0.8}); !got.IsError || got.StructuredContent != nil {
+		t.Fatal("cross-workspace access", got)
+	}
+	if _, err := s.db.Exec(`UPDATE requirement_index SET attempt='replacement' WHERE requirement_id='s' AND profile='fixture'`); err != nil {
+		t.Fatal(err)
+	}
+	if got := result(20, 0.8, first.PageInfo.EndCursor); got.Status != "cursor_stale" || len(got.Items) != 0 {
+		t.Fatal(got)
+	}
+	newCursor := result(1, 0.8, "").PageInfo.EndCursor
+	if _, err := s.db.Exec(`UPDATE requirements SET text='updated',version=2 WHERE id='s'`); err != nil {
+		t.Fatal(err)
+	}
+	if got := result(20, 0.8, newCursor); got.Status != "cursor_stale" || len(got.Items) != 0 {
+		t.Fatal(got)
+	}
+	var runs int
+	if err := s.db.QueryRow(`SELECT count(*) FROM analysis_runs`).Scan(&runs); err != nil || runs != 0 {
+		t.Fatalf("MCP read started an analysis run: %d, %v", runs, err)
+	}
+}
+
+func checkSparseMCPPairs(
+	t *testing.T, s *Server,
+	call func(*mcp.ClientSession, string, any) *mcp.CallToolResult,
+	client *mcp.ClientSession,
+) {
+	t.Helper()
+	if _, err := s.db.Exec(`
+		INSERT INTO projects VALUES ('sparse','a','Sparse','G','','now','now');
+		INSERT INTO requirements(id,workspace,project_id,text,version,created_at,updated_at)
+		 SELECT 's'||lpad(n::text,2,'0'),'a','sparse','Fixture '||n,1,'now','now' FROM generate_series(1,18) n;
+		UPDATE requirement_index SET status='ready',attempt='test' WHERE project_id='sparse';
+		INSERT INTO requirement_chunks(workspace,project_id,requirement_id,profile,version,ordinal,start_offset,end_offset,text,embedding)
+		 SELECT workspace,project_id,requirement_id,profile,version,0,0,1,'fixture',
+		  ARRAY(SELECT (d=least(right(requirement_id,2)::int,17))::int FROM generate_series(1,1024) d)::public.vector
+		 FROM requirement_index WHERE project_id='sparse' AND status='ready';
+	`); err != nil {
+		t.Fatal(err)
+	}
+	type page struct {
+		Items []struct {
+			Left, Right struct{ ID string }
+		}
+		PageInfo struct {
+			EndCursor   string
+			HasNextPage bool
+		}
+	}
+	read := func(args map[string]any) page {
+		t.Helper()
+		got := call(client, "list_similar_requirement_pairs", args)
+		var decoded page
+		raw, err := json.Marshal(got.StructuredContent)
+		if got.IsError || err != nil || json.Unmarshal(raw, &decoded) != nil {
+			t.Fatalf("sparse page failed: %s %v", raw, got.Content)
+		}
+		return decoded
+	}
+	first := read(map[string]any{"threshold": 0.8})
+	if len(first.Items) != 0 || !first.PageInfo.HasNextPage || first.PageInfo.EndCursor == "" {
+		t.Fatal("expected an empty page with a continuation", first)
+	}
+	last := read(map[string]any{"threshold": 0.8, "after": first.PageInfo.EndCursor})
+	if len(last.Items) != 1 || last.PageInfo.HasNextPage || last.Items[0].Left.ID != "s17" || last.Items[0].Right.ID != "s18" {
+		t.Fatal("expected the only match on the last page", last)
 	}
 }

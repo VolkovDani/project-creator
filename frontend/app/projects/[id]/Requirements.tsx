@@ -21,6 +21,7 @@ import Group from '../../components/Group';
 import { LoadMore } from '../../components/ListControls';
 import ResourceState from '../../components/ResourceState';
 import { VirtualList } from '../../components/VirtualList';
+import ProjectSearch from './RagTools';
 import RequirementConfirmation from './RequirementConfirmation';
 import RequirementDetails from './RequirementDetails';
 import { useRequirementSummaries } from './RequirementSummary';
@@ -56,6 +57,7 @@ export default function Requirements({
   locale: Locale;
 }) {
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [text, setText] = useState('');
   const [editText, setEditText] = useState('');
   const [changeReason, setChangeReason] = useState('');
@@ -68,6 +70,8 @@ export default function Requirements({
   const [showDetails, setShowDetails] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const narrow = useSyncExternalStore(subscribeToNarrow, isNarrow, isWideOnServer);
+  const addTrigger = useRef<HTMLButtonElement>(null);
+  const createDialog = useRef<HTMLDialogElement>(null);
   const editTrigger = useRef<HTMLButtonElement>(null);
   const rowTrigger = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -85,6 +89,7 @@ export default function Requirements({
   const active = useRef(true);
   const clear = useCallback(() => {
     operation.current++;
+    setAdding(false);
     setText('');
     setEditText('');
     setChangeReason('');
@@ -98,6 +103,14 @@ export default function Requirements({
     setBusy(false);
     setSourceTarget(undefined);
   }, []);
+  useEffect(() => {
+    const dialog = createDialog.current;
+    if (adding && dialog && !dialog.open) dialog.showModal();
+    if (!adding && !busy && dialog?.open) {
+      dialog.close();
+      addTrigger.current?.focus({ preventScroll: true });
+    }
+  }, [adding, busy]);
   useEffect(() => {
     const dialog = dialogRef.current;
     if (editing && dialog && !dialog.open) dialog.showModal();
@@ -139,6 +152,7 @@ export default function Requirements({
   }, [infinite.loading, infinite.error, infinite.hasNextPage, infinite.loadMore]);
   const params = useSearchParams();
   const source = params.get('requirement');
+  const previousSource = useRef(source);
   const mentionVersion = Number(params.get('version'));
   const start = Number(params.get('start'));
   const end = Number(params.get('end'));
@@ -161,7 +175,10 @@ export default function Requirements({
     };
   }, [projectId]);
   useEffect(() => {
-    setSourceTarget(params.get('requirement') ?? undefined);
+    const nextSource = params.get('requirement');
+    if (previousSource.current && !nextSource) setShowDetails(false);
+    previousSource.current = nextSource;
+    setSourceTarget(nextSource ?? undefined);
   }, [params]);
   const seeking = !!sourceTarget && sourceTarget === source;
   const activeTarget = seeking ? rows.find((row) => row.id === sourceTarget) : undefined;
@@ -265,8 +282,15 @@ export default function Requirements({
     );
   }
   const current = (epoch: number) => active.current && operation.current === epoch;
+  function closeCreate() {
+    setAdding(false);
+    setText('');
+    setValidation(null);
+    setFailure(false);
+  }
   async function save(event: React.FormEvent) {
     event.preventDefault();
+    if (busy || (!adding && !editing)) return;
     const submittedText = editing ? editText : text;
     const checked = validateRequirement(contract, submittedText);
     const first =
@@ -316,7 +340,7 @@ export default function Requirements({
         setEditText('');
         setChangeReason('');
       } else {
-        setText('');
+        closeCreate();
         setSelection({ id: result.requirement.id, archived: false });
       }
       await infinite.refresh();
@@ -430,26 +454,71 @@ export default function Requirements({
   );
   return (
     <section className="ui-panel" aria-labelledby="requirements-heading">
-      <h2 id="requirements-heading">{t(locale, 'requirements.title')}</h2>
-      <form id="requirement-entry" onSubmit={save} noValidate>
-        <label>
-          {t(locale, 'requirements.text')}
-          <textarea
-            disabled={busy || !!editing}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            aria-invalid={!editing && validation?.field === 'text'}
-          />
-        </label>
-        {!editing && validation && (
-          <p role="alert" className="error">
-            {t(locale, validation.key, validation.params)}
-          </p>
-        )}
-        <button type="submit" disabled={busy}>
+      <header className={styles.heading}>
+        <h2 id="requirements-heading">{t(locale, 'requirements.title')}</h2>
+        <button
+          type="button"
+          id="requirement-entry"
+          aria-haspopup="dialog"
+          ref={addTrigger}
+          disabled={busy}
+          onClick={() => {
+            setFailure(false);
+            setValidation(null);
+            setAdding(true);
+          }}
+        >
           {t(locale, 'requirements.add')}
         </button>
-      </form>
+      </header>
+      <ProjectSearch
+        projectId={projectId}
+        locale={locale}
+        onSource={(id) => {
+          if (id === source) {
+            setSourceTarget(id);
+            setShowDetails(true);
+          }
+        }}
+      />
+      <dialog
+        ref={createDialog}
+        aria-labelledby="requirement-create-title"
+        onCancel={(event) => {
+          event.preventDefault();
+          if (!busy) closeCreate();
+        }}
+      >
+        <h3 id="requirement-create-title">{t(locale, 'requirements.add')}</h3>
+        <form id="requirement-create-form" onSubmit={save} noValidate>
+          <label>
+            {t(locale, 'requirements.text')}
+            <textarea
+              disabled={busy}
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              aria-invalid={adding && validation?.field === 'text'}
+              aria-describedby={adding && validation ? 'requirement-create-error' : undefined}
+            />
+          </label>
+          {adding && validation && (
+            <p id="requirement-create-error" role="alert" className="error">
+              {t(locale, validation.key, validation.params)}
+            </p>
+          )}
+          {adding && mutationFailure && (
+            <p role="alert" className="error">
+              {t(locale, 'requirements.error')}
+            </p>
+          )}
+          <button type="submit" disabled={busy}>
+            {t(locale, 'requirements.add')}
+          </button>
+          <button type="button" disabled={busy} onClick={closeCreate}>
+            {t(locale, 'requirements.cancel')}
+          </button>
+        </form>
+      </dialog>
       {confirmation && (
         <RequirementConfirmation
           action={confirmation.action}
@@ -546,7 +615,7 @@ export default function Requirements({
       <ResourceState
         locale={locale}
         loading={loading}
-        error={mutationFailure || infinite.error}
+        error={infinite.error}
         hasData={loaded}
         retry={() => {
           setFailure(false);

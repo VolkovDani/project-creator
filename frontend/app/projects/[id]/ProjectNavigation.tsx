@@ -1,7 +1,14 @@
 'use client';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  type ComponentProps,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { type Locale, t } from '../../../lib/i18n';
 import brandIcon from '../../../public/favicon-48x48.png';
 import { DesignIcon } from '../../components/DesignIcon';
@@ -12,7 +19,6 @@ import { ProjectSwitcher } from './ProjectSwitcher';
 export const sections = [
   'overview',
   'requirements',
-  'search',
   'classification',
   'glossary',
   'analysis',
@@ -45,6 +51,8 @@ export function ProjectNavigation({
 }) {
   const mobile = useSyncExternalStore(listenViewport, mobileViewport, serverViewport);
   const [desktopOpen, setDesktopOpen] = useState(true);
+  const [help, setHelp] = useState<string | null>(null);
+  const helpPrefix = useId();
   const [mobilePath, setMobilePath] = useState<string | null>(null);
   const expanded = mobile ? mobilePath === pathname : desktopOpen;
   const toggle = useRef<HTMLButtonElement>(null);
@@ -62,18 +70,79 @@ export function ProjectNavigation({
       sidebar.current?.querySelector<HTMLAnchorElement>('nav a');
     first?.focus();
     const dismiss = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+      if (
+        event.defaultPrevented ||
+        event.key !== 'Escape' ||
+        document.querySelector('dialog[open]')
+      )
+        return;
       setMobilePath(null);
       toggle.current?.focus({ preventScroll: true });
     };
     document.addEventListener('keydown', dismiss);
     return () => document.removeEventListener('keydown', dismiss);
   }, [mobile, expanded]);
-  function closeMobileMenu() {
+  useEffect(() => {
+    if (!expanded || !help) return;
+    function dismissHelp(event: KeyboardEvent) {
+      if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+      event.preventDefault();
+      setHelp(null);
+    }
+    document.addEventListener('keydown', dismissHelp, true);
+    return () => document.removeEventListener('keydown', dismissHelp, true);
+  }, [expanded, help]);
+
+  function onNavigate() {
+    setHelp(null);
     if (mobile && expanded) {
       setMobilePath(null);
       toggle.current?.focus({ preventScroll: true });
     }
+  }
+  function sectionEntry(
+    href: string,
+    name: string,
+    description: string,
+    icon: ComponentProps<typeof DesignIcon>['name'],
+    current?: 'page' | 'location',
+  ) {
+    const tooltip = `${helpPrefix}-${href.slice(base.length)}`;
+    const dismiss = () => setHelp((active) => (active === href ? null : active));
+    return (
+      <div className={styles.navRow}>
+        <Link href={href} aria-current={current} onNavigate={onNavigate}>
+          <DesignIcon name={icon} />
+          {name}
+          {mobile && <DesignIcon name="next" />}
+        </Link>
+        <div
+          className={styles.help}
+          onPointerEnter={(event) => {
+            if (event.pointerType !== 'touch') setHelp(href);
+          }}
+          onPointerLeave={(event) => {
+            if (!event.currentTarget.matches(':focus-within')) dismiss();
+          }}
+        >
+          <button
+            type="button"
+            className={styles.helpIcon}
+            aria-label={t(locale, 'ui.sectionHelpLabel', { section: name })}
+            aria-describedby={tooltip}
+            onFocus={() => setHelp(href)}
+            onBlur={(event) => {
+              if (!event.currentTarget.parentElement?.matches(':hover')) dismiss();
+            }}
+          >
+            <DesignIcon name="help" />
+          </button>
+          <span id={tooltip} role="tooltip" className={styles.helpText} hidden={help !== href}>
+            {description}
+          </span>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -87,9 +156,11 @@ export function ProjectNavigation({
             aria-label={t(locale, expanded ? 'ui.closeNavigation' : 'ui.openNavigation')}
             aria-expanded={expanded}
             aria-controls="project-sidebar"
-            onClick={() =>
-              mobile ? setMobilePath(expanded ? null : pathname) : setDesktopOpen(!desktopOpen)
-            }
+            onClick={() => {
+              setHelp(null);
+              if (mobile) setMobilePath(expanded ? null : pathname);
+              else setDesktopOpen(!desktopOpen);
+            }}
           >
             <span aria-hidden="true" />
           </button>
@@ -102,7 +173,7 @@ export function ProjectNavigation({
           {name && pathname !== base && (
             <>
               <span aria-hidden="true">/</span>
-              <Link href={base} onNavigate={closeMobileMenu}>
+              <Link href={base} onNavigate={onNavigate}>
                 {name}
               </Link>
             </>
@@ -110,7 +181,7 @@ export function ProjectNavigation({
           {(indexing || history) && (
             <>
               <span aria-hidden="true">/</span>
-              <Link href={`${base}/technical`} onNavigate={closeMobileMenu}>
+              <Link href={`${base}/technical`} onNavigate={onNavigate}>
                 {t(locale, 'nav.technical')}
               </Link>
             </>
@@ -139,57 +210,47 @@ export function ProjectNavigation({
                 const href = section === 'overview' ? base : `${base}/${section}`;
                 return (
                   <li key={section}>
-                    <Link
-                      href={href}
-                      aria-current={
-                        pathname === href
-                          ? 'page'
-                          : section === 'analysis' && externalProposals
-                            ? 'location'
-                            : undefined
-                      }
-                      onNavigate={closeMobileMenu}
-                    >
-                      <DesignIcon name={section} />
-                      {sectionLabel(locale, section)}
-                      {mobile && <DesignIcon name="next" />}
-                    </Link>
+                    {sectionEntry(
+                      href,
+                      sectionLabel(locale, section),
+                      t(locale, `ui.${section}Help`),
+                      section,
+                      pathname === href
+                        ? 'page'
+                        : section === 'analysis' && externalProposals
+                          ? 'location'
+                          : undefined,
+                    )}
                   </li>
                 );
               })}
               <li className={styles.technical}>
-                <Link
-                  href={`${base}/technical`}
-                  aria-current={technical ? 'page' : indexing || history ? 'location' : undefined}
-                  onNavigate={closeMobileMenu}
-                >
-                  <DesignIcon name="technical" />
-                  {t(locale, 'nav.technical')}
-                  {mobile && <DesignIcon name="next" />}
-                </Link>
+                {sectionEntry(
+                  `${base}/technical`,
+                  t(locale, 'nav.technical'),
+                  t(locale, 'ui.technicalHelp'),
+                  'technical',
+                  technical ? 'page' : indexing || history ? 'location' : undefined,
+                )}
                 {(technical || indexing || history) && (
                   <ul>
                     <li>
-                      <Link
-                        href={`${base}/indexing`}
-                        aria-current={indexing ? 'page' : undefined}
-                        onNavigate={closeMobileMenu}
-                      >
-                        <DesignIcon name="indexing" />
-                        {t(locale, 'nav.indexing')}
-                        {mobile && <DesignIcon name="next" />}
-                      </Link>
+                      {sectionEntry(
+                        `${base}/indexing`,
+                        t(locale, 'nav.indexing'),
+                        t(locale, 'ui.indexingHelp'),
+                        'indexing',
+                        indexing ? 'page' : undefined,
+                      )}
                     </li>
                     <li>
-                      <Link
-                        href={`${base}/technical/analysis-history`}
-                        aria-current={history ? 'page' : undefined}
-                        onNavigate={closeMobileMenu}
-                      >
-                        <DesignIcon name="analysis" />
-                        {t(locale, 'analysis.history')}
-                        {mobile && <DesignIcon name="next" />}
-                      </Link>
+                      {sectionEntry(
+                        `${base}/technical/analysis-history`,
+                        t(locale, 'analysis.history'),
+                        t(locale, 'analysis.historyHelp'),
+                        'analysis',
+                        history ? 'page' : undefined,
+                      )}
                     </li>
                   </ul>
                 )}

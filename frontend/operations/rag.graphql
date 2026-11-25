@@ -1,3 +1,10 @@
 query RequirementIndexList($projectId: ID!, $limit: Int!, $offset: Int!) { requirementIndex(projectId:$projectId,limit:$limit,offset:$offset) { requirementId version status profile errorCode } }
+query RequirementMatches($projectId: ID!, $match: String!, $first: Int!, $after: String) {
+  requirementsConnection(projectId: $projectId, match: $match, first: $first, after: $after) {
+    edges { cursor node { id text version archivedAt } }
+    pageInfo { endCursor hasNextPage }
+    totalCount
+  }
+}
 query SearchRequirements($projectId: ID!, $text: String!, $limit: Int!) { searchRequirements(projectId:$projectId,text:$text,limit:$limit) { requirementId projectId text sourceText version start end score } }
 mutation IndexRequirement($projectId: ID!, $requirementId: ID!) { indexRequirement(projectId:$projectId,requirementId:$requirementId) { requirementId version status profile errorCode } }

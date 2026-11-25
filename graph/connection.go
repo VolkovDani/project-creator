@@ -2,11 +2,14 @@ package graph
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 )
 
 const defaultConnectionSize = 40
@@ -119,12 +122,21 @@ func (r *Resolver) RequirementsConnection(ctx context.Context, args Requirements
 	if err != nil {
 		return nil, err
 	}
-	scope := workspace(ctx) + "\x00" + string(args.ProjectId)
-	kind := "requirements"
-	predicate := "archived_at IS NULL"
-	if args.Archived != nil && *args.Archived {
-		kind = "archived-requirements"
-		predicate = "archived_at IS NOT NULL"
+	workspaceID := workspace(ctx)
+	scope := workspaceID + "\x00" + string(args.ProjectId)
+	match := ""
+	if args.Match != nil {
+		match = strings.TrimSpace(*args.Match)
+	}
+	kind, archived := "requirements", " AND archived_at IS NULL"
+	switch {
+	case args.Archived != nil && *args.Archived:
+		kind, archived = "archived-requirements", " AND archived_at IS NOT NULL"
+	case args.Archived == nil && match != "":
+		kind, archived = "all-requirements", ""
+	}
+	if match != "" {
+		scope += fmt.Sprintf("\x00%x", sha256.Sum256([]byte(match)))
 	}
 	var key, id string
 	if args.After != nil {
@@ -139,17 +151,23 @@ func (r *Resolver) RequirementsConnection(ctx context.Context, args Requirements
 		return nil, errors.New("storage failure")
 	}
 	defer tx.Rollback()
+	tableScope := ` FROM requirements WHERE workspace=$1 AND project_id=$2` + archived
+	values := []any{workspaceID, args.ProjectId}
+	if match != "" {
+		tableScope += ` AND (strpos(lower(text), lower($3)) > 0 OR strpos(lower(id), lower($3)) > 0)`
+		values = append(values, match)
+	}
 	var total int32
-	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM requirements WHERE workspace=$1 AND project_id=$2 AND `+predicate, workspace(ctx), args.ProjectId).Scan(&total); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT count(*)`+tableScope, values...).Scan(&total); err != nil {
 		return nil, errors.New("storage failure")
 	}
-	query := `SELECT id,project_id,text,version,created_at,updated_at,archived_at FROM requirements WHERE workspace=$1 AND project_id=$2 AND ` + predicate
-	var rows *sql.Rows
-	if args.After == nil {
-		rows, err = tx.QueryContext(ctx, query+` ORDER BY created_at,id LIMIT $3`, workspace(ctx), args.ProjectId, first+1)
-	} else {
-		rows, err = tx.QueryContext(ctx, query+` AND (created_at,id)>($3,$4) ORDER BY created_at,id LIMIT $5`, workspace(ctx), args.ProjectId, key, id, first+1)
+	query := `SELECT id,project_id,text,version,created_at,updated_at,archived_at` + tableScope
+	if args.After != nil {
+		query += fmt.Sprintf(` AND (created_at,id)>($%d,$%d)`, len(values)+1, len(values)+2)
+		values = append(values, key, id)
 	}
+	query += fmt.Sprintf(` ORDER BY created_at,id LIMIT $%d`, len(values)+1)
+	rows, err := tx.QueryContext(ctx, query, append(values, first+1)...)
 	if err != nil {
 		return nil, errors.New("storage failure")
 	}

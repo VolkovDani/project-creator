@@ -5,6 +5,7 @@ const symbols = {
   overview: 'grid',
   requirements: 'file-text',
   search: 'search',
+  help: 'help-circle',
   classification: 'layers',
   glossary: 'book-open',
   analysis: 'bar-chart-2',

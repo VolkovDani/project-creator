@@ -16,8 +16,11 @@ test('a saved manual classification survives reload and becomes stale when its s
 
   const navigation = page.getByRole('navigation');
   await navigation.getByRole('link', { name: 'Требования', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Текст требования', exact: true }).fill(original);
-  await page.getByRole('button', { name: 'Добавить требование' }).click();
+  await page.getByRole('button', { name: 'Добавить требование', exact: true }).click();
+  const create = page.getByRole('dialog', { name: 'Добавить требование', exact: true });
+  await create.getByLabel('Текст требования').fill(original);
+  await create.getByRole('button', { name: 'Добавить требование', exact: true }).click();
+  await expect(create).toBeHidden();
   await expect(
     page.locator('#requirements-list').getByRole('button', { name: original, exact: true }),
   ).toBeVisible();

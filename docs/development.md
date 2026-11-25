@@ -485,7 +485,7 @@ without separate authentication and access control.
 
 The workspace opens in dark mode on the first visit and restores an explicitly selected theme on later visits. Both themes use the same semantic tokens from `frontend/app/tokens.css`. Text passages have a reading measure, while tables and analysis panels use the available workspace width.
 
-The project menu follows the working order Overview, Requirements, Search, Classification, Glossary and Analysis. Open the **Technical section** to review analysis history, manage scheduled deletions, check automatic indexing or retry a failed record. The existing indexing URL still opens directly. The menu can be collapsed on desktop and opened when needed on mobile.
+The project menu follows the working order Overview, Requirements, Classification, Glossary and Analysis. Hover over a help icon or focus it with Tab to see what the section does. Press Escape to dismiss the tooltip. Open the **Technical section** to review analysis history, manage scheduled deletions, check automatic indexing or retry a failed record. The existing indexing URL still opens directly. The menu can be collapsed on desktop and opened when needed on mobile.
 
 To switch projects, choose another project you have access to directly from the desktop sidebar. On mobile, open the project menu to make the same choice. The selected project opens in the current section. With a keyboard, press Tab to reach the project switcher.
 
@@ -536,13 +536,15 @@ bun run e2e
 
 ## Business requirements
 
+Use **Add requirement** to open the create dialog. In **Search requirements**, submit an ID or text with Enter or **Search**. One submission shows case-insensitive ID and text matches from active and archived requirements, plus separate semantic results from the project's index. ID and text matches are available independently of the embedding provider. Open a result to see its details. The previous search URL redirects to this form.
+
 Select a row to open its details beside the list. The panel shows the full requirement ID used by the API and MCP, the project, version, dates and status. It also contains the original text, classification and revision history. On narrow screens, **Back to requirements** returns to the selected row. Archived rows open in the same panel.
 
 Requirements render Markdown headings, paragraphs, lists, tables, quotations, links and fenced code. Known fence languages receive syntax highlighting. Use **Copy code** for the contents of a block. Select visible document text to add a glossary entry. In formatted requirements and ready summaries, project glossary terms have a dotted underline. Hover over a term or focus it with Tab to read its definition. Markdown links and code retain their usual behavior. **Markdown source** shows every matched range in the stored text, including terms that overlap Markdown syntax. Links to a specific glossary occurrence open the exact text at its saved offsets. Editing always uses the stored source.
 
 The document renderer uses `markdown-to-jsx` for parsing and `sugar-high` for syntax tokens. Both are pinned MIT packages with no additional runtime dependencies. React renders the tokens as text. Raw HTML stays literal, and embedded images display their alternative text to avoid fetching remote assets from a requirement.
 
-Active requirements offer **Archive**. A dialog shows an excerpt and initially focuses **Cancel**. Archiving preserves the full text revision history, including change reasons, and the classification history. Archived requirements are excluded from search and new project analyses. Open **Requirements archive** to restore an entry or choose **Delete permanently** and confirm in a second dialog. Escape and Cancel close either dialog without a mutation. The API permits permanent deletion only with explicit confirmation, the matching archived entry and its version, within the same project and workspace.
+Active requirements offer **Archive**. A dialog shows an excerpt and initially focuses **Cancel**. Archiving preserves the full text revision history, including change reasons, and the classification history. Archived requirements are excluded from semantic search and new project analyses. They can still be found by ID or literal text. Open **Requirements archive** to restore an entry or choose **Delete permanently** and confirm in a second dialog. Escape and Cancel close either dialog without a mutation. The API permits permanent deletion only with explicit confirmation, the matching archived entry and its version, within the same project and workspace.
 
 Requirement text is checked
 against the shared contract `contracts/requirement.json`, identically in Go and

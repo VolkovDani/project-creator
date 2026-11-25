@@ -10,6 +10,10 @@ on:
         description: Full 40-character commit SHA to validate and release
         required: true
         type: string
+      notes_sha:
+        description: Full 40-character Project Creator Wiki commit SHA for release notes
+        required: true
+        type: string
 permissions:
   contents: read
   actions: read
@@ -49,12 +53,13 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           SOURCE_SHA: ${{ inputs.source_sha }}
+          NOTES_SHA: ${{ inputs.notes_sha }}
           DISPATCH_REF: ${{ github.ref }}
         run: |
           git fetch origin main --tags
           node --input-type=module -e '
             import { validateReleaseInput } from "./scripts/release-validation.mjs";
-            validateReleaseInput({ tag: process.env.RELEASE_TAG, sourceSha: process.env.SOURCE_SHA, ref: process.env.DISPATCH_REF });
+            validateReleaseInput({ tag: process.env.RELEASE_TAG, sourceSha: process.env.SOURCE_SHA, notesSha: process.env.NOTES_SHA, ref: process.env.DISPATCH_REF });
           '
           test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$SOURCE_SHA"
           git merge-base --is-ancestor "$SOURCE_SHA" origin/main
@@ -70,6 +75,12 @@ jobs:
             const runs = JSON.parse(input);
             validateSuccessfulMainCi(runs, process.env.SOURCE_SHA);
           ' <<< "$runs"
+      - name: Prepare draft release notes from the pinned Wiki commit
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          NOTES_SHA: ${{ inputs.notes_sha }}
+        run: bash scripts/prepare-release-notes.sh
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.source_sha }}
@@ -113,29 +124,9 @@ jobs:
           docker build -f frontend/Dockerfile -t project-creator-release-frontend:"$SOURCE_SHA" .
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
-      - name: Prepare draft release notes
-        run: |
-          notes_en="docs/release-notes-${RELEASE_TAG}.md"
-          notes_ru="docs/release-notes-${RELEASE_TAG}.ru.md"
-          test -s "$notes_en"
-          test -s "$notes_ru"
-          cat "$notes_en" "$notes_ru" > release-notes-draft.md
-          cat >> release-notes-draft.md <<EOF
-
-          ## Candidate under review
-
-          - Tag: $RELEASE_TAG
-          - Source commit: $SOURCE_SHA
-          - Hardware confirmations are tracked per configuration after publication.
-          - English notes source: https://github.com/$GITHUB_REPOSITORY/blob/$SOURCE_SHA/$notes_en
-          - Русская версия: https://github.com/$GITHUB_REPOSITORY/blob/$SOURCE_SHA/$notes_ru
-          EOF
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
       - name: Create draft prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           SOURCE_SHA: ${{ inputs.source_sha }}
-        run: gh release create "$RELEASE_TAG" --draft --prerelease --verify-tag --target "$SOURCE_SHA" --title "Source + Compose $RELEASE_TAG" --notes-file release-notes-draft.md
+        run: gh release create "$RELEASE_TAG" --draft --prerelease --verify-tag --target "$SOURCE_SHA" --title "Source + Compose $RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes-draft.md"

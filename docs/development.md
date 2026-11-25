@@ -379,6 +379,10 @@ is no known critical issue. Hardware reports are collected and reviewed separate
 and do not block publication. Documentation and installation fixes can be included
 in patch releases.
 
+Pass a full Wiki commit as `notes_sha`. Before building, the workflow
+reads the English and Russian release notes for the tag at that commit.
+The draft records both the source and Wiki commits.
+
 Detailed instructions are available [in Russian](release-acceptance.ru.md)
 and [in English](release-acceptance.md); release notes are available
 [in Russian](release-notes-v0.1.0.ru.md) and

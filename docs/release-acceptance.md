@@ -62,6 +62,18 @@ separately publishes the prerelease. Hardware acceptance is not a publication
 gate; unresolved installation or documentation issues can be addressed in patch
 releases.
 
+### Pin the release notes
+
+Publish the English and Russian pages in the Wiki Git repository under
+`releases/notes/`. For `v1.2.3`, name the files `Release-Notes-v1-2-3.md`
+and `Release-Notes-v1-2-3-RU.md`. For `v1.2.3-rc.2`, name them
+`Release-Notes-EN-v1-2-3-rc.2.md` and `Release-Notes-RU-v1-2-3-rc.2.md`.
+
+Pass the full Wiki commit SHA as `notes_sha` alongside the code commit
+`source_sha`. You can copy the Wiki SHA from a page's revision history. The
+workflow reads both pages at that commit before it starts building. The
+draft records both commit SHAs and links to the pinned pages.
+
 ## Community confirmations by release patch
 
 Group independent reports under the release patch they confirm. Include logs,

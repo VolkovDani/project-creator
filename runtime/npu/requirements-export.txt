@@ -5,7 +5,7 @@ openvino-tokenizers==2026.4.1.0
 nncf==3.4.0
 onnx==1.23.2
 optimum-intel==2.2.0
-transformers==5.5.4
+transformers==5.24.0
 # Native Linux x86_64 / CPython 3.12: official CPU wheel, no CUDA downloads.
 torch @ https://download.pytorch.org/whl/cpu/torch-2.15.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl
 # Match the CPU-only export stack; PyPI torchvision can require CUDA native ops.

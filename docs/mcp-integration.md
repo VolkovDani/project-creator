@@ -81,6 +81,10 @@ arguments, shared configurations, and logs.
 
 - `list_requirements` returns active requirement IDs, current versions and
   text. Use the returned end cursor to continue a page.
+- `list_similar_requirement_pairs` reads distinct pairs of active requirements
+  whose measured cosine similarity meets the threshold. Each match returns both
+  original texts, IDs, versions and the score. The page identifies the
+  embedding profile used.
 - `save_external_proposal` stores analysis, limitations, client and model
   provenance, sharing mode, and between 1 and 20 distinct requirement versions.
   The model identifier is supplied by the client. Client identity is
@@ -94,9 +98,29 @@ arguments, shared configurations, and logs.
   archiving or deletion. The cited ID and version remain visible.
 
 The proposal starts in **Pending review**. Verify the reasoning and source
-versions before making an edit. The adapter exposes current requirement text
-and proposals. The current scope excludes historical text retrieval, other
-source types, requirement mutations, and remote MCP hosting.
+versions before making an edit. The adapter exposes current requirement text,
+pairs selected by cosine similarity, and proposals. The current scope excludes
+historical text retrieval, other source types, requirement mutations, and
+remote MCP hosting.
+
+## Compare requirement pairs in chat
+
+For example, ask the connected assistant to use
+`list_similar_requirement_pairs` with `threshold: 0.8`, compare each returned
+pair for overlap or contradictions, and cite both source IDs and versions.
+The score is the maximum cosine similarity across the two requirements'
+indexed chunks for their current versions. Even identical texts must meet
+the requested score. The assistant decides what the similarities and
+differences mean. It can save its conclusions with `save_external_proposal`
+when you ask.
+
+Use the same threshold and the returned `pageInfo.endCursor` while
+`hasNextPage` is true. The tool scans bounded groups of pairs, so an empty
+page can still have a continuation. If the requirements, profile or indexes
+change, restart from the first page after `cursor_stale`. If the index is
+incomplete, wait for the active requirements to finish indexing and try
+again. The tool reads existing embeddings and returns
+`embeddings_not_configured` when no profile is active.
 
 ## Design and verification
 
@@ -114,9 +138,10 @@ The review page recalculates freshness using current sources. A draft can
 contain quotes from its sources and stays available if a source is removed.
 
 Deterministic integration tests cover the MCP tools, GraphQL, PostgreSQL and
-browser review. A disposable Compose stack also exercised all three tools
-through `docker compose exec -T`. Codex CLI 0.172.0 and OpenCode 1.19.6 each discovered and called
-all three tools over stdio using the Project Creator binary and synthetic
-GraphQL data. Codex used direct tool calls. OpenCode used a loopback model
+browser review. Pair selection coverage includes inclusive thresholds, scoped
+access, and continuation across empty pages. A disposable Compose stack
+exercised the original three tools through `docker compose exec -T`. Codex CLI
+0.172.0 and OpenCode 1.19.6 discovered and called those tools over stdio using
+the Project Creator binary and synthetic GraphQL data. Codex used direct tool calls. OpenCode used a loopback model
 stub. The runs left actual subscription inference and Ollama model behavior
 unverified.

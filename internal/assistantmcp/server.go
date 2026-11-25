@@ -60,6 +60,12 @@ func New(cfg Config) (*mcp.Server, error) {
 		Annotations: readOnly,
 	}, client.requirements)
 	mcp.AddTool(server, &mcp.Tool{
+		Name: "list_similar_requirement_pairs",
+		Description: "Read pairs of current requirements with a measured cosine score at or above the threshold, for comparison by your model. " +
+			"Follow pageInfo.endCursor while hasNextPage is true, even when items is empty. Restart from the first page if the cursor is stale.",
+		Annotations: readOnly,
+	}, client.similarPairs)
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_external_proposals",
 		Description: "Read saved assistant proposals and the current freshness of their cited requirement versions.",
 		Annotations: readOnly,

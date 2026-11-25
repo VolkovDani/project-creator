@@ -117,7 +117,7 @@ func (s *Service) prepareBatch(ctx context.Context, workspace string, r *Run) (b
 	query := `SELECT a.source,b.source,NULL::double precision FROM analysis_sources a JOIN analysis_sources b ON b.run_id=a.run_id AND b.requirement_id>a.requirement_id WHERE a.run_id=$1 AND (a.requirement_id,b.requirement_id)>($2,$3) ORDER BY a.requirement_id,b.requirement_id LIMIT $4`
 	args := []any{r.ID, r.cursorLeft, r.cursorRight, preparationBatch}
 	if r.Mode == "related" {
-		query = `SELECT a.source,b.source,(SELECT max(1-(lc.embedding OPERATOR(public.<=>) rc.embedding)) FROM requirement_chunks lc JOIN requirement_chunks rc ON rc.workspace=lc.workspace AND rc.project_id=lc.project_id AND rc.profile=lc.profile WHERE lc.workspace=$5 AND lc.project_id=$6 AND lc.profile=$7 AND lc.requirement_id=a.requirement_id AND rc.requirement_id=b.requirement_id AND lc.version=(a.source->>'version')::int AND rc.version=(b.source->>'version')::int) FROM analysis_sources a JOIN analysis_sources b ON b.run_id=a.run_id AND b.requirement_id>a.requirement_id WHERE a.run_id=$1 AND (a.requirement_id,b.requirement_id)>($2,$3) ORDER BY a.requirement_id,b.requirement_id LIMIT $4`
+		query = `SELECT a.source,b.source,(` + chunkPairCosine("a.requirement_id", "b.requirement_id", "(a.source->>'version')::int", "(b.source->>'version')::int") + `) FROM analysis_sources a JOIN analysis_sources b ON b.run_id=a.run_id AND b.requirement_id>a.requirement_id WHERE a.run_id=$1 AND (a.requirement_id,b.requirement_id)>($2,$3) ORDER BY a.requirement_id,b.requirement_id LIMIT $4`
 		args = append(args, workspace, r.ProjectID, r.EmbeddingProfile)
 	}
 	var position int

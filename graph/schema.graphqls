@@ -40,7 +40,11 @@ input SaveExternalProposalInput { projectId: ID! requestId: String! analysis: St
 type ExternalProposalPayload { proposal: ExternalProposal fieldErrors: [FieldError!]! }
 type ExternalProposalPage { items: [ExternalProposal!]! pageInfo: PageInfo! }
 
+type SimilarRequirementPair { left: AnalysisSource! right: AnalysisSource! similarityScore: Float! }
+type SimilarRequirementPairPage { items: [SimilarRequirementPair!]! pageInfo: PageInfo! status: String! embeddingProfile: String! missingRequirements: Int! }
+
 type Query {
+  similarRequirementPairs(projectId: ID! threshold: Float! first: Int after: String): SimilarRequirementPairPage!
   externalProposals(projectId: ID! first: Int after: String): ExternalProposalPage!
   classificationExplanationSuggestionRevision(projectId: ID! requirementId: ID!): Int!
 requirementRevisionHistory(projectId: ID! requirementId: ID! first: Int! beforeVersion: Int): [RequirementTextRevision!]!

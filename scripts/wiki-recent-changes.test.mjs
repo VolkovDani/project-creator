@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -13,23 +13,34 @@ const pages = ['Recent-Changes.md', 'Recent-Changes-RU.md'];
 function createWiki(t) {
   const directory = mkdtempSync(join(tmpdir(), 'wiki-recent-changes-test-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const date = '2026-11-26T10:00:00Z';
-  const git = (...args) => execFileSync('git', args, {
-    cwd: directory,
-    env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
-    encoding: 'utf8',
-  }).trim();
+  let day = 1;
+  const git = (...args) => {
+    const date = `2026-11-${String(day).padStart(2, '0')}T10:00:00Z`;
+    return execFileSync('git', args, {
+      cwd: directory,
+      env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+      encoding: 'utf8',
+    }).trim();
+  };
   git('init', '--quiet');
   git('config', 'user.name', 'Wiki test');
   git('config', 'user.email', 'wiki-test@example.invalid');
   git('config', 'commit.gpgsign', 'false');
 
   return {
-    commit(subject, files) {
-      for (const [file, content] of Object.entries(files)) writeFileSync(join(directory, file), content);
+    commit(files) {
+      for (const [file, content] of Object.entries(files)) {
+        const path = join(directory, file);
+        if (content === null) {
+          rmSync(path);
+        } else {
+          mkdirSync(dirname(path), { recursive: true });
+          writeFileSync(path, content);
+        }
+      }
       git('add', '--all');
-      git('commit', '--quiet', '-m', subject);
-      return git('rev-parse', 'HEAD');
+      git('commit', '--quiet', '-m', 'Edit Wiki pages');
+      day += 1;
     },
     render() {
       execFileSync(process.execPath, [command, directory, wikiUrl]);
@@ -42,34 +53,36 @@ function entries(page) {
   return page.split('\n').filter((line) => line.startsWith('- '));
 }
 
-test('shows the available Wiki revisions on both linked language pages', (t) => {
+test('links to one entry per document, orders by the latest language edit, and uses localized titles', (t) => {
   const wiki = createWiki(t);
-  const first = wiki.commit('Initial Home', { 'Home.md': 'Home' });
-  const second = wiki.commit('Clarify [setup] *steps*', { 'Home.md': 'Updated home' });
+  wiki.commit({ 'Home.md': '# Wiki Home', 'topics/Setup.md': '# Set up [CLI]', 'topics/Setup-RU.md': '# Установка CLI' });
+  wiki.commit({ 'Other.md': '# Another document', 'One language-RU.md': '# Документ' });
+  wiki.commit({ 'topics/Setup-RU.md': '# Установка CLI\n\nНовый раздел' });
   const [english, russian] = wiki.render();
 
   assert.ok(english.includes(`[Русская версия](${wikiUrl}/Recent-Changes-RU)`));
   assert.ok(russian.includes(`[English](${wikiUrl}/Recent-Changes)`));
-  assert.deepEqual(entries(english), [
-    `- 2026-11-26 · [Clarify \\[setup\\] \\*steps\\*](${wikiUrl}/_compare/${first}...${second})`,
-    `- 2026-11-26 · [Initial Home](${wikiUrl}/Home/${first})`,
-  ]);
-  assert.deepEqual(entries(russian), entries(english));
+  const shared = [
+    `- 2026-11-02 · [Документ](${wikiUrl}/One-language-RU)`,
+    `- 2026-11-02 · [Another document](${wikiUrl}/Other)`,
+  ];
+  assert.deepEqual(entries(english), [`- 2026-11-03 · [Set up \\[CLI\\]](${wikiUrl}/Setup)`, ...shared]);
+  assert.deepEqual(entries(russian), [`- 2026-11-03 · [Установка CLI](${wikiUrl}/Setup-RU)`, ...shared]);
 });
 
-test('keeps the ten newest content edits across repeated refreshes', (t) => {
+test('keeps the ten newest existing documents and skips navigation and generated pages', (t) => {
   const wiki = createWiki(t);
-  for (let i = 0; i < 12; i += 1) {
-    wiki.commit(`Edit ${i}`, { 'Home.md': `Home ${i}` });
+  for (let i = 0; i < 13; i += 1) {
+    wiki.commit({ [`Page-${i}.md`]: `# Page ${i}` });
   }
-  wiki.commit('Generated pages only', Object.fromEntries(pages.map((file) => [file, 'Old feed'])));
-  wiki.commit('Content and feed updated together', { 'Home.md': 'Real edit', [pages[0]]: 'Old English feed' });
+  wiki.commit({ 'Home.md': '# Home', 'Home-en.md': '# Home EN', '_Sidebar.md': '# Sidebar', 'Page-12.md': null });
+  wiki.commit({ 'Page-0.md': '# Page 0\n\nUpdated', [pages[0]]: 'Old feed' });
   const rendered = wiki.render();
-  const expectedSubjects = ['Content and feed updated together', ...Array.from({ length: 9 }, (_, i) => `Edit ${11 - i}`)];
+  const expectedTitles = ['Page 0', ...Array.from({ length: 9 }, (_, i) => `Page ${11 - i}`)];
   for (const page of rendered) {
-    assert.deepEqual(entries(page).map((line) => line.match(/\[(.*?)\]/)[1]), expectedSubjects);
+    assert.deepEqual(entries(page).map((line) => line.match(/\[(.*?)\]/)[1]), expectedTitles);
   }
 
-  wiki.commit('Refresh generated recent changes', Object.fromEntries(pages.map((file, index) => [file, rendered[index]])));
+  wiki.commit(Object.fromEntries(pages.map((file, index) => [file, rendered[index]])));
   assert.deepEqual(wiki.render(), rendered);
 });

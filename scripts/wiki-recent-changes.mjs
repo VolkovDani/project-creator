@@ -1,25 +1,42 @@
 import { execFileSync } from 'node:child_process';
 import { constants, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 const [wikiDirectory, wikiUrl] = process.argv.slice(2);
 const english = 'Recent-Changes';
 const russian = 'Recent-Changes-RU';
-const history = execFileSync('git', [
-  'log', '--first-parent', '-10', '-z', '--format=%H%x00%P%x00%cs%x00%s', '--',
-  `:(exclude,top)${english}.md`, `:(exclude,top)${russian}.md`,
-], { cwd: wikiDirectory, encoding: 'utf8' }).split('\0');
+const indexPages = new Set(['Home.md', 'Home-en.md', `${english}.md`, `${russian}.md`]);
+const git = (...args) => execFileSync('git', ['--literal-pathspecs', ...args], { cwd: wikiDirectory, encoding: 'utf8' });
 
-const entries = [];
-for (let i = 0; i < history.length - 1; i += 4) {
-  const [sha, parents, date, subject] = history.slice(i, i + 4);
-  const parent = parents.split(' ', 1)[0];
-  const revision = parent ? `_compare/${parent}...${sha}` : `Home/${sha}`;
-  const label = (subject || sha.slice(0, 7)).replace(/[\\`*_{}\[\]()<>#+\-.!|&~]/g, '\\$&');
-  entries.push(`- ${date} · [${label}](${wikiUrl}/${revision})`);
+const documents = new Map();
+for (const path of git('ls-tree', '-r', '--name-only', '-z', 'HEAD').split('\0')) {
+  if (!path.endsWith('.md') || indexPages.has(path) || basename(path).startsWith('_')) continue;
+  const isRussian = path.endsWith('-RU.md');
+  const key = path.slice(0, isRussian ? -6 : -3);
+  const versions = documents.get(key) ?? {};
+  versions[isRussian ? 'ru' : 'en'] = path;
+  documents.set(key, versions);
 }
 
-function writePage(name, heading, languageLink, introduction, historyLabel) {
+const recent = [...documents.values()]
+  .map((versions) => ({
+    ...versions,
+    timestamp: Number(git('log', '-1', '--first-parent', '--format=%ct', '--', ...Object.values(versions))),
+  }))
+  .sort((a, b) => b.timestamp - a.timestamp)
+  .slice(0, 10);
+
+function documentEntry(document, language) {
+  const path = document[language] ?? document.en ?? document.ru;
+  const slug = basename(path, '.md');
+  const url = `${wikiUrl}/${encodeURIComponent(slug.replaceAll(' ', '-'))}`;
+  const title = git('show', `HEAD:${path}`).match(/^# +(.+)$/m)?.[1].trim() || slug.replaceAll('-', ' ');
+  const label = title.replace(/[\\`*_{}\[\]()<>#+\-.!|&~]/g, '\\$&');
+  const date = new Date(document.timestamp * 1000).toISOString().slice(0, 10);
+  return `- ${date} · [${label}](${url})`;
+}
+
+function writePage(name, language, heading, languageLink, introduction, historyLabel) {
   const page = [
     `# ${heading}`,
     '',
@@ -27,7 +44,7 @@ function writePage(name, heading, languageLink, introduction, historyLabel) {
     '',
     introduction,
     '',
-    ...entries,
+    ...recent.map((document) => documentEntry(document, language)),
     '',
     `[${historyLabel}](${wikiUrl}/_history)`,
     '',
@@ -37,7 +54,9 @@ function writePage(name, heading, languageLink, introduction, historyLabel) {
   });
 }
 
-writePage(english, 'Recent changes', `[Русская версия](${wikiUrl}/${russian})`,
-  'Up to 10 recent Wiki changes, newest first.', 'Full Wiki history');
-writePage(russian, 'Недавние изменения', `[English](${wikiUrl}/${english})`,
-  'До 10 последних изменений Wiki, начиная с самого нового.', 'Полная история Wiki');
+writePage(english, 'en', 'Recent changes', `[Русская версия](${wikiUrl}/${russian})`,
+  'Up to 10 recently updated Wiki documents. Each date reflects the latest edit to either language version.',
+  'Full Wiki history');
+writePage(russian, 'ru', 'Недавние изменения', `[English](${wikiUrl}/${english})`,
+  'До 10 недавно обновлённых документов Wiki. Дата показывает последнюю правку в любой языковой версии.',
+  'Полная история Wiki');

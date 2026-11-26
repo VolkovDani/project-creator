@@ -50,7 +50,7 @@ type ProcessGraphEvidence { requirementId: ID! version: Int! start: Int! end: In
 type ProcessGraphEdge { from: ID! to: ID! kind: String! label: String! evidence: [ProcessGraphEvidence!]! }
 type ProcessGraphDraft { nodes: [ProcessGraphNode!]! edges: [ProcessGraphEdge!]! sourceCount: Int! partial: Boolean! }
 type ProcessGraphPayload { status: String! draft: ProcessGraphDraft fieldErrors: [FieldError!]! }
-type ProcessGraphRun { id: ID! revision: Int! completed: Int! total: Int! failed: Int! }
+type ProcessGraphRun { id: ID! topic: String! revision: Int! completed: Int! total: Int! failed: Int! }
 type ProcessGraphRunPayload { status: String! run: ProcessGraphRun draft: ProcessGraphDraft fieldErrors: [FieldError!]! }
 
 type PairGlossaryHint { termId: ID version: Int spelling: String! name: String definition: String context: String ambiguous: Boolean! }
@@ -58,6 +58,7 @@ type SimilarRequirementPair { glossaryContext: [PairGlossaryHint!]! left: Analys
 type SimilarRequirementPairPage { items: [SimilarRequirementPair!]! pageInfo: PageInfo! status: String! embeddingProfile: String! missingRequirements: Int! }
 
 type Query {
+  latestProcessGraphRun(projectId: ID!): ProcessGraphRunPayload
   similarRequirementPairs(projectId: ID! threshold: Float! first: Int after: String): SimilarRequirementPairPage!
   externalProposals(projectId: ID! first: Int after: String): ExternalProposalPage!
   classificationExplanationSuggestionRevision(projectId: ID! requirementId: ID!): Int!
@@ -71,6 +72,7 @@ analysisDefaultThreshold: Float! glossaryTermsByIds(projectId: ID! ids: [ID!]!):
 type Mutation {
   buildProcessGraph(input: BuildProcessGraphInput!): ProcessGraphPayload!
   startProcessGraph(input: BuildProcessGraphInput!): ProcessGraphRunPayload!
+  startBackgroundProcessGraph(input: BuildProcessGraphInput!): ProcessGraphRunPayload!
   processGraphBatch(input: ProcessGraphBatchInput!): ProcessGraphRunPayload!
   saveExternalProposal(input: SaveExternalProposalInput!): ExternalProposalPayload!
   explainRequirementClassification(input: ExplainClassificationInput!): ClassificationExplanationPayload!

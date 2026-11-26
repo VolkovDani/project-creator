@@ -2,6 +2,7 @@ fragment ProcessGraphRunFields on ProcessGraphRunPayload {
   status
   run {
     id
+    topic
     revision
     completed
     total
@@ -40,14 +41,14 @@ fragment ProcessGraphRunFields on ProcessGraphRunPayload {
   }
 }
 
-mutation StartProcessGraph($input: BuildProcessGraphInput!) {
-  startProcessGraph(input: $input) {
+mutation StartBackgroundProcessGraph($input: BuildProcessGraphInput!) {
+  startBackgroundProcessGraph(input: $input) {
     ...ProcessGraphRunFields
   }
 }
 
-mutation ProcessGraphBatch($input: ProcessGraphBatchInput!) {
-  processGraphBatch(input: $input) {
+query LatestProcessGraphRun($projectId: ID!) {
+  latestProcessGraphRun(projectId: $projectId) {
     ...ProcessGraphRunFields
   }
 }

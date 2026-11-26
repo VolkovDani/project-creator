@@ -27,6 +27,7 @@ import (
 
 type Server struct {
 	stopHistoryCleanup func()
+	backgroundRuns     *processgraph.BackgroundRuns
 	classifications    *classification.Service
 	summaries          *summary.Service
 	db                 *sql.DB
@@ -115,25 +116,29 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 	}
 	definitions, _ := cfg.Summarizer.(glossary.DefinitionGenerator)
 	processGraphs, _ := cfg.Summarizer.(processgraph.Generator)
+	backgroundRuns := processgraph.NewBackgroundRuns(processGraphs)
 	resolver := &graph.Resolver{
 		DB: db, Proposals: proposal.New(db), Classifications: classifications, Explanations: explanation.New(db, explainer),
 		RAG: retriever, Analysis: analyzer, Summaries: summaries, Definitions: definitions,
-		ProcessGraphs: processGraphs, ProcessGraphRuns: processgraph.NewRunStore(processGraphs),
+		ProcessGraphs: processGraphs, ProcessGraphRuns: processgraph.NewRunStore(processGraphs), BackgroundGraphs: backgroundRuns,
 	}
 	schema, err := graphql.ParseSchema(graph.Schema, resolver, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
 	if err != nil {
+		backgroundRuns.Close()
 		analyzer.Close()
 		summaries.Close()
 		db.Close()
 		return nil, err
 	}
 	if err = retriever.StartQueue(workspaces); err != nil {
+		backgroundRuns.Close()
 		analyzer.Close()
 		summaries.Close()
 		db.Close()
 		return nil, errors.New("index queue startup unavailable")
 	}
 	if err = classifications.Start(workspaces); err != nil {
+		backgroundRuns.Close()
 		classifications.Close()
 		retriever.Close()
 		analyzer.Close()
@@ -142,6 +147,7 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 		return nil, errors.New("classification queue startup unavailable")
 	}
 	if err = announceStartup(db, tokens); err != nil {
+		backgroundRuns.Close()
 		classifications.Close()
 		retriever.Close()
 		analyzer.Close()
@@ -150,7 +156,7 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 		return nil, errors.New("startup cache invalidation unavailable")
 	}
 	h := &relay.Handler{Schema: schema}
-	return &Server{stopHistoryCleanup: startAnalysisHistoryCleanup(analyzer.PurgeExpired), db: db, classifications: classifications, analysis: analyzer, indexing: retriever, summaries: summaries, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return &Server{stopHistoryCleanup: startAnalysisHistoryCleanup(analyzer.PurgeExpired), db: db, classifications: classifications, analysis: analyzer, indexing: retriever, summaries: summaries, backgroundRuns: backgroundRuns, h: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/graphql" && r.URL.Path != "/events" {
 			http.NotFound(w, r)
 			return
@@ -206,6 +212,7 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.h.ServeHTTP(w, r) }
 func (s *Server) Close() error {
 	s.stopHistoryCleanup()
+	s.backgroundRuns.Close()
 	s.classifications.Close()
 	s.summaries.Close()
 	s.analysis.Close()

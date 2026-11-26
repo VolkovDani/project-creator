@@ -182,25 +182,32 @@ func TestProcessGraphStartRejectsLiteralDraftWhenPlanningSourcesChanged(t *testi
 	}
 	t.Cleanup(func() { server.Close() })
 	if _, err := server.db.Exec(`
-		INSERT INTO projects VALUES ('p','a','P','G','','now','now');
+		INSERT INTO projects VALUES ('p','a','P','G','','now','now'), ('q','a','Q','G','','now','now');
 		INSERT INTO requirements(id,workspace,project_id,text,version,created_at,updated_at)
-		VALUES ('r1','a','p','Как оператор я хочу открыть заявку.',1,'now','now')
+		VALUES ('r1','a','p','Как оператор я хочу открыть заявку.',1,'now','now'),
+		       ('r2','a','q','Как оператор я хочу открыть заявку.',1,'now','now')
 	`); err != nil {
 		t.Fatal(err)
 	}
 
-	generator.plan = func() error {
-		_, err := server.db.Exec(`UPDATE requirements SET text='Как оператор я хочу проверить заявку.',version=2 WHERE id='r1'`)
-		return err
-	}
-	result := summaryRequest(t, server, "token-a", `mutation {
-	  startProcessGraph(input:{projectId:"p",keyword:"заявку"}) { status draft { sourceCount } }
-	}`)
-	if result["errors"] != nil {
-		t.Fatal(result)
-	}
-	start := result["data"].(map[string]any)["startProcessGraph"].(map[string]any)
-	if start["status"] != "stale" || start["draft"] != nil {
-		t.Fatalf("planning returned an edited source in its literal graph: %v", start)
+	for _, test := range []struct{ mutation, project string }{
+		{"startProcessGraph", "p"}, {"startBackgroundProcessGraph", "q"},
+	} {
+		t.Run(test.mutation, func(t *testing.T) {
+			generator.plan = func() error {
+				_, err := server.db.Exec(`UPDATE requirements SET text='Как оператор я хочу проверить заявку.',version=2 WHERE project_id=$1`, test.project)
+				return err
+			}
+			result := summaryRequest(t, server, "token-a", fmt.Sprintf(`mutation {
+			  %s(input:{projectId:%q,keyword:"заявку"}) { status draft { sourceCount } }
+			}`, test.mutation, test.project))
+			if result["errors"] != nil {
+				t.Fatal(result)
+			}
+			start := result["data"].(map[string]any)[test.mutation].(map[string]any)
+			if start["status"] != "stale" || start["draft"] != nil {
+				t.Fatalf("planning returned an edited source in its literal graph: %v", start)
+			}
+		})
 	}
 }

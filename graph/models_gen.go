@@ -306,6 +306,7 @@ type ProcessGraphPayload struct {
 }
 type ProcessGraphRun struct {
 	ID        graphql.ID
+	Topic     string
 	Revision  int32
 	Completed int32
 	Total     int32
@@ -338,6 +339,9 @@ type SimilarRequirementPairPage struct {
 	Status              string
 	EmbeddingProfile    string
 	MissingRequirements int32
+}
+type LatestProcessGraphRunArgs struct {
+	ProjectId graphql.ID
 }
 type SimilarRequirementPairsArgs struct {
 	ProjectId graphql.ID
@@ -522,6 +526,9 @@ type BuildProcessGraphArgs struct {
 	Input BuildProcessGraphInput
 }
 type StartProcessGraphArgs struct {
+	Input BuildProcessGraphInput
+}
+type StartBackgroundProcessGraphArgs struct {
 	Input BuildProcessGraphInput
 }
 type ProcessGraphBatchArgs struct {

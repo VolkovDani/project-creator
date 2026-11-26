@@ -1,36 +1,53 @@
-mutation BuildProcessGraph($input: BuildProcessGraphInput!) {
-  buildProcessGraph(input: $input) {
-    status
-    draft {
-      nodes {
-        id
-        kind
-        label
-      }
-      edges {
-        from
-        to
-        kind
-        label
-        evidence {
-          requirementId
-          version
-          start
-          end
-          quote
-        }
-      }
-      sourceCount
-      partial
+fragment ProcessGraphRunFields on ProcessGraphRunPayload {
+  status
+  run {
+    id
+    revision
+    completed
+    total
+    failed
+  }
+  draft {
+    nodes {
+      id
+      kind
+      label
     }
-    fieldErrors {
-      path
-      code
-      messageKey
-      params {
-        key
-        value
+    edges {
+      from
+      to
+      kind
+      label
+      evidence {
+        requirementId
+        version
+        start
+        end
+        quote
       }
     }
+    sourceCount
+    partial
+  }
+  fieldErrors {
+    path
+    code
+    messageKey
+    params {
+      key
+      value
+    }
+  }
+}
+
+mutation StartProcessGraph($input: BuildProcessGraphInput!) {
+  startProcessGraph(input: $input) {
+    ...ProcessGraphRunFields
+  }
+}
+
+mutation ProcessGraphBatch($input: ProcessGraphBatchInput!) {
+  processGraphBatch(input: $input) {
+    ...ProcessGraphRunFields
   }
 }

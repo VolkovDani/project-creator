@@ -1,6 +1,6 @@
-import type { BuildProcessGraphMutation } from '../../../../lib/generated';
+import type { ProcessGraphRunFieldsFragment } from '../../../../lib/generated';
 
-export type GraphDraft = NonNullable<BuildProcessGraphMutation['buildProcessGraph']['draft']>;
+export type GraphDraft = NonNullable<ProcessGraphRunFieldsFragment['draft']>;
 export type GraphNode = GraphDraft['nodes'][number];
 type GraphEdge = GraphDraft['edges'][number];
 

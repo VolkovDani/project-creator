@@ -20,6 +20,10 @@
   margin-block-start: 0;
 }
 
+.topic {
+  display: block;
+}
+
 .term {
   margin-block: var(--space-1);
   text-align: start;

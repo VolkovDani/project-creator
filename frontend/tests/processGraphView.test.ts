@@ -100,5 +100,6 @@ test('process graph translations have the same keys and interpolation parameters
   const en = translations('en');
   assert.ok('nav.process-graphs' in en);
   assert.deepEqual(en['processGraph.requirement'], ['id', 'version']);
+  assert.deepEqual(en['processGraph.topic'], ['topic']);
   assert.deepEqual(translations('ru'), en);
 });

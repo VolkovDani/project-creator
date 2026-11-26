@@ -162,3 +162,37 @@ func TestBuildUsesLiteralRelationsWhenGenerationHasNoSupportedEdges(t *testing.T
 		t.Fatalf("evidence should be the exact conditional clause: %+v", first)
 	}
 }
+
+func TestBuildRecoversExplicitNeedsFromUserStories(t *testing.T) {
+	sources := []Source{
+		{ID: "ru-story", Version: 2, Text: "Я, как сотрудник ГП, хочу, чтобы инспекции отображались в реестре, для того чтобы контролировать сроки."},
+		{ID: "ru-need", Version: 3, Text: "Как представитель ГП я должен иметь возможность выгружать реестр, чтобы подготовить отчёт."},
+		{ID: "en-story", Version: 1, Text: "As a contractor, I want to see the inspection status so that I can plan the work."},
+		{ID: "mention", Version: 1, Text: "Инспекции и сотрудники ГП перечислены в отчёте."},
+	}
+	req := Request{Anchor: Anchor{Name: "Генподрядчик"}, Sources: sources}
+	draft, err := Build(t.Context(), stubGenerator(func(context.Context, Request) (Suggestion, error) {
+		return Suggestion{UsedSources: len(sources)}, nil
+	}), req)
+	if err != nil || !draft.Partial || len(draft.Edges) != 3 || len(draft.Nodes) != 6 {
+		t.Fatalf("expected only the explicitly stated role needs: %+v, %v", draft, err)
+	}
+	for i, edge := range draft.Edges {
+		source := sources[i]
+		evidence := edge.Evidence[0]
+		if edge.Kind != "needs" || evidence.RequirementID != source.ID || evidence.Version != source.Version ||
+			string([]rune(source.Text)[evidence.Start:evidence.End]) != evidence.Quote {
+			t.Fatalf("unexpected grounded relationship: %+v", edge)
+		}
+	}
+	labels := []string{
+		"сотрудник ГП", "инспекции отображались в реестре",
+		"представитель ГП", "выгружать реестр",
+		"contractor", "see the inspection status",
+	}
+	for i, node := range draft.Nodes {
+		if node.Label != labels[i] {
+			t.Fatalf("node %d: expected %q, got %q", i, labels[i], node.Label)
+		}
+	}
+}

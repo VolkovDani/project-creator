@@ -43,6 +43,13 @@ input SaveExternalProposalInput { glossary: ExternalProposalGlossaryInput projec
 type ExternalProposalPayload { proposal: ExternalProposal fieldErrors: [FieldError!]! }
 type ExternalProposalPage { items: [ExternalProposal!]! pageInfo: PageInfo! }
 
+input BuildProcessGraphInput { projectId: ID! termId: ID keyword: String }
+type ProcessGraphNode { id: ID! kind: String! label: String! }
+type ProcessGraphEvidence { requirementId: ID! version: Int! start: Int! end: Int! quote: String! }
+type ProcessGraphEdge { from: ID! to: ID! kind: String! label: String! evidence: [ProcessGraphEvidence!]! }
+type ProcessGraphDraft { nodes: [ProcessGraphNode!]! edges: [ProcessGraphEdge!]! sourceCount: Int! partial: Boolean! }
+type ProcessGraphPayload { status: String! draft: ProcessGraphDraft fieldErrors: [FieldError!]! }
+
 type PairGlossaryHint { termId: ID version: Int spelling: String! name: String definition: String context: String ambiguous: Boolean! }
 type SimilarRequirementPair { glossaryContext: [PairGlossaryHint!]! left: AnalysisSource! right: AnalysisSource! similarityScore: Float! }
 type SimilarRequirementPairPage { items: [SimilarRequirementPair!]! pageInfo: PageInfo! status: String! embeddingProfile: String! missingRequirements: Int! }
@@ -59,6 +66,7 @@ classificationGroups(projectId: ID!): [ClassificationGroup!]!
 analysisDeletionRetentionDays: Int!
 analysisDefaultThreshold: Float! glossaryTermsByIds(projectId: ID! ids: [ID!]!): [GlossaryTerm!]! glossaryMentions(projectId: ID! termId: ID! first: Int after: String): GlossaryMentionPage! glossaryTermsConnection(projectId: ID! search: String! first: Int after: String): GlossaryTermsPage! glossaryCandidatesConnection(projectId: ID! first: Int after: String): GlossaryMatchesPage! requirementClassification(projectId: ID! requirementId: ID!): RequirementClassification requirementClassificationHistory(projectId: ID! requirementId: ID! limit: Int! offset: Int!): [RequirementClassification!]! classifiedRequirements(projectId: ID! semanticType: String representationType: String limit: Int! offset: Int!): [RequirementClassification!]!  glossaryCandidates(projectId: ID! limit: Int! offset: Int!): GlossaryCandidatePage!  glossaryTerms(projectId: ID! search: String! limit: Int! offset: Int!): [GlossaryTerm!]! requirementGlossary(projectId: ID! analysisId: ID requirementId: ID! version: Int!): RequirementGlossary  failedRequirementSummaryCount(projectId: ID!): Int! requirementSummariesByIds(projectId: ID! requirementIds: [ID!]!): [RequirementSummary!]!  requirementIndexProgress(projectId: ID!): RequirementIndexProgress! projectAnalysis(projectId: ID! analysisId: ID): ProjectAnalysis projectAnalysisSummary(projectId: ID! analysisId: ID): ProjectAnalysisSummary analysisRunMetadata(projectId: ID! analysisId: ID!): AnalysisRunMetadata analysisPair(projectId: ID! analysisId: ID! pairId: ID!): AnalysisPair analysisPairs(projectId: ID! analysisId: ID! limit: Int! offset: Int! status: String! verdict: String!): [AnalysisPair!]! analysisPairsConnection(projectId: ID! analysisId: ID! first: Int after: String status: String verdict: String): AnalysisPairConnection! analysisHistory(projectId: ID! limit: Int! offset: Int!): [ProjectAnalysis!]! requirementIndex(projectId: ID! limit: Int! offset: Int!): [RequirementIndex!]! requirementIndexByIds(projectId: ID! requirementIds: [ID!]!): [RequirementIndex!]! searchRequirements(projectId: ID! text: String! limit: Int!): [RequirementSearchHit!]!  requirements(projectId: ID! limit: Int! offset: Int!): [Requirement!]! requirementsConnection(projectId: ID! archived: Boolean first: Int after: String match: String): RequirementConnection! project(id: ID!): Project projects(limit: Int! offset: Int!): [Project!]! projectsConnection(first: Int after: String): ProjectConnection! }
 type Mutation {
+  buildProcessGraph(input: BuildProcessGraphInput!): ProcessGraphPayload!
   saveExternalProposal(input: SaveExternalProposalInput!): ExternalProposalPayload!
   explainRequirementClassification(input: ExplainClassificationInput!): ClassificationExplanationPayload!
 scheduleAnalysisDeletion(projectId: ID! analysisId: ID!): Boolean!

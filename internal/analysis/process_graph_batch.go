@@ -17,12 +17,13 @@ func (s *chatSummary) PlanProcessGraph(req processgraph.Request) (processgraph.B
 	if err != nil {
 		return processgraph.BatchPlan{}, err
 	}
+	matchGlossary := processGraphGlossaryMatches(req)
 	var plan processgraph.BatchPlan
 	for passages := processGraphPassages(req); len(passages) > 0; {
 		var prepareErr error
 		tooLarge := func(index int) bool {
 			batch := processGraphBatchRequest(req, passages[:index+1])
-			_, err := s.prepareProcessGraphBatch(batch, output)
+			_, err := s.prepareProcessGraphBatch(batch, matchGlossary, output)
 			if err != nil && !errors.Is(err, processgraph.ErrBatchTooLarge) {
 				prepareErr = err
 			}
@@ -53,7 +54,7 @@ func (s *chatSummary) GenerateProcessGraphBatch(ctx context.Context, req process
 	if err != nil {
 		return processgraph.Suggestion{}, err
 	}
-	input, err := s.prepareProcessGraphBatch(req, output)
+	input, err := s.prepareProcessGraphBatch(req, processGraphGlossaryMatches(req), output)
 	if err != nil {
 		return processgraph.Suggestion{}, err
 	}
@@ -70,9 +71,9 @@ func (s *chatSummary) GenerateProcessGraphBatch(ctx context.Context, req process
 	return s.decodeProcessGraph(ctx, input, content, output.edgeLimit)
 }
 
-func (s *chatSummary) prepareProcessGraphBatch(req processgraph.Request, output processGraphOutput) (processGraphInput, error) {
+func (s *chatSummary) prepareProcessGraphBatch(req processgraph.Request, matchGlossary processGraphGlossaryMatcher, output processGraphOutput) (processGraphInput, error) {
 	prompt := s.processGraphPrompt(req, output.edgeLimit)
-	input, err := prepareProcessGraph(req, prompt, output.schemaBytes, s.managedNPU, 0, false)
+	input, err := prepareProcessGraph(req, matchGlossary, prompt, output.schemaBytes, s.managedNPU, 0, false)
 	if errors.Is(err, ErrSummaryInputTooLong) || input.partial {
 		return processGraphInput{}, processgraph.ErrBatchTooLarge
 	}
@@ -111,7 +112,11 @@ func processGraphPassages(req processgraph.Request) []processGraphPassage {
 }
 
 func processGraphBatchRequest(req processgraph.Request, passages []processGraphPassage) processgraph.Request {
-	batch := processgraph.Request{Anchor: req.Anchor}
+	batch := req
+	batch.Sources = nil
+	if len(batch.OriginalSources) == 0 {
+		batch.OriginalSources = req.Sources
+	}
 	for len(passages) > 0 {
 		first, end := passages[0], passages[0].end
 		count := 1

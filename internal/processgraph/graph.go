@@ -9,6 +9,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/VolkovDani/project-creator/internal/glossary"
 )
 
 const (
@@ -24,6 +26,7 @@ type Anchor struct {
 	Name       string `json:"name"`
 	Definition string `json:"definition,omitempty"`
 	Context    string `json:"context,omitempty"`
+	ConceptID  string `json:"-"`
 }
 
 type Source struct {
@@ -33,8 +36,10 @@ type Source struct {
 }
 
 type Request struct {
-	Anchor  Anchor
-	Sources []Source
+	Anchor          Anchor
+	Sources         []Source
+	Glossary        []glossary.Term `json:"-"`
+	OriginalSources []Source        `json:"-"`
 }
 
 type Generator interface {
@@ -94,10 +99,11 @@ func Build(ctx context.Context, g Generator, req Request) (Draft, error) {
 	if g == nil || len(req.Sources) == 0 || len(req.Sources) > MaxSources {
 		return Draft{}, errors.New("invalid process graph request")
 	}
+	proof := buildConceptProof(req)
 	suggestion, err := g.GenerateProcessGraph(ctx, req)
 	var draft Draft
 	if err == nil {
-		draft, err = groundDraft(suggestion, req)
+		draft, err = groundDraft(suggestion, req, proof)
 		if len(draft.Edges) > 0 {
 			return draft, nil
 		}
@@ -107,14 +113,14 @@ func Build(ctx context.Context, g Generator, req Request) (Draft, error) {
 	}
 	// A provider may return nothing usable for an explicitly written rule.
 	// Keep its literal condition and result without guessing a transition.
-	literal, literalErr := groundDraft(literalRelations(req.Sources), req)
+	literal, literalErr := groundDraft(literalRelations(req.Sources), req, proof)
 	if literalErr == nil && len(literal.Edges) > 0 {
 		return literal, nil
 	}
 	return draft, err
 }
 
-func groundDraft(suggestion Suggestion, req Request) (Draft, error) {
+func groundDraft(suggestion Suggestion, req Request, proof *conceptProof) (Draft, error) {
 	if suggestion.UsedSources < 1 || suggestion.UsedSources > len(req.Sources) ||
 		len(suggestion.Nodes) > MaxNodes || len(suggestion.Edges) > MaxEdges {
 		return Draft{}, errors.New("invalid process graph output")
@@ -139,7 +145,7 @@ func groundDraft(suggestion Suggestion, req Request) (Draft, error) {
 			continue
 		}
 		citations := groundedEvidence(edge.Evidence, sources, req.Anchor.Name)
-		if len(citations) == 0 || !supportsLabel(edge.Label, citations) {
+		if len(citations) == 0 || !supportsLabel(edge.Label, citations) || !proof.supports(from, to, citations) {
 			continue
 		}
 		edges[key] = true

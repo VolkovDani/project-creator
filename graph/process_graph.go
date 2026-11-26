@@ -43,6 +43,10 @@ func (r *Resolver) BuildProcessGraph(ctx context.Context, args BuildProcessGraph
 		out.Status = "unavailable"
 		return out, nil
 	}
+	key, err := snapshot.key(target)
+	if err != nil {
+		return nil, errProcessGraphSources
+	}
 
 	draft, err := processgraph.Build(ctx, r.ProcessGraphs, snapshot.request)
 	if err != nil {
@@ -50,13 +54,11 @@ func (r *Resolver) BuildProcessGraph(ctx context.Context, args BuildProcessGraph
 		return out, nil
 	}
 
-	current, err := r.processGraphSnapshot(ctx, target, processgraph.MaxSources)
+	currentKey, err := r.currentProcessGraphKey(ctx, target, processgraph.MaxSources)
 	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		out.Status = "stale"
 	case err != nil:
 		return nil, errProcessGraphSources
-	case !snapshot.equal(current):
+	case key != currentKey:
 		out.Status = "stale"
 	case len(draft.Edges) == 0:
 		out.Status = "insufficient"
@@ -101,6 +103,15 @@ func (r *Resolver) StartProcessGraph(ctx context.Context, args StartProcessGraph
 	if err != nil {
 		return nil, errors.New("process graph run unavailable")
 	}
+	if result.Draft != nil {
+		current, err := r.currentProcessGraphKey(ctx, target, processgraph.MaxRunSources)
+		if err != nil {
+			return nil, errProcessGraphSources
+		}
+		if current != key {
+			return processGraphRunPayload(processgraph.RunResult{Status: "stale"}), nil
+		}
+	}
 	return processGraphRunPayload(result), nil
 }
 
@@ -112,15 +123,18 @@ func (r *Resolver) ProcessGraphBatch(ctx context.Context, args ProcessGraphBatch
 		return processGraphRunPayload(processgraph.RunResult{Status: "not_found"}), nil
 	}
 	input := args.Input
-	result, err := r.ProcessGraphRuns.Advance(ctx, workspace(ctx), string(input.ProjectId), string(input.RunId), int(input.Revision), r.currentProcessGraphKey)
+	result, err := r.ProcessGraphRuns.Advance(ctx, workspace(ctx), string(input.ProjectId), string(input.RunId), int(input.Revision),
+		func(ctx context.Context, target processgraph.Target) (string, error) {
+			return r.currentProcessGraphKey(ctx, target, processgraph.MaxRunSources)
+		})
 	if err != nil {
 		return nil, errors.New("process graph run unavailable")
 	}
 	return processGraphRunPayload(result), nil
 }
 
-func (r *Resolver) currentProcessGraphKey(ctx context.Context, target processgraph.Target) (string, error) {
-	snapshot, err := r.processGraphSnapshot(ctx, target, processgraph.MaxRunSources)
+func (r *Resolver) currentProcessGraphKey(ctx context.Context, target processgraph.Target, maxSources int) (string, error) {
+	snapshot, err := r.processGraphSnapshot(ctx, target, maxSources)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -160,26 +174,21 @@ type processGraphAnchorMatch struct {
 
 type processGraphSnapshot struct {
 	request processgraph.Request
-	version int
 	matches []processGraphAnchorMatch
 	partial bool
-}
-
-func (s processGraphSnapshot) equal(other processGraphSnapshot) bool {
-	return s.request.Anchor == other.request.Anchor && s.version == other.version &&
-		s.partial == other.partial && slices.Equal(s.request.Sources, other.request.Sources) &&
-		slices.Equal(s.matches, other.matches)
 }
 
 func (s processGraphSnapshot) key(target processgraph.Target) (string, error) {
 	h := sha256.New()
 	err := json.NewEncoder(h).Encode(struct {
-		Target  processgraph.Target
-		Request processgraph.Request
-		Version int
-		Matches []processGraphAnchorMatch
-		Partial bool
-	}{target, s.request, s.version, s.matches, s.partial})
+		Target          processgraph.Target
+		Anchor          processgraph.Anchor
+		AnchorConceptID string
+		Glossary        []glossary.Term
+		Sources         []processgraph.Source
+		Matches         []processGraphAnchorMatch
+		Partial         bool
+	}{target, s.request.Anchor, s.request.Anchor.ConceptID, s.request.Glossary, s.request.Sources, s.matches, s.partial})
 	if err != nil {
 		return "", err
 	}
@@ -200,23 +209,29 @@ func (r *Resolver) processGraphSnapshot(ctx context.Context, target processgraph
 		return snapshot, err
 	}
 
-	terms := []glossary.Term{{Name: target.Keyword}}
+	terms, err := glossary.List(ctx, tx, target.Workspace, target.Project)
+	if err != nil {
+		return snapshot, err
+	}
+	snapshot.request.Glossary = terms
+	matchText := glossary.MatchText(terms)
 	snapshot.request.Anchor.Name = target.Keyword
 	if target.TermID != "" {
-		terms, err = glossary.List(ctx, tx, target.Workspace, target.Project)
-		if err != nil {
-			return snapshot, err
-		}
 		index := slices.IndexFunc(terms, func(term glossary.Term) bool { return term.ID == target.TermID })
 		if index < 0 {
 			return snapshot, sql.ErrNoRows
 		}
 		term := terms[index]
-		snapshot.request.Anchor = processgraph.Anchor{Name: term.Name, Definition: term.Definition, Context: term.Context}
-		snapshot.version = term.Version
+		snapshot.request.Anchor = processgraph.Anchor{Name: term.Name, Definition: term.Definition, Context: term.Context, ConceptID: term.ID}
+	} else {
+		matches := matchText(target.Keyword)
+		if len(matches) == 1 && matches[0].Text == target.Keyword && len(matches[0].Terms) == 1 {
+			snapshot.request.Anchor.ConceptID = matches[0].Terms[0].ID
+		}
+		// Keywords select literal matches, even when they identify a confirmed term.
+		matchText = glossary.MatchText([]glossary.Term{{Name: target.Keyword}})
 	}
 
-	matchText := glossary.MatchText(terms)
 	rows, err := tx.QueryContext(ctx, `SELECT id,version,text FROM active_requirements WHERE workspace=$1 AND project_id=$2 ORDER BY id`, target.Workspace, target.Project)
 	if err != nil {
 		return snapshot, err

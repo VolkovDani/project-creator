@@ -296,6 +296,19 @@ test('a graph continues in the background and restores progress and cited result
     await expect(status).toContainText('Порций с ошибками — 1');
     await expect(status).toContainText('Тема графа — заявка');
     await expect(page.getByText('Черновик охватывает часть доступных сведений.')).toBeVisible();
+
+    const completedReads = latestReads.length;
+    await openOverview();
+    await pushProgress(page, latest);
+    await pushProgress(page, snapshot('run-1', 'заявка', 2, 3, 1));
+    await page.goBack();
+    await expect(heading).toBeVisible();
+    expect(latestReads).toHaveLength(completedReads);
+
+    await page.evaluate(() => (window as unknown as StreamWindow).graphClose());
+    await expect.poll(() => latestReads.length).toBe(completedReads + 1);
+    await expect(heading).toBeVisible();
+
     await expect(page.getByText('Ошибок нет', { exact: true }).last()).toBeVisible();
     await expect(page.getByText('Найдены ошибки', { exact: true }).last()).toBeVisible();
     await expect(page.getByText('Нужно', { exact: true }).last()).toBeVisible();
@@ -329,6 +342,26 @@ test('a graph continues in the background and restores progress and cited result
     expect(latestReads.length).toBeGreaterThanOrEqual(4);
     expect(latestReads).toEqual(latestReads.map(() => ({ projectId: 'demo' })));
     expect(batches).toEqual([]);
+
+    const beforeReadingReplacement = latestReads.length;
+    await openOverview();
+    await page.goBack();
+    await expect(heading).toBeVisible();
+    expect(latestReads).toHaveLength(beforeReadingReplacement + 1);
+
+    const replacementReads = latestReads.length;
+    await openOverview();
+    await page.goBack();
+    await expect(heading).toBeVisible();
+    expect(latestReads).toHaveLength(replacementReads);
+
+    await openOverview();
+    latest = snapshot('run-3', 'новая заявка', 0, 0, 0);
+    await pushProgress(page, latest);
+    await page.goBack();
+    await expect(heading).toHaveCount(0);
+    await expect(status).toContainText('Тема графа — новая заявка');
+    expect(latestReads).toHaveLength(replacementReads + 1);
   } finally {
     preparation.resolve();
     latestReadGate?.resolve();

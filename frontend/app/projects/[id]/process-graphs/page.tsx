@@ -10,6 +10,9 @@ import {
 import { fieldErrorMessage, type Locale, t } from '../../../../lib/i18n';
 import { Latest } from '../../../../lib/latest';
 import {
+  cachedProcessGraph,
+  cacheProcessGraph,
+  forgetProcessGraph,
   type ProcessGraphProgress,
   useInvalidation,
   useProcessGraphProgress,
@@ -100,6 +103,11 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
     controller.signal.addEventListener('abort', () => clearTimeout(retry), { once: true });
     async function load() {
       if (controller.signal.aborted) return;
+      const cached = cachedProcessGraph(projectId);
+      if (cached?.run && rememberRun(order.current, cached.run)) {
+        setResult(cached);
+        return;
+      }
       const { generation, revision } = clientCache;
       const pushes = order.current.pushes;
       const isCurrent = () =>
@@ -116,6 +124,8 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
         const run = latestProcessGraphRun?.run;
         if (pushes !== order.current.pushes && order.current.current !== run?.id) return;
         if (run && !rememberRun(order.current, run)) return;
+        if (latestProcessGraphRun)
+          cacheProcessGraph(projectId, latestProcessGraphRun, tags, revision);
         setResult(
           (previous) =>
             latestProcessGraphRun ??
@@ -206,6 +216,7 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
     const startKey = startKeyForProject(projectId);
     if (!anchor || result === undefined || running || pendingStarts.has(startKey)) return;
     reader.current?.abort();
+    forgetProcessGraph(projectId);
     const requestVersion = submission.current.begin();
     const { generation, revision } = clientCache;
     const pushes = order.current.pushes;

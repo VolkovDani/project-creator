@@ -30,6 +30,12 @@ export class TaggedCache {
       this.listeners.delete(item);
     };
   }
+  get<T>(key: string): T | undefined {
+    return this.entries.get(key)?.data as T | undefined;
+  }
+  set<T>(key: string, data: T, tags: string[]) {
+    this.entries.set(key, { data, tags });
+  }
   async read<T>(key: string, load: () => Promise<{ data: T; tags: string[] }>): Promise<T> {
     const cached = this.entries.get(key);
     if (cached) return cached.data as T;
@@ -42,7 +48,7 @@ export class TaggedCache {
         const result = await load();
         if (epoch !== this.epoch) return result.data;
         if (this.invalidatedSince(started, result.tags)) continue;
-        this.entries.set(key, result);
+        this.set(key, result.data, result.tags);
         return result.data;
       }
     })();

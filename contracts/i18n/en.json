@@ -626,6 +626,7 @@
   "processGraph.connections": "Connections and evidence",
   "processGraph.evidence": "Requirement evidence",
   "processGraph.requirement": "Requirement {id} · Version {version}",
+  "processGraph.legend": "Node types",
   "processGraph.node.actor": "Actor",
   "processGraph.node.action": "Action",
   "processGraph.node.condition": "Condition",

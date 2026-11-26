@@ -626,6 +626,7 @@
   "processGraph.connections": "Связи и источники",
   "processGraph.evidence": "Цитаты из требований",
   "processGraph.requirement": "Требование {id} · Версия {version}",
+  "processGraph.legend": "Типы узлов",
   "processGraph.node.actor": "Участник",
   "processGraph.node.action": "Действие",
   "processGraph.node.condition": "Условие",

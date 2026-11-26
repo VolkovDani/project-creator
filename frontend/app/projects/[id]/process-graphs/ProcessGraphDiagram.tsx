@@ -112,7 +112,7 @@ export function ProcessGraphDiagram({ draft, locale }: { draft: GraphDraft; loca
           <g
             key={node.id}
             transform={`translate(${x} ${y})`}
-            className={styles.diagramNode}
+            className={`${styles.diagramNode} ${styles.kind}`}
             data-kind={node.kind}
           >
             <title>{node.label}</title>

@@ -17,11 +17,22 @@ export function ProcessGraph({
 }) {
   const heading = useId();
   const { groups, isolated } = groupProcessGraph(draft.nodes, draft.edges);
+  const kinds = [...new Set(draft.nodes.map((node) => node.kind))];
   return (
     <section aria-labelledby={heading}>
       <h2 id={heading}>{t(locale, 'processGraph.draft')}</h2>
       <p>{t(locale, 'processGraph.sourceCount', { count: draft.sourceCount })}</p>
       {draft.partial && <p className={styles.partial}>{t(locale, 'processGraph.partial')}</p>}
+      {kinds.length > 0 && (
+        <ul className={styles.legend} aria-label={t(locale, 'processGraph.legend')}>
+          {kinds.map((kind) => (
+            <li className={styles.kind} data-kind={kind} key={kind}>
+              <span className={styles.legendSwatch} aria-hidden="true" />
+              {t(locale, `processGraph.node.${kind}`)}
+            </li>
+          ))}
+        </ul>
+      )}
       <ProcessGraphDiagram draft={draft} locale={locale} />
       <h3>{t(locale, 'processGraph.connections')}</h3>
       <ul className={styles.graph}>
@@ -85,7 +96,7 @@ export function ProcessGraph({
 
 function Node({ node, locale }: { node: GraphNode; locale: Locale }) {
   return (
-    <div className={styles.node} data-kind={node.kind}>
+    <div className={`${styles.node} ${styles.kind}`} data-kind={node.kind}>
       <span>{t(locale, `processGraph.node.${node.kind}`)}</span>
       <strong>{node.label}</strong>
     </div>

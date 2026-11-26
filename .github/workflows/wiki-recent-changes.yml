@@ -1,0 +1,52 @@
+name: Wiki recent changes
+on:
+  gollum:
+  schedule:
+    # Catch deletions and changes missed by the Wiki event.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: wiki-recent-changes
+  cancel-in-progress: false
+jobs:
+  refresh:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.13.1'
+      - name: Refresh both Wiki pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          repo_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          wiki_dir="$RUNNER_TEMP/project-creator-wiki"
+          git clone --quiet -- "$repo_url.wiki.git" "$wiki_dir"
+          git -C "$wiki_dir" config user.name 'github-actions[bot]'
+          git -C "$wiki_dir" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          for attempt in 1 2 3; do
+            node scripts/wiki-recent-changes.mjs "$wiki_dir" "$repo_url/wiki"
+            git -C "$wiki_dir" add -- Recent-Changes.md Recent-Changes-RU.md
+            if git -C "$wiki_dir" diff --cached --quiet; then
+              exit 0
+            fi
+            git -C "$wiki_dir" commit -m 'Refresh recent Wiki changes'
+            if git -C "$wiki_dir" -c credential.helper= -c 'credential.helper=!gh auth git-credential' push origin HEAD; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              git -C "$wiki_dir" fetch --quiet origin
+              git -C "$wiki_dir" reset --hard '@{upstream}'
+            fi
+          done
+          exit 1

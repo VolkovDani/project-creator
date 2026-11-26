@@ -7,6 +7,7 @@ import ClassificationHistory from './classification/ClassificationHistory';
 import GlossaryOriginal from './GlossaryOriginal';
 import RequirementRevisionHistory from './RequirementRevisionHistory';
 import RequirementSummary from './RequirementSummary';
+import RequirementSummaryProvenance from './RequirementSummaryProvenance';
 
 type Props = {
   row: {
@@ -54,6 +55,7 @@ export default function RequirementDetails({
   const heading = useId();
   const { id, text, version, createdAt, updatedAt, archivedAt } = row;
   const source = { projectId, requirementId: id, original: text, locale };
+  const summary = summaryProps?.summary;
   return (
     <article
       key={id}
@@ -106,16 +108,17 @@ export default function RequirementDetails({
       </dl>
       {children}
       {mentionChanged && <p role="status">{t(locale, 'glossary.mentionChanged')}</p>}
-      {summaryProps && !archivedAt ? (
-        <RequirementSummary
-          {...source}
-          {...summaryProps}
-          showOriginal
-          requirementVersion={version}
-          highlight={highlight}
-        />
-      ) : (
+      <section aria-label={t(locale, 'summary.original')}>
         <GlossaryOriginal {...source} version={version} highlight={highlight} collapsible={false} />
+      </section>
+      {summaryProps && !archivedAt && (
+        <RequirementSummary
+          {...summaryProps}
+          projectId={projectId}
+          requirementId={id}
+          requirementVersion={version}
+          locale={locale}
+        />
       )}
       <Group
         id={`${projectId}:requirement:${id}:classification`}
@@ -141,6 +144,10 @@ export default function RequirementDetails({
           locale={locale}
         />
       </Group>
+      {!archivedAt &&
+        summary?.status === 'ready' &&
+        summary.version === version &&
+        summary.text && <RequirementSummaryProvenance summary={summary} locale={locale} />}
     </article>
   );
 }

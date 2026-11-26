@@ -10,7 +10,6 @@ import {
 import { type Locale, summaryErrorMessage, t } from '../../../lib/i18n';
 import { Latest } from '../../../lib/latest';
 import { useInvalidation } from '../../../lib/live';
-import GlossaryOriginal from './GlossaryOriginal';
 import { RequirementMarkdown } from './RequirementMarkdown';
 
 type Summary = RequirementSummariesByIdsQuery['requirementSummariesByIds'][number];
@@ -95,9 +94,6 @@ export default function RequirementSummary({
   projectId,
   requirementId,
   requirementVersion,
-  original,
-  highlight,
-  showOriginal,
   locale,
   summary,
   loadFailure,
@@ -107,9 +103,6 @@ export default function RequirementSummary({
   projectId: string;
   requirementId: string;
   requirementVersion: number;
-  original: string;
-  showOriginal?: boolean;
-  highlight?: { start: number; end: number };
   locale: Locale;
   summary?: Summary;
   loadFailure: boolean;
@@ -139,42 +132,25 @@ export default function RequirementSummary({
       if (latest.current.isCurrent(generation)) setBusy(false);
     }
   }
-  const hasText = versionMatches && summary?.status === 'ready' && !!summary.text;
-  const source =
-    loading && !showOriginal ? (
-      <RequirementMarkdown
-        text={original}
-        locale={locale}
-        sourceId={requirementId}
-        version={requirementVersion}
-        projectId={projectId}
-      />
-    ) : (
-      <GlossaryOriginal
-        highlight={highlight}
-        collapsible={hasText && !showOriginal}
-        projectId={projectId}
-        requirementId={requirementId}
-        version={requirementVersion}
-        original={original}
-        locale={locale}
-      />
-    );
-  const sourceContent = showOriginal ? (
-    <section aria-label={t(locale, 'summary.original')}>{source}</section>
-  ) : (
-    source
-  );
   return (
-    <section aria-label={hasText ? t(locale, 'summary.section') : undefined}>
-      {hasText ? <p className="muted">{t(locale, 'summary.suggestion')}</p> : sourceContent}
-      {hasText && displayedSummary?.text ? (
-        <RequirementMarkdown
-          text={displayedSummary.text}
-          locale={locale}
-          projectId={projectId}
-          matches={displayedSummary.glossaryMatches}
-        />
+    <details className="data-group">
+      <summary>
+        <h3>{t(locale, 'summary.section')}</h3>
+      </summary>
+      {loading ? (
+        <p role="status" className="muted">
+          {t(locale, 'app.loading')}
+        </p>
+      ) : status === 'ready' && displayedSummary?.text ? (
+        <>
+          <p className="muted">{t(locale, 'summary.suggestion')}</p>
+          <RequirementMarkdown
+            text={displayedSummary.text}
+            locale={locale}
+            projectId={projectId}
+            matches={displayedSummary.glossaryMatches}
+          />
+        </>
       ) : (
         <p
           role={
@@ -196,27 +172,12 @@ export default function RequirementSummary({
             : summaryErrorMessage(locale, summary?.errorCode ?? '')}
         </p>
       )}
-      {displayedSummary && hasText && (
-        <details>
-          <summary>{t(locale, 'summary.provenance')}</summary>
-          <dl>
-            <dt>{t(locale, 'summary.version')}</dt>
-            <dd>{displayedSummary.version}</dd>
-            <dt>{t(locale, 'summary.profile')}</dt>
-            <dd>{displayedSummary.profile || t(locale, 'summary.unknown')}</dd>
-            <dt>{t(locale, 'summary.origin')}</dt>
-            <dd>{displayedSummary.provenance || t(locale, 'summary.unknown')}</dd>
-            <dt>{t(locale, 'summary.createdAt')}</dt>
-            <dd>{displayedSummary.createdAt}</dd>
-          </dl>
-        </details>
-      )}
       {loadFailure && (
         <button type="button" disabled={busy} onClick={() => void refresh()}>
           {t(locale, 'summary.refresh')}
         </button>
       )}
-      {retryable && !loadFailure && (
+      {retryable && !loadFailure && !loading && (
         <button type="button" disabled={busy} onClick={() => void act('retry')}>
           {t(locale, status === 'missing' ? 'summary.generate' : 'summary.retry')}
         </button>
@@ -226,8 +187,6 @@ export default function RequirementSummary({
           {t(locale, 'summary.cancel')}
         </button>
       )}
-
-      {hasText && sourceContent}
-    </section>
+    </details>
   );
 }

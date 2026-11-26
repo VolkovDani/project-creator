@@ -45,3 +45,23 @@ func TestGraphGroundsSupportedGrammaticalForms(t *testing.T) {
 		t.Fatalf("expected matched grammatical forms and the original quote: %+v (%v)", draft, err)
 	}
 }
+
+func TestGraphKeepsTheCompleteRoleInAUserStory(t *testing.T) {
+	const story = "Я, как представитель заказчика, хочу, чтобы код отображался на карточке."
+	const acceptance = "Код отображается на карточке."
+	source := Source{ID: "story", Version: 2, Text: story + "\n" + acceptance}
+	in := Suggestion{UsedSources: 1, Nodes: []Node{
+		{ID: "representative", Kind: "actor", Label: "Представитель заказчика"},
+		{ID: "customer", Kind: "actor", Label: "Заказчик"},
+		{ID: "code", Kind: "state", Label: "Код отображался на карточке"},
+	}}
+	citations := []SuggestedEvidence{{Source: 1, Quote: story}, {Source: 1, Quote: acceptance}}
+	in.Edges = []SuggestedEdge{
+		{From: "customer", To: "code", Kind: "needs", Label: acceptance, Evidence: citations},
+		{From: "representative", To: "code", Kind: "needs", Evidence: citations},
+	}
+	draft, err := groundDraft(in, Request{Sources: []Source{source}}, nil)
+	if err != nil || len(draft.Edges) != 1 || draft.Edges[0].From != "representative" {
+		t.Fatalf("expected the full actor stated in the story: %+v (%v)", draft, err)
+	}
+}

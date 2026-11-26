@@ -24,11 +24,31 @@ func relationshipEvidence(from, to Node, edge SuggestedEdge, evidence []Evidence
 		if start < 0 || other < 0 || !supportsLabel(edge.Label, text) {
 			continue
 		}
+		if edge.Kind == "needs" && !supportsStoryActor(left, text) {
+			continue
+		}
 		if edge.Kind != "follows" || explicitOrder(words, start, other) {
 			supported = append(supported, span...)
 		}
 	}
 	return supported
+}
+
+// A user story can name a specific role that contains another role's name.
+func supportsStoryActor(label []string, text string) bool {
+	foundStory := false
+	for _, pattern := range literalPatterns {
+		if pattern.relationship != "needs" {
+			continue
+		}
+		for _, match := range pattern.clause.FindAllStringSubmatch(text, -1) {
+			foundStory = true
+			if slices.EqualFunc(label, labelWords(match[2]), groundedWord) {
+				return true
+			}
+		}
+	}
+	return !foundStory
 }
 
 // A single edge must be supported within one cited source passage. Join nearby

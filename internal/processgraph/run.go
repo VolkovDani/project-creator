@@ -276,6 +276,7 @@ func (r *graphRun) finish() {
 		}
 		r.draft.SourceCount = len(r.inspected)
 	}
+	r.proof.mergeActorCards(&r.draft)
 	switch {
 	case len(r.draft.Edges) > 0:
 		r.status = "suggested"

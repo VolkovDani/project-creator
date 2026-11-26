@@ -120,6 +120,37 @@ func (p *conceptProof) supports(from, to Node, evidence []Evidence) bool {
 	return true
 }
 
+// Group already grounded roles by the confirmed identity of their whole label.
+// Keep a single spelling as cited, and use the glossary name for grouped cards.
+func (p *conceptProof) mergeActorCards(draft *Draft) {
+	if p == nil || len(draft.Nodes) < 2 {
+		return
+	}
+	groups := make(map[string]int)
+	nodeIDs := make(map[string]string, len(draft.Nodes))
+	nodes := make([]Node, 0, len(draft.Nodes))
+	for _, node := range draft.Nodes {
+		if node.Kind == "actor" {
+			matches := p.matchText(node.Label)
+			if len(matches) == 1 && matches[0].Text == node.Label && len(matches[0].Terms) == 1 {
+				term := matches[0].Terms[0]
+				if index, exists := groups[term.ID]; exists {
+					nodes[index].Label = term.Name
+					nodeIDs[node.ID] = nodes[index].ID
+					continue
+				}
+				groups[term.ID] = len(nodes)
+			}
+		}
+		nodeIDs[node.ID] = node.ID
+		nodes = append(nodes, node)
+	}
+	if len(nodes) < len(draft.Nodes) {
+		draft.Nodes = nodes
+		draft.Edges = mergeEdges(nil, draft.Edges, nodeIDs)
+	}
+}
+
 func (m citedConcept) isCited(evidence []Evidence) bool {
 	// Use the complete original occurrence. Neighboring quotes can cover an
 	// alias split at an abbreviation, even if trimming removed its spaces.

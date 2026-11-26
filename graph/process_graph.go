@@ -145,6 +145,7 @@ func (r *Resolver) LatestProcessGraphRun(ctx context.Context, args LatestProcess
 	addCacheDependency(ctx, "project:"+projectID)
 	addCacheDependency(ctx, "project:"+projectID+":requirements")
 	addCacheDependency(ctx, "project:"+projectID+":glossary")
+	addCacheDependency(ctx, "project:"+projectID+":process-graph")
 	result, err := r.BackgroundGraphs.Latest(ctx, ws, projectID, r.currentProcessGraphRunKey)
 	if err != nil {
 		return nil, errProcessGraphRun

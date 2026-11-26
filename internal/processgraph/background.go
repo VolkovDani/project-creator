@@ -2,6 +2,7 @@ package processgraph
 
 import (
 	"context"
+	"crypto/rand"
 	"sync"
 	"time"
 )
@@ -15,12 +16,14 @@ type backgroundRun struct {
 	snapshotKey string
 	result      RunResult
 	finishedAt  time.Time
+	persisted   bool
 }
 
 // BackgroundRuns drives a project's latest run independently of HTTP requests.
-// It retains completed results in memory within the same bound as active runs.
+// Its progress snapshots share a bounded in-memory registry with active runs.
 type BackgroundRuns struct {
 	engine runEngine
+	cache  CompletedCache
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -31,9 +34,13 @@ type BackgroundRuns struct {
 }
 
 func NewBackgroundRuns(g Generator) *BackgroundRuns {
+	return NewCachedBackgroundRuns(g, nil)
+}
+
+func NewCachedBackgroundRuns(g Generator, cache CompletedCache) *BackgroundRuns {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &BackgroundRuns{
-		engine: newRunEngine(g), ctx: ctx, cancel: cancel,
+		engine: newRunEngine(g), cache: cache, ctx: ctx, cancel: cancel,
 		latest:           make(map[projectScope]*backgroundRun),
 		progressWatchers: make(map[string]map[chan struct{}]struct{}),
 	}
@@ -50,11 +57,8 @@ func (s *BackgroundRuns) Start(ctx context.Context, target Target, req Request, 
 	check func(context.Context, Target) (string, error),
 ) (RunResult, error) {
 	scope := projectScope{target.Workspace, target.Project}
-	s.mu.Lock()
-	current := s.active(scope)
-	s.mu.Unlock()
-	if current.Status != "" {
-		return current, nil
+	if existing, err := s.reuse(ctx, scope, target, snapshotKey); err != nil || existing.Status != "" {
+		return existing, err
 	}
 
 	var run *graphRun
@@ -83,13 +87,40 @@ func (s *BackgroundRuns) Start(ctx context.Context, target Target, req Request, 
 	if s.latest[scope] == nil && len(s.latest) >= maxStoredRuns && !s.evictCompleted() {
 		return RunResult{Status: "unavailable"}, nil
 	}
-	entry := &backgroundRun{target: target, snapshotKey: snapshotKey, result: result}
+	entry := &backgroundRun{target: target, snapshotKey: snapshotKey}
+	if err := s.save(ctx, entry, result); err != nil {
+		return RunResult{}, err
+	}
+	s.installResult(entry, result)
 	s.latest[scope] = entry
 	if result.Status == "ready" || result.Status == "planning" {
 		s.work.Go(func() { s.execute(run, entry, check) })
 	} else {
 		entry.finishedAt = time.Now()
 	}
+	s.notifyProgress(scope.workspace)
+	return result, nil
+}
+
+func (s *BackgroundRuns) reuse(ctx context.Context, scope projectScope, target Target, snapshotKey string) (RunResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if current := s.active(scope); current.Status != "" {
+		return current, nil
+	}
+	if s.cache == nil {
+		return RunResult{}, nil
+	}
+	if s.latest[scope] == nil && len(s.latest) >= maxStoredRuns && !s.evictCompleted() {
+		return RunResult{Status: "unavailable"}, nil
+	}
+	result, err := s.cache.Reuse(ctx, target, snapshotKey, rand.Text())
+	if err != nil || result.Run == nil {
+		return result, err
+	}
+	entry := &backgroundRun{target: target, snapshotKey: snapshotKey, finishedAt: time.Now()}
+	s.installResult(entry, result)
+	s.latest[scope] = entry
 	s.notifyProgress(scope.workspace)
 	return result, nil
 }
@@ -111,25 +142,40 @@ func (s *BackgroundRuns) Latest(ctx context.Context, workspace, project string,
 	s.mu.Lock()
 	scope := projectScope{workspace, project}
 	entry := s.latest[scope]
-	if entry == nil {
-		s.mu.Unlock()
-		return RunResult{}, nil
+	var current CachedRun
+	if entry != nil {
+		current = CachedRun{Target: entry.target, SnapshotKey: entry.snapshotKey, Result: entry.result}
 	}
-	result := entry.result
+	readCache := s.cache != nil && (entry == nil || entry.persisted)
 	s.mu.Unlock()
-
-	if result.Draft != nil {
-		key, err := check(ctx, entry.target)
+	if readCache {
+		var err error
+		current, err = s.cache.Latest(ctx, workspace, project)
 		if err != nil {
 			return RunResult{}, err
 		}
-		if key != entry.snapshotKey {
+		if current.Result.Run == nil && entry != nil {
+			s.mu.Lock()
+			if s.latest[scope] == entry {
+				delete(s.latest, scope)
+			}
+			s.mu.Unlock()
+		}
+	}
+
+	result := current.Result
+	if result.Draft != nil {
+		key, err := check(ctx, current.Target)
+		if err != nil {
+			return RunResult{}, err
+		}
+		if key != current.SnapshotKey {
 			progress := *result.Run
 			progress.Revision++
 			result = RunResult{Status: "stale", Run: &progress}
 
 			s.mu.Lock()
-			if s.latest[scope] == entry && entry.result.Draft != nil {
+			if entry != nil && s.latest[scope] == entry && entry.result.Status == "suggested" && entry.result.Run.ID == progress.ID {
 				entry.result = result
 				s.notifyProgress(workspace)
 			}
@@ -173,6 +219,9 @@ func (s *BackgroundRuns) plan(run *graphRun, check func(context.Context, Target)
 }
 
 func (s *BackgroundRuns) publish(run *graphRun, entry *backgroundRun, err error) {
+	if err == nil {
+		err = s.save(s.ctx, entry, run.result())
+	}
 	if err != nil {
 		run.status = "unavailable"
 		run.progress.Revision++
@@ -180,13 +229,27 @@ func (s *BackgroundRuns) publish(run *graphRun, entry *backgroundRun, err error)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	entry.result = run.result()
+	s.installResult(entry, run.result())
 	if run.status != "ready" {
 		entry.finishedAt = time.Now()
 	}
 	s.notifyProgress(entry.target.Workspace)
 }
 
+func (s *BackgroundRuns) save(ctx context.Context, entry *backgroundRun, result RunResult) error {
+	if s.cache == nil || result.Draft == nil {
+		return nil
+	}
+	return s.cache.Save(ctx, CachedRun{Target: entry.target, SnapshotKey: entry.snapshotKey, Result: result})
+}
+
+func (s *BackgroundRuns) installResult(entry *backgroundRun, result RunResult) {
+	entry.persisted = s.cache != nil && result.Draft != nil
+	if entry.persisted {
+		result.Draft = nil
+	}
+	entry.result = result
+}
 func (s *BackgroundRuns) evictCompleted() bool {
 	var oldestScope projectScope
 	var oldest *backgroundRun

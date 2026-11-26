@@ -537,7 +537,7 @@ A failed preview shows the reason in the interface. `INVALID_FORMAT` identifies 
 
 If any summaries failed, the Requirements page shows **Retry all failed summaries** with a count for the whole project, including interrupted generations (`INTERRUPTED`). Click it to queue those summaries again for the current requirement versions and active profile. To retry just one summary, use the action on its requirement card.
 
-The details of the selected requirement always show its full original text. A ready preview appears above the original.
+The details of the selected requirement always show its full original text. Open **Short summary** below the original to see the preview.
 
 With `PROJECT_CREATOR_SUMMARY_MODEL` and a full `PROJECT_CREATOR_SUMMARY_DIGEST`
 explicitly set, requirements automatically enter a local background queue after

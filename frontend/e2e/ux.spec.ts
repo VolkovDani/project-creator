@@ -83,7 +83,9 @@ test('business requirement details identify the selected record and preserve the
   await page.locator('#requirements-archive > summary').click();
   await page.locator('#requirements-archive').getByRole('button', { name: archived.text }).click();
   const oldDetails = page.locator(`#requirement-${archivedId}`);
-  await expect(oldDetails.getByText(archivedId, { exact: true })).toBeVisible();
+  const metadata = oldDetails.locator(':scope > details:last-of-type + dl');
+  await expect(metadata).toContainText(archivedId);
+  await expect(metadata).toHaveCSS('display', 'grid');
   await expect(oldDetails.getByText(archived.text, { exact: true })).toBeVisible();
   await expect(oldDetails.getByText('В архиве', { exact: true })).toBeVisible();
   await expect(oldDetails.locator(`time[datetime="${archivedAt}"]`)).toBeVisible();

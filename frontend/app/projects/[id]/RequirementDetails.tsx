@@ -66,47 +66,6 @@ export default function RequirementDetails({
       ref={articleRef}
     >
       <h3 id={heading}>{t(locale, 'requirements.detailsTitle')}</h3>
-      <dl>
-        <div>
-          <dt>{t(locale, 'requirements.metaId')}</dt>
-          <dd>{id}</dd>
-        </div>
-        <div>
-          <dt>{t(locale, 'requirements.metaProject')}</dt>
-          <dd>{projectName}</dd>
-        </div>
-        <div>
-          <dt>{t(locale, 'requirements.metaVersion')}</dt>
-          <dd>{version}</dd>
-        </div>
-        <div>
-          <dt>{t(locale, 'requirements.metaStatus')}</dt>
-          <dd>
-            {t(locale, archivedAt ? 'requirements.statusArchived' : 'requirements.statusActive')}
-          </dd>
-        </div>
-        <div>
-          <dt>{t(locale, 'requirements.metaCreatedAt')}</dt>
-          <dd>
-            <MetadataDate value={createdAt} locale={locale} />
-          </dd>
-        </div>
-        <div>
-          <dt>{t(locale, 'requirements.metaUpdatedAt')}</dt>
-          <dd>
-            <MetadataDate value={updatedAt} locale={locale} />
-          </dd>
-        </div>
-        {archivedAt && (
-          <div>
-            <dt>{t(locale, 'requirements.metaArchivedAt')}</dt>
-            <dd>
-              <MetadataDate value={archivedAt} locale={locale} />
-            </dd>
-          </div>
-        )}
-      </dl>
-      {children}
       {mentionChanged && <p role="status">{t(locale, 'glossary.mentionChanged')}</p>}
       <section aria-label={t(locale, 'summary.original')}>
         <GlossaryOriginal {...source} version={version} highlight={highlight} collapsible={false} />
@@ -148,6 +107,47 @@ export default function RequirementDetails({
         summary?.status === 'ready' &&
         summary.version === version &&
         summary.text && <RequirementSummaryProvenance summary={summary} locale={locale} />}
+      <dl>
+        <div>
+          <dt>{t(locale, 'requirements.metaId')}</dt>
+          <dd>{id}</dd>
+        </div>
+        <div>
+          <dt>{t(locale, 'requirements.metaProject')}</dt>
+          <dd>{projectName}</dd>
+        </div>
+        <div>
+          <dt>{t(locale, 'requirements.metaVersion')}</dt>
+          <dd>{version}</dd>
+        </div>
+        <div>
+          <dt>{t(locale, 'requirements.metaStatus')}</dt>
+          <dd>
+            {t(locale, archivedAt ? 'requirements.statusArchived' : 'requirements.statusActive')}
+          </dd>
+        </div>
+        <div>
+          <dt>{t(locale, 'requirements.metaCreatedAt')}</dt>
+          <dd>
+            <MetadataDate value={createdAt} locale={locale} />
+          </dd>
+        </div>
+        <div>
+          <dt>{t(locale, 'requirements.metaUpdatedAt')}</dt>
+          <dd>
+            <MetadataDate value={updatedAt} locale={locale} />
+          </dd>
+        </div>
+        {archivedAt && (
+          <div>
+            <dt>{t(locale, 'requirements.metaArchivedAt')}</dt>
+            <dd>
+              <MetadataDate value={archivedAt} locale={locale} />
+            </dd>
+          </div>
+        )}
+      </dl>
+      {children}
     </article>
   );
 }

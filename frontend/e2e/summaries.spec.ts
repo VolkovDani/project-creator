@@ -220,6 +220,10 @@ test('requirement details show the original and load provenance only on disclosu
     'История текста требования',
     provenanceTitle,
   ]);
+  const metadata = card.locator(':scope > details:last-of-type + dl');
+  await expect(metadata).toContainText('req-1');
+  await expect(metadata).toHaveCSS('display', 'grid');
+  await expect(card.locator(':scope > dl ~ button')).toHaveText(['Изменить', 'В архив']);
   expect(api.summaryQueries.every((query) => !/\bprovenance\b/.test(query))).toBe(true);
   expect(api.provenanceReads).toHaveLength(0);
 

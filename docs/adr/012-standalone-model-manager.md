@@ -44,7 +44,7 @@ To exercise the decision adapter through the same manager binary, run `MODELS_CO
 
 To verify independent classification assessment through the same manager binary, run `MODELS_CONFIGURATOR_TEST_BIN=/tmp/models-configurator-test go test -count=1 ./internal/api -run '^TestModelManagerAssessmentIntegration$'`. The test uses an NPU runtime stub and checks GraphQL access, source evidence and cache reuse.
 
-To verify process graph planning with the same manager binary, run `MODELS_CONFIGURATOR_TEST_BIN=/tmp/models-configurator-test go test -v -count=1 ./internal/api -run '^TestModelManagerProcessGraphPreflight$'`. The NPU stub returns two input budgets. The test checks that a wider window needs fewer whole batches and that planning finishes before generation. Record both source revisions with the result.
+To verify process graph planning with the same manager binary, run `MODELS_CONFIGURATOR_TEST_BIN=/tmp/models-configurator-test go test -v -count=1 ./internal/api -run '^TestModelManagerProcessGraphPreflight$'`. The NPU stub returns two input budgets. The test checks that a wider window needs fewer whole batches, that planning finishes before generation, and that the manager's response token limit triggers a bounded split. Record both source revisions with the result.
 
 The test checks persisted summaries, indexing and search, collision analysis and workspace isolation through the API. Ordinary Go tests use deterministic providers and can run without the manager checkout.
 

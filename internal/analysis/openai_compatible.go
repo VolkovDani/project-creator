@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/http"
 	"net/url"
 	"regexp"
 
@@ -146,6 +147,9 @@ func NewSummaryOpenAICompatible(baseURL, model, key, allowedLanguages string) (*
 	if managedNPU {
 		// The runtime can report an overlong prompt with this same sanitized code.
 		client = client.WithErrorCodes(func(status int, code string) error {
+			if code == "OUTPUT_TOKEN_LIMIT" && status == http.StatusBadGateway {
+				return errChatOutputLimit
+			}
 			if code == "NPU_UNAVAILABLE" && npuFailureStatus(code) == status {
 				return npuFailure(code)
 			}
@@ -200,6 +204,9 @@ func compatibleChat(ctx context.Context, client *oaicompat.Client, messages []ma
 	}
 	if err := client.Post(ctx, "/chat/completions", body, &response); err != nil {
 		return "", err
+	}
+	if len(response.Choices) == 1 && response.Choices[0].FinishReason == "length" {
+		return "", errChatOutputLimit
 	}
 	if len(response.Choices) != 1 || response.Choices[0].FinishReason != "stop" {
 		return "", invalidModelOutput("incomplete chat completion")

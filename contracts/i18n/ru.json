@@ -605,6 +605,7 @@
   "processGraph.chooseTerm": "Выберите термин словаря",
   "processGraph.selected": "Выбранный термин · {term}",
   "processGraph.build": "Построить граф процесса",
+  "processGraph.planning": "Планируем порции для графа…",
   "processGraph.preparing": "Подбираем требования для графа…",
   "processGraph.topic": "Тема графа — {topic}",
   "processGraph.loadFailed": "Не удалось получить последний граф процесса. Повторяем запрос…",

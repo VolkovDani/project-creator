@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VolkovDani/project-creator/internal/analysis"
 	"github.com/VolkovDani/project-creator/internal/processgraph"
 )
 
@@ -40,7 +41,11 @@ func (g *gatedProcessGraphGenerator) GenerateProcessGraph(ctx context.Context, r
 
 func TestBackgroundProcessGraphSurvivesRequestAndScopesLatestResult(t *testing.T) {
 	const quote = "Dispatcher reviews a delivery request."
-	generator := &gatedProcessGraphGenerator{entered: make(chan processgraph.Request, 2), release: make(chan struct{}, 2)}
+	generator := &gatedProcessGraphGenerator{
+		apiSummaryGenerator: apiSummaryGenerator{text: func(analysis.Source) string { return "Summary." }},
+		entered:             make(chan processgraph.Request, 2),
+		release:             make(chan struct{}, 2),
+	}
 	server, err := NewWithSummaryProviders(testDatabase(t), map[string]string{"token-a": "a", "token-b": "b"}, nil, nil, generator)
 	if err != nil {
 		t.Fatal(err)

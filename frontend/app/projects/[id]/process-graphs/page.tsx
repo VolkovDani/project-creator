@@ -24,6 +24,7 @@ const pendingStarts = new Map<string, Promise<ProcessGraphRunFieldsFragment>>();
 const pollInterval = 2000;
 const statusKeys: Record<string, string> = {
   preparing: 'processGraph.preparing',
+  planning: 'processGraph.planning',
   load_failed: 'processGraph.loadFailed',
   ready: 'processGraph.activeBatch',
   insufficient: 'processGraph.insufficient',
@@ -33,6 +34,10 @@ const statusKeys: Record<string, string> = {
   invalid: 'processGraph.invalidAnchor',
   not_found: 'processGraph.notFound',
 };
+
+function isActiveRun(status: string | undefined) {
+  return status === 'planning' || status === 'ready';
+}
 
 export default function ProcessGraphsPage() {
   const { project, locale } = useProject();
@@ -58,7 +63,7 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
   });
   const anchor = mode === 'keyword' ? keyword.trim() : term?.id;
   const invalid = result?.status === 'invalid';
-  const running = result?.status === 'preparing' || result?.status === 'ready';
+  const running = result?.status === 'preparing' || isActiveRun(result?.status);
 
   const readLatest = useCallback(() => {
     reader.current?.abort();
@@ -85,7 +90,7 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
               latestProcessGraphRun ??
               (previous?.status === 'unavailable' && !('run' in previous) ? previous : null),
           );
-          if (latestProcessGraphRun?.status !== 'ready') return;
+          if (!isActiveRun(latestProcessGraphRun?.status)) return;
         }
       } catch {
         if (controller.signal.aborted) return;
@@ -171,7 +176,7 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
       if (!submission.current.isCurrent(requestVersion)) return;
       const stale = changed();
       setResult(stale ? { status: 'stale' } : response);
-      if (stale || response.status === 'ready') readLatest();
+      if (stale || isActiveRun(response.status)) readLatest();
     } catch {
       if (!submission.current.isCurrent(requestVersion)) return;
       setResult({ status: changed() ? 'stale' : 'unavailable' });

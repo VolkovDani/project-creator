@@ -61,10 +61,6 @@ func (s *chatSummary) GenerateProcessGraph(ctx context.Context, req processgraph
 	if err != nil {
 		return empty, err
 	}
-	input := struct {
-		Anchor  processgraph.Anchor `json:"anchor"`
-		Sources []graphSource       `json:"sources"`
-	}{Anchor: req.Anchor, Sources: make([]graphSource, 0, len(req.Sources))}
 	prompt := processGraphPrompt
 	if len(req.Sources) > 0 {
 		policy := s.languages.forSource(req.Sources[0].Text)
@@ -73,47 +69,7 @@ func (s *chatSummary) GenerateProcessGraph(ctx context.Context, req processgraph
 		}
 	}
 	prompt += " Maximum relations: " + strconv.Itoa(edgeLimit) + "."
-	messages := []map[string]string{
-		{"role": "system", "content": prompt},
-		{"role": "user", "content": ""},
-	}
-	citations := []processgraph.SuggestedEvidence{{}}
-
-	// Send complete originals as numbered passages. Citations are copied by
-	// the server so the model need only emit short passage references.
-	for i, src := range req.Sources {
-		source := graphSource{Number: i + 1}
-		previousCount := len(citations)
-		offset := 0
-		for _, part := range explanationPassages(src.Text)[1:] {
-			source.Parts = append(source.Parts, graphPart{Number: len(citations), Text: part})
-			trimmed := strings.TrimLeftFunc(part, unicode.IsSpace)
-			start := offset + utf8.RuneCountInString(part[:len(part)-len(trimmed)])
-			citations = append(citations, processgraph.SuggestedEvidence{
-				Source: source.Number, Quote: strings.TrimSpace(trimmed), Start: &start,
-			})
-			offset += utf8.RuneCountInString(part)
-		}
-		input.Sources = append(input.Sources, source)
-		encoded, err := json.Marshal(input)
-		if err != nil {
-			return empty, err
-		}
-		trial := []map[string]string{messages[0], {"role": "user", "content": string(encoded)}}
-		if !summaryRequestFits(trial, len(schemaBytes)) {
-			input.Sources = input.Sources[:i]
-			citations = citations[:previousCount]
-			break
-		}
-		messages = trial
-	}
-	if len(input.Sources) == 0 {
-		return empty, ErrSummaryInputTooLong
-	}
-	if err := s.verify(ctx); err != nil {
-		return empty, err
-	}
-	content, err := s.complete(ctx, messages, schema)
+	input, content, err := s.completeProcessGraph(ctx, req, prompt, schema, len(schemaBytes))
 	if err != nil {
 		return empty, err
 	}
@@ -126,7 +82,7 @@ func (s *chatSummary) GenerateProcessGraph(ctx context.Context, req processgraph
 	if err := s.verify(ctx); err != nil {
 		return empty, err
 	}
-	result := processgraph.Suggestion{UsedSources: len(input.Sources), Partial: len(answer.Relations) >= edgeLimit}
+	result := processgraph.Suggestion{UsedSources: input.sourceCount, Partial: input.partial || len(answer.Relations) >= edgeLimit}
 	nodeIDs := map[[2]string]string{}
 	node := func(kind, label string) string {
 		label = strings.TrimSpace(label)
@@ -142,11 +98,11 @@ func (s *chatSummary) GenerateProcessGraph(ctx context.Context, req processgraph
 	for _, relation := range answer.Relations[:min(edgeLimit, len(answer.Relations))] {
 		var evidence []processgraph.SuggestedEvidence
 		for _, number := range relation.Parts {
-			if number < 1 || number >= len(citations) {
+			if number < 1 || number >= len(input.citations) {
 				evidence = nil
 				break
 			}
-			evidence = append(evidence, citations[number])
+			evidence = append(evidence, input.citations[number])
 		}
 		if len(evidence) == 0 {
 			continue
@@ -157,6 +113,109 @@ func (s *chatSummary) GenerateProcessGraph(ctx context.Context, req processgraph
 		})
 	}
 	return result, nil
+}
+
+// The managed profile tokenizes the rendered chat, including its schema.
+// Keep the first request small and let the same runtime settle borderline cases.
+const managedProcessGraphBytes = 6500
+
+type processGraphInput struct {
+	messages    []map[string]string
+	citations   []processgraph.SuggestedEvidence
+	sourceCount int
+	partial     bool
+}
+
+func (s *chatSummary) completeProcessGraph(ctx context.Context, req processgraph.Request, prompt string, schema map[string]any, schemaBytes int) (processGraphInput, string, error) {
+	partLimit := 0
+	for attempt := 0; ; attempt++ {
+		input, err := prepareProcessGraph(req, prompt, schemaBytes, s.managedNPU, partLimit)
+		if err != nil {
+			return input, "", err
+		}
+		if attempt == 0 {
+			if err := s.verify(ctx); err != nil {
+				return input, "", err
+			}
+		}
+		content, err := s.complete(ctx, input.messages, schema)
+		parts := len(input.citations) - 1
+		if !s.managedNPU || !errors.Is(err, npuFailure("NPU_UNAVAILABLE")) ||
+			ctx.Err() != nil || parts <= 1 || attempt >= 2 {
+			return input, content, err
+		}
+		partLimit = parts / 2
+		if attempt == 1 {
+			partLimit = 1
+		}
+	}
+}
+
+func prepareProcessGraph(req processgraph.Request, prompt string, schemaBytes int, managed bool, partLimit int) (processGraphInput, error) {
+	result := processGraphInput{
+		messages:  []map[string]string{{"role": "system", "content": prompt}, {"role": "user", "content": ""}},
+		citations: []processgraph.SuggestedEvidence{{}},
+	}
+	input := struct {
+		Anchor  processgraph.Anchor `json:"anchor"`
+		Sources []graphSource       `json:"sources"`
+	}{Anchor: req.Anchor, Sources: make([]graphSource, 0, len(req.Sources))}
+	for i, src := range req.Sources {
+		parts := explanationPassages(src.Text)[1:]
+		kept := len(parts)
+		if partLimit > 0 {
+			kept = min(kept, partLimit-(len(result.citations)-1))
+		}
+		source := graphSource{Number: i + 1}
+		for j, part := range parts[:kept] {
+			source.Parts = append(source.Parts, graphPart{Number: len(result.citations) + j, Text: part})
+		}
+		for kept > 0 {
+			source.Parts = source.Parts[:kept]
+			input.Sources = append(input.Sources, source)
+			encoded, err := json.Marshal(input)
+			if err != nil {
+				return result, err
+			}
+			trial := []map[string]string{result.messages[0], {"role": "user", "content": string(encoded)}}
+			if graphRequestFits(trial, schemaBytes, managed) {
+				result.messages = trial
+				result.sourceCount++
+				break
+			}
+			input.Sources = input.Sources[:i]
+			if !managed {
+				kept = 0
+				break
+			}
+			kept /= 2
+		}
+		offset := 0
+		for _, part := range parts[:kept] {
+			trimmed := strings.TrimLeftFunc(part, unicode.IsSpace)
+			start := offset + utf8.RuneCountInString(part[:len(part)-len(trimmed)])
+			result.citations = append(result.citations, processgraph.SuggestedEvidence{
+				Source: source.Number, Quote: strings.TrimSpace(trimmed), Start: &start,
+			})
+			offset += utf8.RuneCountInString(part)
+		}
+		if kept < len(parts) || kept == 0 {
+			result.partial = true
+			break
+		}
+	}
+	if result.sourceCount == 0 {
+		return result, ErrSummaryInputTooLong
+	}
+	return result, nil
+}
+
+func graphRequestFits(messages []map[string]string, schemaBytes int, managed bool) bool {
+	if !managed {
+		return summaryRequestFits(messages, schemaBytes)
+	}
+	encoded, err := json.Marshal(messages)
+	return err == nil && len(encoded)+schemaBytes <= managedProcessGraphBytes
 }
 
 func processGraphSchema(edgeLimit int) map[string]any {

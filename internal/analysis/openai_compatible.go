@@ -113,6 +113,15 @@ func NewSummaryOpenAICompatible(baseURL, model, key, allowedLanguages string) (*
 	}
 	spec := compatibleProvenance(client, "openai-compatible-summary-v1")
 	managedNPU := managedNPUModelID.MatchString(model)
+	if managedNPU {
+		// The runtime can report an overlong prompt with this same sanitized code.
+		client = client.WithErrorCodes(func(status int, code string) error {
+			if code == "NPU_UNAVAILABLE" && npuFailureStatus(code) == status {
+				return npuFailure(code)
+			}
+			return nil
+		})
+	}
 	schemaFor := func(pattern string) map[string]any {
 		schema := compatibleSchema(summaryResponseSchema(pattern))
 		if managedNPU && pattern != "" {

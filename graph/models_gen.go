@@ -269,6 +269,11 @@ type BuildProcessGraphInput struct {
 	TermId    *graphql.ID
 	Keyword   *string
 }
+type ProcessGraphBatchInput struct {
+	ProjectId graphql.ID
+	RunId     graphql.ID
+	Revision  int32
+}
 type ProcessGraphNode struct {
 	ID    graphql.ID
 	Kind  string
@@ -296,6 +301,19 @@ type ProcessGraphDraft struct {
 }
 type ProcessGraphPayload struct {
 	Status      string
+	Draft       *ProcessGraphDraft
+	FieldErrors []*FieldError
+}
+type ProcessGraphRun struct {
+	ID        graphql.ID
+	Revision  int32
+	Completed int32
+	Total     int32
+	Failed    int32
+}
+type ProcessGraphRunPayload struct {
+	Status      string
+	Run         *ProcessGraphRun
 	Draft       *ProcessGraphDraft
 	FieldErrors []*FieldError
 }
@@ -502,6 +520,12 @@ type ProjectsConnectionArgs struct {
 }
 type BuildProcessGraphArgs struct {
 	Input BuildProcessGraphInput
+}
+type StartProcessGraphArgs struct {
+	Input BuildProcessGraphInput
+}
+type ProcessGraphBatchArgs struct {
+	Input ProcessGraphBatchInput
 }
 type SaveExternalProposalArgs struct {
 	Input SaveExternalProposalInput

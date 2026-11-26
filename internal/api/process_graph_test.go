@@ -36,22 +36,24 @@ func TestProcessGraphRequiresProjectAccess(t *testing.T) {
 		{"no sources", "token-a", `projectId:"q",keyword:"ГП"`, "no_sources"},
 		{"conflicting anchors", "token-a", `projectId:"p",termId:"t",keyword:"ГП"`, "invalid"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			out := summaryRequest(t, server, tc.token, `mutation { buildProcessGraph(input:{`+tc.input+`}){ status draft { sourceCount } fieldErrors { path code messageKey params { key value } } } }`)
-			if out["errors"] != nil {
-				t.Fatal(out)
-			}
-			got := out["data"].(map[string]any)["buildProcessGraph"].(map[string]any)
-			if got["status"] != tc.status || got["draft"] != nil {
-				t.Fatalf("expected %s and no draft, got %v", tc.status, got)
-			}
-			if tc.status == "invalid" {
-				fields := got["fieldErrors"].([]any)
-				if len(fields) != 1 || fields[0].(map[string]any)["messageKey"] != "processGraph.invalidAnchor" {
-					t.Fatalf("expected invalid anchor field error, got %v", got)
+		for _, mutation := range []string{"buildProcessGraph", "startProcessGraph"} {
+			t.Run(mutation+"/"+tc.name, func(t *testing.T) {
+				out := summaryRequest(t, server, tc.token, `mutation { `+mutation+`(input:{`+tc.input+`}){ status draft { sourceCount } fieldErrors { path code messageKey params { key value } } } }`)
+				if out["errors"] != nil {
+					t.Fatal(out)
 				}
-			}
-		})
+				got := out["data"].(map[string]any)[mutation].(map[string]any)
+				if got["status"] != tc.status || got["draft"] != nil {
+					t.Fatalf("expected %s and no draft, got %v", tc.status, got)
+				}
+				if tc.status == "invalid" {
+					fields := got["fieldErrors"].([]any)
+					if len(fields) != 1 || fields[0].(map[string]any)["messageKey"] != "processGraph.invalidAnchor" {
+						t.Fatalf("expected invalid anchor field error, got %v", got)
+					}
+				}
+			})
+		}
 	}
 }
 

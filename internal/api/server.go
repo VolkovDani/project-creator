@@ -115,7 +115,12 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 	}
 	definitions, _ := cfg.Summarizer.(glossary.DefinitionGenerator)
 	processGraphs, _ := cfg.Summarizer.(processgraph.Generator)
-	schema, err := graphql.ParseSchema(graph.Schema, &graph.Resolver{DB: db, Proposals: proposal.New(db), Classifications: classifications, Explanations: explanation.New(db, explainer), RAG: retriever, Analysis: analyzer, Summaries: summaries, Definitions: definitions, ProcessGraphs: processGraphs}, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
+	resolver := &graph.Resolver{
+		DB: db, Proposals: proposal.New(db), Classifications: classifications, Explanations: explanation.New(db, explainer),
+		RAG: retriever, Analysis: analyzer, Summaries: summaries, Definitions: definitions,
+		ProcessGraphs: processGraphs, ProcessGraphRuns: processgraph.NewRunStore(processGraphs),
+	}
+	schema, err := graphql.ParseSchema(graph.Schema, resolver, graphql.UseFieldResolvers(), graphql.MaxDepth(8), graphql.MaxParallelism(10))
 	if err != nil {
 		analyzer.Close()
 		summaries.Close()

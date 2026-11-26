@@ -40,15 +40,16 @@ func WithWorkspace(ctx context.Context, workspace string) context.Context {
 func workspace(ctx context.Context) string { v, _ := ctx.Value(workspaceKey{}).(string); return v }
 
 type Resolver struct {
-	ProcessGraphs   processgraph.Generator
-	Proposals       *proposal.Service
-	Explanations    *explanation.Service
-	Classifications *classification.Service
-	Definitions     glossary.DefinitionGenerator
-	Summaries       *summary.Service
-	DB              *sql.DB
-	RAG             *rag.Service
-	Analysis        *analysis.Service
+	ProcessGraphRuns *processgraph.RunStore
+	ProcessGraphs    processgraph.Generator
+	Proposals        *proposal.Service
+	Explanations     *explanation.Service
+	Classifications  *classification.Service
+	Definitions      glossary.DefinitionGenerator
+	Summaries        *summary.Service
+	DB               *sql.DB
+	RAG              *rag.Service
+	Analysis         *analysis.Service
 }
 
 func (r *Resolver) CreateProject(ctx context.Context, args CreateProjectArgs) (*CreateProjectPayload, error) {

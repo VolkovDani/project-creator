@@ -50,7 +50,24 @@ type graphRelation struct {
 }
 
 func (s *chatSummary) GenerateProcessGraph(ctx context.Context, req processgraph.Request) (processgraph.Suggestion, error) {
-	empty := processgraph.Suggestion{}
+	output, err := s.processGraphOutput()
+	if err != nil {
+		return processgraph.Suggestion{}, err
+	}
+	prompt := s.processGraphPrompt(req, output.edgeLimit)
+	input, content, err := s.completeProcessGraph(ctx, req, prompt, output.schema, output.schemaBytes)
+	if err != nil {
+		return processgraph.Suggestion{}, err
+	}
+	return s.decodeProcessGraph(ctx, input, content, output.edgeLimit)
+}
+
+type processGraphOutput struct {
+	schema                 map[string]any
+	schemaBytes, edgeLimit int
+}
+
+func (s *chatSummary) processGraphOutput() (processGraphOutput, error) {
 	edgeLimit := processgraph.MaxEdges
 	if s.managedNPU {
 		// The deployment can cap output below the requested completion budget.
@@ -58,9 +75,10 @@ func (s *chatSummary) GenerateProcessGraph(ctx context.Context, req processgraph
 	}
 	schema := processGraphSchema(edgeLimit)
 	schemaBytes, err := json.Marshal(schema)
-	if err != nil {
-		return empty, err
-	}
+	return processGraphOutput{schema: schema, schemaBytes: len(schemaBytes), edgeLimit: edgeLimit}, err
+}
+
+func (s *chatSummary) processGraphPrompt(req processgraph.Request, edgeLimit int) string {
 	prompt := processGraphPrompt
 	if len(req.Sources) > 0 {
 		policy := s.languages.forSource(req.Sources[0].Text)
@@ -68,11 +86,11 @@ func (s *chatSummary) GenerateProcessGraph(ctx context.Context, req processgraph
 			prompt = processGraphPromptRU
 		}
 	}
-	prompt += " Maximum relations: " + strconv.Itoa(edgeLimit) + "."
-	input, content, err := s.completeProcessGraph(ctx, req, prompt, schema, len(schemaBytes))
-	if err != nil {
-		return empty, err
-	}
+	return prompt + " Maximum relations: " + strconv.Itoa(edgeLimit) + "."
+}
+
+func (s *chatSummary) decodeProcessGraph(ctx context.Context, input processGraphInput, content string, edgeLimit int) (processgraph.Suggestion, error) {
+	empty := processgraph.Suggestion{}
 	var answer struct {
 		Relations []graphRelation `json:"r"`
 	}
@@ -129,7 +147,7 @@ type processGraphInput struct {
 func (s *chatSummary) completeProcessGraph(ctx context.Context, req processgraph.Request, prompt string, schema map[string]any, schemaBytes int) (processGraphInput, string, error) {
 	partLimit := 0
 	for attempt := 0; ; attempt++ {
-		input, err := prepareProcessGraph(req, prompt, schemaBytes, s.managedNPU, partLimit)
+		input, err := prepareProcessGraph(req, prompt, schemaBytes, s.managedNPU, partLimit, true)
 		if err != nil {
 			return input, "", err
 		}
@@ -151,7 +169,7 @@ func (s *chatSummary) completeProcessGraph(ctx context.Context, req processgraph
 	}
 }
 
-func prepareProcessGraph(req processgraph.Request, prompt string, schemaBytes int, managed bool, partLimit int) (processGraphInput, error) {
+func prepareProcessGraph(req processgraph.Request, prompt string, schemaBytes int, managed bool, partLimit int, allowPartial bool) (processGraphInput, error) {
 	result := processGraphInput{
 		messages:  []map[string]string{{"role": "system", "content": prompt}, {"role": "user", "content": ""}},
 		citations: []processgraph.SuggestedEvidence{{}},
@@ -184,7 +202,7 @@ func prepareProcessGraph(req processgraph.Request, prompt string, schemaBytes in
 				break
 			}
 			input.Sources = input.Sources[:i]
-			if !managed {
+			if !managed || !allowPartial {
 				kept = 0
 				break
 			}

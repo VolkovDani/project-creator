@@ -608,7 +608,7 @@
   "processGraph.planning": "Планируем порции для графа…",
   "processGraph.preparing": "Подбираем требования для графа…",
   "processGraph.topic": "Тема графа — {topic}",
-  "processGraph.loadFailed": "Не удалось получить последний граф процесса. Повторяем запрос…",
+  "processGraph.loadFailed": "Не удалось получить последний граф процесса.",
   "processGraph.activeBatch": "Обрабатываем порцию {batch} из {total}…",
   "processGraph.completedBatches": "Завершено {completed} из {total}.",
   "processGraph.failedBatches": "Порций с ошибками — {failed}.",

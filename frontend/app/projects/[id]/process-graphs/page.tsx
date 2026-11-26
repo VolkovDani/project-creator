@@ -9,7 +9,11 @@ import {
 } from '../../../../lib/generated';
 import { fieldErrorMessage, type Locale, t } from '../../../../lib/i18n';
 import { Latest } from '../../../../lib/latest';
-import { useInvalidation } from '../../../../lib/live';
+import {
+  type ProcessGraphProgress,
+  useInvalidation,
+  useProcessGraphProgress,
+} from '../../../../lib/live';
 import { useProject } from '../ProjectShell';
 import { ProcessGraph } from './ProcessGraph';
 import { ProcessGraphGlossary } from './ProcessGraphGlossary';
@@ -21,12 +25,14 @@ type Result =
 type Term = { id: string; name: string };
 
 const pendingStarts = new Map<string, Promise<ProcessGraphRunFieldsFragment>>();
-const pollInterval = 2000;
+const startKeyForProject = (projectId: string) =>
+  JSON.stringify([clientSessionVersion(), projectId]);
 const statusKeys: Record<string, string> = {
   preparing: 'processGraph.preparing',
   planning: 'processGraph.planning',
   load_failed: 'processGraph.loadFailed',
   ready: 'processGraph.activeBatch',
+  suggested: 'processGraph.ready',
   insufficient: 'processGraph.insufficient',
   no_sources: 'processGraph.noSources',
   unavailable: 'processGraph.unavailable',
@@ -37,6 +43,25 @@ const statusKeys: Record<string, string> = {
 
 function isActiveRun(status: string | undefined) {
   return status === 'planning' || status === 'ready';
+}
+
+type RunOrder = { current?: string; revisions: Map<string, number>; pushes: number };
+
+function rememberRun(order: RunOrder, run: ProcessGraphProgress['run'], pushed = false) {
+  const revision = order.revisions.get(run.id);
+  if (
+    revision !== undefined &&
+    (run.id !== order.current || run.revision < revision || (pushed && revision === run.revision))
+  )
+    return false;
+  order.current = run.id;
+  order.revisions.set(run.id, run.revision);
+  if (order.revisions.size > 32) {
+    const oldest = order.revisions.keys().next().value;
+    if (oldest !== undefined) order.revisions.delete(oldest);
+  }
+  if (pushed) order.pushes++;
+  return true;
 }
 
 export default function ProcessGraphsPage() {
@@ -51,7 +76,7 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
   const [result, setResult] = useState<Result | null>();
   const reader = useRef<AbortController | null>(null);
   const submission = useRef(new Latest());
-  const startKey = JSON.stringify([clientSessionVersion(), projectId]);
+  const order = useRef<RunOrder>({ revisions: new Map(), pushes: 0 });
   const glossaryTag = `project:${projectId}:glossary`;
   const tags = useMemo(
     () => [`project:${projectId}`, `project:${projectId}:requirements`, glossaryTag],
@@ -63,53 +88,67 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
   });
   const anchor = mode === 'keyword' ? keyword.trim() : term?.id;
   const invalid = result?.status === 'invalid';
-  const running = result?.status === 'preparing' || isActiveRun(result?.status);
+  const loadingDraft = result?.status === 'suggested' && 'draft' in result && !result.draft;
+  const running = result?.status === 'preparing' || isActiveRun(result?.status) || loadingDraft;
 
   const readLatest = useCallback(() => {
     reader.current?.abort();
     const controller = new AbortController();
     reader.current = controller;
-    let timer: ReturnType<typeof setTimeout>;
-    controller.signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
-    async function poll() {
+    let retried = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    controller.signal.addEventListener('abort', () => clearTimeout(retry), { once: true });
+    async function load() {
       if (controller.signal.aborted) return;
       const { generation, revision } = clientCache;
+      const pushes = order.current.pushes;
+      const isCurrent = () =>
+        !controller.signal.aborted &&
+        generation === clientCache.generation &&
+        !clientCache.invalidatedSince(revision, tags);
       try {
         const { latestProcessGraphRun } = await query(
           LatestProcessGraphRunDocument,
           { projectId },
           { cache: false, signal: controller.signal },
         );
-        if (controller.signal.aborted) return;
-        if (
-          generation === clientCache.generation &&
-          !clientCache.invalidatedSince(revision, tags)
-        ) {
-          setResult(
-            (previous) =>
-              latestProcessGraphRun ??
-              (previous?.status === 'unavailable' && !('run' in previous) ? previous : null),
-          );
-          if (!isActiveRun(latestProcessGraphRun?.status)) return;
+        if (!isCurrent()) return;
+        const run = latestProcessGraphRun?.run;
+        if (pushes !== order.current.pushes && order.current.current !== run?.id) return;
+        if (run && !rememberRun(order.current, run)) return;
+        setResult(
+          (previous) =>
+            latestProcessGraphRun ??
+            (previous?.status === 'unavailable' && !('run' in previous) ? previous : null),
+        );
+      } catch (error) {
+        if (!isCurrent() || (error instanceof Error && error.message === 'unauthorized')) return;
+        if (!retried) {
+          retried = true;
+          retry = setTimeout(() => {
+            if (isCurrent()) void load();
+          }, 400);
+          return;
         }
-      } catch {
-        if (controller.signal.aborted) return;
         setResult((previous) =>
-          !previous || previous.status === 'preparing' ? { status: 'load_failed' } : previous,
+          !previous ||
+          previous.status === 'preparing' ||
+          (previous.status === 'suggested' && 'draft' in previous && !previous.draft)
+            ? { status: 'load_failed' }
+            : previous,
         );
       }
-      timer = setTimeout(poll, pollInterval);
     }
 
     // A route opened during source selection can observe the same in-flight start.
-    const pending = pendingStarts.get(startKey);
+    const pending = pendingStarts.get(startKeyForProject(projectId));
     if (pending) {
-      setResult({ status: 'preparing' });
-      void pending.then(poll, poll);
+      setResult((previous) => previous ?? { status: 'preparing' });
+      void pending.then(load, load);
     } else {
-      void poll();
+      void load();
     }
-  }, [projectId, startKey, tags]);
+  }, [projectId, tags]);
 
   useInvalidation(
     tags,
@@ -127,11 +166,24 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
       readLatest();
     },
     () => {
+      reader.current?.abort();
+      order.current = { revisions: new Map(), pushes: 0 };
       setResult(undefined);
       setKeyword('');
       setTerm(undefined);
       setMode('keyword');
     },
+  );
+
+  useProcessGraphProgress(
+    projectId,
+    tags,
+    (progress) => {
+      if (!rememberRun(order.current, progress.run, true)) return;
+      setResult({ ...progress, draft: null, fieldErrors: [] });
+      if (progress.status === 'suggested') readLatest();
+    },
+    readLatest,
   );
 
   useEffect(() => {
@@ -151,10 +203,12 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
 
   async function build(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const startKey = startKeyForProject(projectId);
     if (!anchor || result === undefined || running || pendingStarts.has(startKey)) return;
     reader.current?.abort();
     const requestVersion = submission.current.begin();
     const { generation, revision } = clientCache;
+    const pushes = order.current.pushes;
     const changed = () =>
       generation !== clientCache.generation || clientCache.invalidatedSince(revision, tags);
     setResult({ status: 'preparing' });
@@ -174,13 +228,20 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
     try {
       const response = await pending;
       if (!submission.current.isCurrent(requestVersion)) return;
-      const stale = changed();
-      setResult(stale ? { status: 'stale' } : response);
-      if (stale || isActiveRun(response.status)) readLatest();
+      if (changed()) {
+        setResult({ status: 'stale' });
+        readLatest();
+        return;
+      }
+      if (pushes !== order.current.pushes && order.current.current !== response.run?.id) return;
+      if (response.run && !rememberRun(order.current, response.run)) return;
+      setResult(response);
     } catch {
       if (!submission.current.isCurrent(requestVersion)) return;
-      setResult({ status: changed() ? 'stale' : 'unavailable' });
-      readLatest();
+      if (changed() || pushes === order.current.pushes) {
+        setResult({ status: changed() ? 'stale' : 'unavailable' });
+        readLatest();
+      }
     }
   }
 
@@ -188,7 +249,7 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
   const fieldError = invalid && 'fieldErrors' in result ? result.fieldErrors[0] : undefined;
   const statusKey =
     result &&
-    (draft ? 'processGraph.ready' : (statusKeys[result.status] ?? 'processGraph.unavailable'));
+    (loadingDraft ? 'app.loading' : (statusKeys[result.status] ?? 'processGraph.unavailable'));
   const progress = result && result.status !== 'stale' && 'run' in result ? result.run : undefined;
   const activeBatch = result?.status === 'ready' && progress;
 

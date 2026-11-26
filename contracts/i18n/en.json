@@ -608,7 +608,7 @@
   "processGraph.planning": "Planning graph batches…",
   "processGraph.preparing": "Finding requirements for the graph…",
   "processGraph.topic": "Graph topic — {topic}",
-  "processGraph.loadFailed": "Could not load the latest process graph. Retrying…",
+  "processGraph.loadFailed": "Could not load the latest process graph.",
   "processGraph.activeBatch": "Processing batch {batch} of {total}…",
   "processGraph.completedBatches": "Completed {completed} of {total} batches.",
   "processGraph.failedBatches": "Failed batches — {failed}.",

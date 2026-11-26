@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 import type { ProcessGraphRunFieldsFragment } from '../lib/generated';
 
 const nodes = [
@@ -60,6 +60,52 @@ const draft = {
   partial: true,
 };
 
+type StreamWindow = Window & {
+  graphPush: (frame: string) => void;
+  graphClose: () => void;
+  graphConnections: Array<string | null>;
+};
+
+async function mockStream(page: Page) {
+  await page.addInitScript(() => {
+    let active: ReadableStreamDefaultController<Uint8Array>;
+    const target = window as unknown as StreamWindow;
+    target.graphConnections = [];
+    const original = window.fetch;
+    window.fetch = (input, init) => {
+      if (String(input) !== '/api/events') return original(input, init);
+      target.graphConnections.push(new Headers(init?.headers).get('Last-Event-ID'));
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          active = controller;
+        },
+      });
+      return Promise.resolve(
+        new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+      );
+    };
+    target.graphPush = (frame) => active.enqueue(new TextEncoder().encode(frame));
+    target.graphClose = () => active.close();
+  });
+}
+
+async function pushProgress(
+  page: Page,
+  { status, run }: ProcessGraphRunFieldsFragment,
+  projectId = 'demo',
+) {
+  await page.evaluate(
+    (payload) =>
+      (window as unknown as StreamWindow).graphPush(
+        `event: process_graph.progress
+data: ${JSON.stringify(payload)}
+
+`,
+      ),
+    { schemaVersion: 1, projectId, status, run },
+  );
+}
+
 test('a graph continues in the background and restores progress and cited results', async ({
   page,
 }) => {
@@ -67,9 +113,9 @@ test('a graph continues in the background and restores progress and cited result
   const batches: unknown[] = [];
   const latestReads: unknown[] = [];
   const preparation = Promise.withResolvers<void>();
-  const invalidation = Promise.withResolvers<void>();
   let failNextRead = false;
   let failedReads = 0;
+  let latestReadGate: ReturnType<typeof Promise.withResolvers<void>> | undefined;
   let latest: ProcessGraphRunFieldsFragment | null = null;
   function snapshot(
     id: string,
@@ -87,13 +133,7 @@ test('a graph continues in the background and restores progress and cited result
     };
   }
 
-  await page.route('**/api/events', async (route) => {
-    await invalidation.promise;
-    const body =
-      'id: 17\nevent: cache.invalidate\ndata: {"schemaVersion":1,"keys":["project:demo:requirements"]}\n\n';
-    // A reload can disconnect an earlier stream. The client deduplicates the replay.
-    await route.fulfill({ contentType: 'text/event-stream', body }).catch(() => {});
-  });
+  await mockStream(page);
   await page.route('**/api/graphql', async (route) => {
     const { operationName, variables } = route.request().postDataJSON();
     const pageInfo = { hasNextPage: false, endCursor: null };
@@ -145,6 +185,11 @@ test('a graph continues in the background and restores progress and cited result
           return;
         }
         data = { latestProcessGraphRun: latest };
+        if (latestReadGate) {
+          const gate = latestReadGate;
+          latestReadGate = undefined;
+          await gate.promise;
+        }
         break;
       case 'ProcessGraphBatch':
         batches.push(variables.input);
@@ -189,24 +234,61 @@ test('a graph continues in the background and restores progress and cited result
     await page.goBack();
     await expect(status).toContainText(planning);
     await expect(keyword).toHaveValue('');
-    latest = snapshot('run-1', 'заявка', 0, 2, 0);
+    const firstBatch = snapshot('run-1', 'заявка', 0, 2, 0);
+    const planningReads = latestReads.length;
+    await pushProgress(page, firstBatch, 'other-project');
+    await expect(status).toContainText(planning);
+    await pushProgress(page, firstBatch);
     await expect(status).toContainText('Обрабатываем порцию 1 из 2');
     await expect(status).toContainText('Завершено 0 из 2');
     await expect(build).toBeDisabled();
+    await pushProgress(page, firstBatch);
+    await pushProgress(page, snapshot('run-1', 'заявка', 0, 0, 0));
+    await expect(status).toContainText('Обрабатываем порцию 1 из 2');
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    expect(latestReads).toHaveLength(planningReads);
 
     await openOverview();
-    latest = snapshot('run-1', 'заявка', 2, 3, 1);
+    latest = snapshot('run-1', 'заявка', 1, 3, 0);
+    const beforeReentry = latestReads.length;
     failNextRead = true;
     await page.goBack();
     await expect.poll(() => failedReads).toBe(1);
-    await expect(status).toContainText('Обрабатываем порцию 3 из 3');
-    await expect(status).toContainText('Завершено 2 из 3');
-    await expect(status).toContainText('Порций с ошибками — 1');
-    await expect(status).toContainText('Тема графа — заявка');
-    await expect(keyword).toHaveValue('');
-    await expect(heading).toHaveCount(0);
+    await expect(status).toContainText('Обрабатываем порцию 2 из 3');
+    expect(latestReads).toHaveLength(beforeReentry + 2);
+    const beforeReconnect = latestReads.length;
+    latest = snapshot('run-1', 'заявка', 2, 3, 1);
+    const delayedReconnect = Promise.withResolvers<void>();
+    latestReadGate = delayedReconnect;
+    try {
+      await page.evaluate(() => {
+        const stream = window as unknown as StreamWindow;
+        stream.graphPush(
+          'id: 17\nevent: cache.invalidate\ndata: {"schemaVersion":1,"keys":["unrelated"]}\n\n',
+        );
+        stream.graphClose();
+      });
+      await expect.poll(() => latestReads.length).toBe(beforeReconnect + 1);
+      expect(
+        await page.evaluate(() => (window as unknown as StreamWindow).graphConnections),
+      ).toEqual([null, '17']);
 
-    latest = snapshot('run-1', 'заявка', 3, 3, 1);
+      await pushProgress(page, latest);
+      await expect(status).toContainText('Обрабатываем порцию 3 из 3');
+      await expect(status).toContainText('Завершено 2 из 3');
+      await expect(status).toContainText('Порций с ошибками — 1');
+      await expect(status).toContainText('Тема графа — заявка');
+      await expect(keyword).toHaveValue('');
+      await expect(heading).toHaveCount(0);
+
+      latest = snapshot('run-1', 'заявка', 3, 3, 1);
+      await pushProgress(page, latest);
+      await pushProgress(page, latest);
+      await expect(heading).toBeVisible();
+      expect(latestReads).toHaveLength(beforeReconnect + 2);
+    } finally {
+      delayedReconnect.resolve();
+    }
     await expect(heading).toBeVisible();
     await page.reload();
     await expect(heading).toBeVisible();
@@ -229,7 +311,11 @@ test('a graph continues in the background and restores progress and cited result
     );
 
     latest = { status: 'stale', run: null, draft: null, fieldErrors: [] };
-    invalidation.resolve();
+    await page.evaluate(() =>
+      (window as unknown as StreamWindow).graphPush(
+        'id: 18\nevent: cache.invalidate\ndata: {"schemaVersion":1,"keys":["project:demo:requirements"]}\n\n',
+      ),
+    );
     await expect(heading).toHaveCount(0);
     await expect(status).toContainText('Данные проекта изменились.');
 
@@ -245,6 +331,6 @@ test('a graph continues in the background and restores progress and cited result
     expect(batches).toEqual([]);
   } finally {
     preparation.resolve();
-    invalidation.resolve();
+    latestReadGate?.resolve();
   }
 });

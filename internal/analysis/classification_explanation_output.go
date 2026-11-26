@@ -14,18 +14,28 @@ import (
 )
 
 const (
-	explanationNoteMax      = 400
-	explanationQuoteMax     = 600
-	explanationReasonMax    = 800
-	explanationWordingMax   = 1200
-	explanationQuestionMax  = 300
-	explanationQuestionsMax = 4
+	explanationNoteMax               = 400
+	explanationQuoteMax              = 600
+	explanationReasonMax             = 800
+	explanationWordingMax            = 1200
+	explanationQuestionMax           = 300
+	explanationQuestionsMax          = 4
+	explanationNarrativeLimit        = 180
+	managedExplanationNarrativeLimit = 64
 )
 
 var explanationVerdicts = []string{"fits", "partial", "insufficient", "does_not_fit"}
 var explanationStatuses = []string{"present", "missing", "uncertain", "not_applicable"}
 
 func classificationExplanationSchema(meaning, form []string, locale string, lastPassage int) map[string]any {
+	return explanationSchemaForProvider(meaning, form, locale, lastPassage, false)
+}
+
+func explanationSchemaForProvider(meaning, form []string, locale string, lastPassage int, managed bool) map[string]any {
+	narrativeLimit := explanationNarrativeLimit
+	if managed {
+		narrativeLimit = managedExplanationNarrativeLimit
+	}
 	object := func(props map[string]any) map[string]any {
 		return map[string]any{"type": "object", "properties": props, "required": slices.Sorted(maps.Keys(props)), "additionalProperties": false}
 	}
@@ -35,7 +45,7 @@ func classificationExplanationSchema(meaning, form []string, locale string, last
 	narrative := func(minLen, maxLen int) map[string]any {
 		// The local grammar engine consumes the pattern when one is present.
 		// Bound it directly and keep JSON delimiters outside the narrative.
-		maxLen = min(maxLen, 180)
+		maxLen = min(maxLen, narrativeLimit)
 		field := text(minLen, maxLen)
 		alphabet := "[A-Za-z]"
 		if locale == "ru" {
@@ -49,10 +59,24 @@ func classificationExplanationSchema(meaning, form []string, locale string, last
 		return field
 	}
 	criterion := func(statuses []string) map[string]any {
+		status := map[string]any{"type": "string", "enum": statuses}
+		note := narrative(1, explanationNoteMax)
+		if managed {
+			// OpenVINO emits properties in schema order. Decide if the
+			// criterion is present before choosing a passage number.
+			properties := struct {
+				Status   map[string]any `json:"status"`
+				Evidence map[string]any `json:"evidence"`
+				Note     map[string]any `json:"note"`
+			}{status, map[string]any{"type": "integer"}, note}
+			return map[string]any{
+				"type": "object", "properties": properties, "required": []string{"status", "evidence", "note"}, "additionalProperties": false,
+			}
+		}
 		return object(map[string]any{
-			"status":   map[string]any{"type": "string", "enum": statuses},
+			"status":   status,
 			"evidence": map[string]any{"type": "integer", "minimum": 0, "maximum": lastPassage},
-			"note":     narrative(1, explanationNoteMax),
+			"note":     note,
 		})
 	}
 	axis := func(keys []string) map[string]any {
@@ -67,8 +91,12 @@ func classificationExplanationSchema(meaning, form []string, locale string, last
 		return object(map[string]any{"verdict": map[string]any{"type": "string", "enum": explanationVerdicts},
 			"reason": narrative(1, explanationReasonMax), "criteria": object(checklist)})
 	}
+	questionsMax := explanationQuestionsMax
+	if managed {
+		questionsMax = 2
+	}
 	return object(map[string]any{"content": axis(meaning), "form": axis(form), "limitations": narrative(1, explanationReasonMax),
-		"wording": narrative(0, explanationWordingMax), "questions": map[string]any{"type": "array", "maxItems": explanationQuestionsMax, "items": narrative(1, explanationQuestionMax)}})
+		"wording": narrative(0, explanationWordingMax), "questions": map[string]any{"type": "array", "maxItems": questionsMax, "items": narrative(1, explanationQuestionMax)}})
 }
 
 // Each nonzero index identifies one contiguous source passage. Keep separators
@@ -119,8 +147,8 @@ type explanationOutputAxis struct {
 	Criteria map[string]explanationOutputCriterion `json:"criteria"`
 }
 
-func (axis explanationOutputAxis) assessment(passages []string, category, locale string) (explanation.Assessment, error) {
-	keys := explanationCriteria[category]
+func (axis explanationOutputAxis) assessment(passages []string, category, locale string, managed bool) (explanation.Assessment, error) {
+	keys := explanationCriterionKeys(category, managed)
 	if len(keys) == 0 || len(axis.Criteria) != len(keys) || !slices.Contains(explanationVerdicts, axis.Verdict) || !explanationNarrative(axis.Reason, locale, 1, explanationReasonMax) {
 		return explanation.Assessment{}, errClassificationOutput
 	}
@@ -152,6 +180,10 @@ func (axis explanationOutputAxis) assessment(passages []string, category, locale
 }
 
 func decodeClassificationExplanation(content, source string, target explanation.Target, passages []string) (explanation.Result, error) {
+	return decodeExplanationForProvider(content, source, target, passages, false)
+}
+
+func decodeExplanationForProvider(content, source string, target explanation.Target, passages []string, managed bool) (explanation.Result, error) {
 	empty := explanation.Result{}
 	var raw struct {
 		Meaning     explanationOutputAxis `json:"content"`
@@ -171,11 +203,11 @@ func decodeClassificationExplanation(content, source string, target explanation.
 			return empty, errClassificationOutput
 		}
 	}
-	meaning, err := raw.Meaning.assessment(passages, target.Semantic, target.Locale)
+	meaning, err := raw.Meaning.assessment(passages, target.Semantic, target.Locale, managed)
 	if err != nil {
 		return empty, err
 	}
-	form, err := raw.Form.assessment(passages, target.Representation, target.Locale)
+	form, err := raw.Form.assessment(passages, target.Representation, target.Locale, managed)
 	if err != nil {
 		return empty, err
 	}

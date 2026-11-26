@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
+	"net/url"
 	"regexp"
 
 	"github.com/VolkovDani/project-creator/internal/oaicompat"
@@ -15,6 +17,7 @@ type OpenAICompatible struct {
 	schema              map[string]any
 	profile, provenance string
 	managedNPU          bool
+	localManagedNPU     bool
 }
 
 const chatCompletionTokens = 1024
@@ -58,13 +61,26 @@ func NewOpenAICompatible(baseURL, model, key string) (*OpenAICompatible, error) 
 		spec := compatibleProvenance(client, "openai-compatible-managed-npu-pair-v1")
 		spec.Parameters["userMessageEncoding"] = "python-json-ensure-ascii-false-v1"
 		provenance, profile := npuPairProvenance(spec)
-		return &OpenAICompatible{client: client, profile: profile, provenance: provenance, managedNPU: true}, nil
+		return &OpenAICompatible{
+			client: client, profile: profile, provenance: provenance,
+			managedNPU: true, localManagedNPU: localModelManagerURL(baseURL),
+		}, nil
 	}
 	spec := compatibleProvenance(client, "openai-compatible-pair-v1")
 	spec.ResponseSchema = compatibleSchema(findingSchema())
 	spec.SystemPrompt = systemPrompt
 	provenance, profile := encodePairProvenance(spec, alphabetRetryInstruction)
 	return &OpenAICompatible{client: client, schema: spec.ResponseSchema, profile: profile, provenance: provenance}, nil
+}
+
+func localModelManagerURL(base string) bool {
+	u, err := url.Parse(base)
+	if err != nil || u.Scheme != "http" || (u.EscapedPath() != "/v1" && u.EscapedPath() != "/v1/") {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || net.ParseIP(host).IsLoopback() ||
+		(host == "models-configurator" && u.Port() == "8317")
 }
 
 func (g *OpenAICompatible) Profile() string    { return g.profile }

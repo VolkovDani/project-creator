@@ -6,6 +6,9 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/VolkovDani/project-creator/internal/classification"
+	"github.com/VolkovDani/project-creator/internal/explanation"
 )
 
 // Explicit opt-in hardware/quality probe. Never runs in ordinary CI and does not
@@ -35,6 +38,43 @@ func TestManagedOpenVINORealNPUSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkNPUComparisonFixtures(t, generator)
+}
+
+func TestManagedNPURealClassificationExplanation(t *testing.T) {
+	if os.Getenv("MANAGED_NPU_REAL_SMOKE") != "1" {
+		t.Skip("explicit MANAGED_NPU_REAL_SMOKE=1 and a prepared manager required")
+	}
+	g, err := NewOpenAICompatible(os.Getenv("MANAGED_NPU_URL"), os.Getenv("MANAGED_NPU_MODEL"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const text = "Как бухгалтер, я хочу выгружать реестр платежей в CSV, чтобы сверять поступления."
+	source := explanation.Source{Text: text, Suggestion: &classification.Entry{
+		Source: "model", Status: "suggested", Semantic: "functional_requirement", Representation: "user_story",
+	}}
+	target := explanation.Target{Semantic: "functional_requirement", Representation: "user_story", Locale: "ru"}
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	start := time.Now()
+	got, err := g.ExplainClassification(ctx, source, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("assessment returned in %s: %+v", time.Since(start).Round(time.Millisecond), got)
+	if got.Meaning.Verdict != "fits" || got.Form.Verdict != "fits" {
+		t.Fatal("the explicit behavior and user story must both fit")
+	}
+	if len(got.Meaning.Criteria) != 1 || len(got.Form.Criteria) != 3 {
+		t.Fatal("expected system behavior, role, action and value")
+	}
+	for _, criterion := range append(got.Meaning.Criteria, got.Form.Criteria...) {
+		if criterion.Status != "present" || criterion.Evidence != text {
+			t.Fatalf("explicit criterion must cite the original text: %+v", criterion)
+		}
+	}
+	if len(got.Questions) != 0 {
+		t.Fatal("a complete user story should have no required gaps")
+	}
 }
 
 func checkNPUComparisonFixtures(t *testing.T, generator Generator) {

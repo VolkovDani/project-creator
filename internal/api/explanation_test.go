@@ -2,15 +2,139 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/VolkovDani/project-creator/internal/explanation"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
+	"sync/atomic"
 	"testing"
+
+	"github.com/VolkovDani/project-creator/internal/analysis"
+	"github.com/VolkovDani/project-creator/internal/explanation"
 )
 
 type explanationStub struct {
 	collisionGenerator
 	calls int
+}
+
+func TestManagedNPUAssessmentThroughGraphQL(t *testing.T) {
+	exerciseManagedNPUAssessment(t, "")
+}
+
+func TestModelManagerAssessmentIntegration(t *testing.T) {
+	binary := os.Getenv("MODELS_CONFIGURATOR_TEST_BIN")
+	if binary == "" {
+		t.Skip("set MODELS_CONFIGURATOR_TEST_BIN to run the cross-repository test")
+	}
+	exerciseManagedNPUAssessment(t, binary)
+}
+
+func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
+	t.Helper()
+	database := testDatabase(t)
+	digest := strings.Repeat("a", 64)
+	model := "openvino-npu.assessment." + digest
+	var calls atomic.Int32
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if managerBinary != "" && r.URL.Path == "/health" {
+			json.NewEncoder(w).Encode(map[string]string{"profile": digest, "device": "NPU"})
+			return
+		}
+		calls.Add(1)
+		var request struct {
+			Model    string
+			Profile  string
+			Messages []struct{ Content string }
+		}
+		err := json.NewDecoder(r.Body).Decode(&request)
+		var bound bool
+		if managerBinary != "" {
+			bound = r.URL.Path == "/v1/generate" && request.Profile == digest
+		} else {
+			bound = r.URL.Path == "/v1/chat/completions" && request.Model == model
+		}
+		if err != nil || !bound || len(request.Messages) != 2 || !strings.Contains(request.Messages[1].Content, "The system prints receipts.") {
+			t.Error("unexpected model request", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		const content = `{
+			"content":{"verdict":"fits","reason":"Printing receipts is a system operation.","criteria":{"system_behavior":{"status":"present","evidence":1,"note":"The action is explicit."}}},
+			"form":{"verdict":"fits","reason":"The requirement is a direct statement.","criteria":{"declarative_assertion_or_directive":{"status":"present","evidence":1,"note":"The statement is declarative."}}},
+			"questions":[],"wording":"","limitations":"Only this statement was assessed."
+		}`
+		if managerBinary != "" {
+			json.NewEncoder(w).Encode(map[string]string{"profile": digest, "device": "NPU", "content": content})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"model": model, "choices": []any{map[string]any{
+			"finish_reason": "stop", "message": map[string]string{"role": "assistant", "content": content},
+		}}})
+	})
+	var base string
+	if managerBinary == "" {
+		provider := httptest.NewServer(handler)
+		defer provider.Close()
+		base = provider.URL + "/v1"
+	} else {
+		socket := filepath.Join(t.TempDir(), "npu.sock")
+		listener, err := net.Listen("unix", socket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runtime := &http.Server{Handler: handler}
+		go runtime.Serve(listener)
+		t.Cleanup(func() { runtime.Close() })
+		var models []testManagerModel
+		base, models = startTestManager(t, managerBinary, []map[string]string{
+			{"name": "assessment", "provider": "openvino-npu", "base_url": "unix://" + socket, "role": "chat", "model": "stub", "digest": digest},
+		}, nil)
+		if len(models) != 1 || models[0].Role != "chat" {
+			t.Fatalf("unexpected NPU inventory: %+v", models)
+		}
+		model = models[0].ID
+	}
+	g, err := analysis.NewOpenAICompatible(base, model, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewWithProviders(database, map[string]string{"token-a": "a", "token-b": "b"}, nil, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	_, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now');
+INSERT INTO requirements VALUES('r','a','p','The system prints receipts.',1,'now','now');
+INSERT INTO requirement_classifications(workspace,project_id,requirement_id,revision,text_version,semantic_type,representation_type,status,source,rules_version,model) VALUES('a','p','r',1,1,'functional_requirement','statement','suggested','model','2','test-model')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const mutation = `mutation {
+		explainRequirementClassification(input:{projectId:"p", requirementId:"r", textVersion:1, revision:1, suggestionRevision:1, semanticType:"functional_requirement", representationType:"statement", locale:"en"}) {
+			status result { meaning { verdict criteria { evidence } } form { verdict } }
+		}
+	}`
+	for _, token := range []string{"token-b", "token-a", "token-a"} {
+		res := summaryRequest(t, s, token, mutation)
+		data, _ := res["data"].(map[string]any)
+		got, _ := data["explainRequirementClassification"].(map[string]any)
+		if token == "token-b" {
+			if got["result"] != nil || calls.Load() != 0 {
+				t.Fatal("foreign workspace reached the inference adapter", res)
+			}
+			continue
+		}
+		encoded, _ := json.Marshal(got)
+		if got["status"] != "ready" || !strings.Contains(string(encoded), `"evidence":"The system prints receipts."`) || calls.Load() != 1 {
+			t.Fatal("expected a grounded and cached assessment", res, calls.Load())
+		}
+	}
 }
 
 func (*explanationStub) ExplanationProfile() string { return "test-profile" }

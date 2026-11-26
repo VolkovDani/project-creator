@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"unicode/utf8"
 
@@ -27,6 +28,129 @@ const explanationSample = `{
 
 func decodeExplanationSample(content, source string, target explanation.Target) (explanation.Result, error) {
 	return decodeClassificationExplanation(content, source, target, explanationPassages(source))
+}
+
+func TestManagedNPUClassificationExplanation(t *testing.T) {
+	const model = "openvino-npu.test." + pinnedDigest
+	sample := strings.Replace(explanationSample,
+		`"value":{"status":"missing","evidence":0,"note":"The benefit is unspecified."},
+"acceptance":{"status":"missing","evidence":0,"note":"Optional; no verifiable outcome is given."}`,
+		`"value":{"status":"missing","evidence":0,"note":"The benefit is unspecified."}`, 1)
+	target := explanation.Target{Semantic: "functional_requirement", Representation: "user_story", Locale: "en"}
+	source := explanation.Source{Text: "Please export a file.", Suggestion: &classification.Entry{ID: "private-id", Semantic: "functional_requirement"}}
+	for _, tc := range []struct {
+		name, output   string
+		providerStatus int
+		wantError      error
+	}{
+		{"grounded", sample, http.StatusOK, nil},
+		{"bad evidence", strings.Replace(sample, `"evidence":1`, `"evidence":9`, 1), http.StatusOK, explanation.ErrInvalidOutput},
+		{"provider rejected output", `{"error":{"code":"INVALID_OUTPUT"}}`, http.StatusBadGateway, explanation.ErrInvalidOutput},
+		{"provider timed out", `{"error":{"code":"TIMEOUT"}}`, http.StatusGatewayTimeout, context.DeadlineExceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var called atomic.Bool
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called.Store(true)
+				var request struct {
+					Model          string
+					Messages       []map[string]string
+					ResponseFormat struct {
+						Type       string
+						JSONSchema struct {
+							Name   string
+							Strict bool
+							Schema map[string]any
+						} `json:"json_schema"`
+					} `json:"response_format"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					return
+				}
+				format := request.ResponseFormat
+				if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" || request.Model != model ||
+					format.Type != "json_schema" || format.JSONSchema.Name != "classification_explanation" ||
+					!format.JSONSchema.Strict || format.JSONSchema.Schema["additionalProperties"] != false {
+					t.Error("unexpected managed explanation request")
+				}
+				messages := request.Messages
+				if len(messages) != 2 || messages[0]["role"] != "system" || messages[1]["role"] != "user" ||
+					!strings.Contains(messages[1]["content"], source.Text) || strings.Contains(messages[1]["content"], source.Suggestion.ID) {
+					t.Error("expected only task instructions and scoped source context")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if tc.providerStatus != http.StatusOK {
+					w.WriteHeader(tc.providerStatus)
+					_, _ = w.Write([]byte(tc.output))
+					return
+				}
+				json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+					"finish_reason": "stop", "message": map[string]string{"role": "assistant", "content": tc.output},
+				}}})
+			}))
+			defer server.Close()
+			provider, err := NewOpenAICompatible(server.URL+"/v1", model, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			generator, ok := any(provider).(explanation.Generator)
+			if !ok || generator.ExplanationProfile() == "" || generator.ExplanationProfile() == provider.Profile() {
+				t.Fatal("managed local NPU needs a distinct explanation profile")
+			}
+			got, err := generator.ExplainClassification(t.Context(), source, target)
+			if !called.Load() || !errors.Is(err, tc.wantError) {
+				t.Fatalf("unexpected inference result %+v, %v (called=%t)", got, err, called.Load())
+			}
+			if tc.wantError == nil && (got.Meaning.Verdict != "fits" || got.Form.Verdict != "partial" ||
+				len(got.Form.Criteria) != 3 || got.Form.Criteria[1].Evidence != source.Text) {
+				t.Fatalf("assessment was not grounded: %+v", got)
+			}
+		})
+	}
+}
+
+func TestManagedNPUClassificationExplanationRequiresLocalPinnedProfile(t *testing.T) {
+	const model = "openvino-npu.test." + pinnedDigest
+	for _, tc := range []struct {
+		url, model string
+		enabled    bool
+	}{
+		{"http://models-configurator:8317/v1", model, true},
+		{"http://[::1]:8317/v1/", model, true},
+		{"https://models.example/v1", model, false},
+		{"http://127.0.0.1:1/v1", "external-chat", false},
+		{"http://models-configurator.example/v1", model, false},
+		{"http://models-configurator:8318/v1", model, false},
+		{"http://127.0.0.1:8317/custom", model, false},
+	} {
+		provider, err := NewOpenAICompatible(tc.url, tc.model, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if enabled := provider.ExplanationProfile() != ""; enabled != tc.enabled {
+			t.Errorf("assessment availability for %s %s = %t", tc.url, tc.model, enabled)
+		}
+	}
+}
+
+func TestManagedNPUClassificationExplanationRejectsOversizeWithoutSendingSource(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("oversized request reached inference")
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer server.Close()
+	g, err := NewOpenAICompatible(server.URL+"/v1", "openvino-npu.test."+pinnedDigest, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := explanation.Target{Semantic: "functional_requirement", Representation: "user_story", Locale: "en"}
+	_, err = g.ExplainClassification(t.Context(), explanation.Source{
+		Text: strings.Repeat("Export receipts. ", 500), Suggestion: &classification.Entry{},
+	}, target)
+	if !errors.Is(err, explanation.ErrInputTooLong) {
+		t.Fatal(err)
+	}
 }
 
 func TestClassificationExplanationUsesGroundedCriteriaAndVerifiedLocalModel(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -138,7 +139,19 @@ func TestGraphQLSummaryCRUDBatchAuthorizationAndCommittedInvalidation(t *testing
 	if ready["status"] != "ready" || len(ready["glossaryMatches"].([]any)) != 1 {
 		t.Fatalf("ready mutation: %v", ready)
 	}
-	if foreign := summaryRequest(t, s, "token-b", fmt.Sprintf(`{requirementSummariesByIds(projectId:%q,requirementIds:[%q]){text}}`, project, id1)); foreign["errors"] == nil {
+	for _, response := range []map[string]any{batch, retryReady} {
+		tags := response["extensions"].(map[string]any)["cacheTags"].([]any)
+		if !slices.Contains(tags, any("project:"+project+":summaries")) {
+			t.Fatalf("missing summary cache tag without provenance: %v", response)
+		}
+	}
+	provenanceQuery := fmt.Sprintf(`{requirementSummariesByIds(projectId:%q,requirementIds:[%q]){version status profile createdAt provenance}}`, project, id1)
+	provenance := summaryRequest(t, s, "token-a", provenanceQuery)
+	metadata := provenance["data"].(map[string]any)["requirementSummariesByIds"].([]any)[0].(map[string]any)
+	if provenance["errors"] != nil || metadata["provenance"] != g.Provenance() {
+		t.Fatalf("summary provenance response: %v", provenance)
+	}
+	if foreign := summaryRequest(t, s, "token-b", provenanceQuery); foreign["errors"] == nil {
 		t.Fatalf("foreign summary read succeeded: %v", foreign)
 	}
 	var before int

@@ -27,15 +27,17 @@ func (r *Resolver) RequirementSummariesByIds(ctx context.Context, args Requireme
 	if e != nil {
 		return nil, errors.New("summaries unavailable")
 	}
+	addCacheDependency(ctx, "project:"+string(args.ProjectId)+":summaries")
 	return r.summaryStates(ctx, rows)
 }
 
 func (r *Resolver) summaryStates(ctx context.Context, rows []summary.State) ([]*RequirementSummary, error) {
 	out := make([]*RequirementSummary, 0, len(rows))
+	includeMatches := graphql.HasSelectedField(ctx, "glossaryMatches")
 	var match func(string) []glossary.Match
 	for _, v := range rows {
 		state := summaryState(v)
-		if v.Status == "ready" {
+		if includeMatches && v.Status == "ready" {
 			if match == nil {
 				terms, err := glossary.List(ctx, r.DB, workspace(ctx), v.ProjectID)
 				if err != nil {
@@ -96,6 +98,7 @@ func (r *Resolver) RetryRequirementSummary(ctx context.Context, args RetryRequir
 	if e != nil {
 		return nil, errors.New("summary retry unavailable")
 	}
+	addCacheDependency(ctx, "project:"+string(args.ProjectId)+":summaries")
 	return r.singleSummaryState(ctx, v)
 }
 func (r *Resolver) CancelRequirementSummary(ctx context.Context, args CancelRequirementSummaryArgs) (*RequirementSummary, error) {
@@ -109,5 +112,6 @@ func (r *Resolver) CancelRequirementSummary(ctx context.Context, args CancelRequ
 	if e != nil {
 		return nil, errors.New("summary cancellation unavailable")
 	}
+	addCacheDependency(ctx, "project:"+string(args.ProjectId)+":summaries")
 	return r.singleSummaryState(ctx, v)
 }

@@ -14,10 +14,12 @@ export function requirementAnchor(id: string) {
 export function requirementURL(
   projectId: string,
   id: string,
-  mention?: { sourceVersion: number; start: number; end: number },
+  source?: { sourceVersion: number } & (
+    | { start: number; end: number }
+    | { start?: never; end?: never }
+  ),
 ) {
-  const range = mention
-    ? `&version=${mention.sourceVersion}&start=${mention.start}&end=${mention.end}`
-    : '';
-  return `/projects/${encodeURIComponent(projectId)}/requirements?requirement=${encodeURIComponent(id)}${range}${requirementAnchor(id)}`;
+  const version = source ? `&version=${source.sourceVersion}` : '';
+  const range = source?.start !== undefined ? `&start=${source.start}&end=${source.end}` : '';
+  return `/projects/${encodeURIComponent(projectId)}/requirements?requirement=${encodeURIComponent(id)}${version}${range}${requirementAnchor(id)}`;
 }

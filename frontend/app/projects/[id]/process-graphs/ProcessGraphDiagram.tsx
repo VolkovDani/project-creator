@@ -1,5 +1,7 @@
 import { useId } from 'react';
+import type { ProcessGraphMode } from '../../../../lib/generated';
 import { type Locale, t } from '../../../../lib/i18n';
+import { requirementURL } from '../../../../lib/rag';
 import styles from './process-graphs.module.css';
 import { type GraphDraft, layoutProcessGraph } from './processGraphView';
 
@@ -13,10 +15,26 @@ function shortText(text: string, limit: number) {
   return characters.length > limit ? `${characters.slice(0, limit - 1).join('')}…` : text;
 }
 
-export function ProcessGraphDiagram({ draft, locale }: { draft: GraphDraft; locale: Locale }) {
+export function ProcessGraphDiagram({
+  draft,
+  locale,
+  mode,
+  projectId,
+}: {
+  draft: GraphDraft;
+  locale: Locale;
+  mode: ProcessGraphMode;
+  projectId: string;
+}) {
   const id = useId();
   const marker = `${id}-arrow`;
   const { nodes, edges } = layoutProcessGraph(draft.nodes, draft.edges);
+  const requirements = mode === 'REQUIREMENTS';
+  const diagramLabel = t(
+    locale,
+    requirements ? 'processGraph.requirementsDiagram' : 'processGraph.diagram',
+  );
+  const evidence = requirements ? edges.flatMap((edge) => edge.evidence) : [];
   const pairs = new Map<string, typeof edges>();
   const pairKey = ({ from, to }: (typeof edges)[number]) => JSON.stringify([from, to]);
   for (const edge of edges) {
@@ -58,9 +76,19 @@ export function ProcessGraphDiagram({ draft, locale }: { draft: GraphDraft; loca
   );
 
   return (
-    // biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users need to scroll the diagram.
-    <section className={styles.diagram} aria-label={t(locale, 'processGraph.diagram')} tabIndex={0}>
-      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+    <section
+      className={styles.diagram}
+      aria-label={diagramLabel}
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users need to scroll the diagram.
+      tabIndex={0}
+    >
+      <svg
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        aria-hidden={!requirements || undefined}
+      >
+        <title>{diagramLabel}</title>
         <defs>
           <marker
             id={marker}
@@ -97,7 +125,8 @@ export function ProcessGraphDiagram({ draft, locale }: { draft: GraphDraft; loca
           const labelY = adjacent
             ? middleY - 8 + (slot - (parallels.length - 1) / 2) * 18
             : y1 + bend - 4;
-          const label = edge.label || t(locale, `processGraph.edge.${edge.kind}`);
+          const kind = t(locale, `processGraph.edge.${edge.kind}`);
+          const label = requirements ? kind : edge.label || kind;
           return (
             <g key={JSON.stringify([edge.from, edge.to, edge.kind, edge.label])}>
               <title>{label}</title>
@@ -108,23 +137,49 @@ export function ProcessGraphDiagram({ draft, locale }: { draft: GraphDraft; loca
             </g>
           );
         })}
-        {[...positions.values()].map(({ node, x, y }) => (
-          <g
-            key={node.id}
-            transform={`translate(${x} ${y})`}
-            className={`${styles.diagramNode} ${styles.kind}`}
-            data-kind={node.kind}
-          >
-            <title>{node.label}</title>
-            <rect width={nodeWidth} height={nodeHeight} rx="8" />
-            <text x="12" y="24" className={styles.diagramKind}>
-              {t(locale, `processGraph.node.${node.kind}`)}
-            </text>
-            <text x="12" y="48">
-              {shortText(node.label, 22)}
-            </text>
-          </g>
-        ))}
+        {[...positions.values()].map(({ node, x, y }) => {
+          const { requirementId, version } = node;
+          const card = (
+            <g
+              key={node.id}
+              transform={`translate(${x} ${y})`}
+              className={`${styles.diagramNode} ${styles.kind}`}
+              data-kind={node.kind}
+            >
+              <title>{node.label}</title>
+              <rect width={nodeWidth} height={nodeHeight} rx="8" />
+              <text x="12" y="24" className={styles.diagramKind}>
+                {requirementId && version
+                  ? t(locale, 'processGraph.requirementVersion', { version })
+                  : t(locale, `processGraph.node.${node.kind}`)}
+              </text>
+              <text x="12" y="48">
+                {shortText(node.label, 22)}
+              </text>
+            </g>
+          );
+          if (!requirements || !requirementId || !version) return card;
+          const source = evidence.find(
+            (item) => item.requirementId === requirementId && item.version === version,
+          );
+          const ref = t(locale, 'processGraph.requirement', { id: requirementId, version });
+          return (
+            <a
+              key={node.id}
+              className={styles.diagramNodeLink}
+              aria-label={`${node.label} · ${ref}`}
+              href={requirementURL(
+                projectId,
+                requirementId,
+                source
+                  ? { sourceVersion: version, start: source.start, end: source.end }
+                  : { sourceVersion: version },
+              )}
+            >
+              {card}
+            </a>
+          );
+        })}
       </svg>
     </section>
   );

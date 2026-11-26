@@ -65,7 +65,9 @@ const processGraphStatuses = new Set([
   'insufficient',
   'unavailable',
 ]);
-function parseProcessGraphProgress(data: string) {
+function parseProcessGraphProgress(
+  data: string,
+): (ProcessGraphProgress & { projectId: string }) | undefined {
   const payload: unknown = JSON.parse(data);
   if (
     !payload ||
@@ -107,7 +109,9 @@ function parseProcessGraphProgress(data: string) {
   )
     return;
   const { id, topic, revision, completed, total, failed } = run;
-  return { projectId, status, run: { id, topic, revision, completed, total, failed } };
+  const mode = 'mode' in run ? run.mode : 'PROCESS';
+  if (mode !== 'PROCESS' && mode !== 'REQUIREMENTS') return;
+  return { projectId, status, run: { id, topic, mode, revision, completed, total, failed } };
 }
 
 const analysisChannel = new AnalysisChannel<AnalysisSnapshot>();

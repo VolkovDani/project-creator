@@ -68,6 +68,12 @@
   padding-inline-start: var(--space-3);
 }
 
+.downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .graph,
 .branches {
   margin: 0;
@@ -136,9 +142,18 @@
 }
 
 .node span,
+.node a,
+.relation span {
+  font-size: var(--text-small);
+}
+
+.node span,
 .relation span {
   color: var(--text-muted);
-  font-size: var(--text-small);
+}
+
+.node a {
+  overflow-wrap: anywhere;
 }
 
 .branches {
@@ -270,6 +285,11 @@
 .diagramNode rect {
   fill: var(--graph-node-fill);
   stroke: var(--graph-node-accent);
+}
+
+.diagramNodeLink:is(:hover, :focus-visible) rect {
+  stroke: var(--action);
+  stroke-width: 3px;
 }
 
 .diagramNode text {

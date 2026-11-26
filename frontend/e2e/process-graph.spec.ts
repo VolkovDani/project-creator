@@ -7,7 +7,7 @@ const nodes = [
   { id: 'approve', kind: 'state', label: 'Принята' },
   { id: 'return', kind: 'state', label: 'Возвращена' },
   { id: 'operator', kind: 'actor', label: 'Оператор' },
-];
+].map((node) => ({ ...node, requirementId: null, version: null }));
 const draft = {
   nodes,
   edges: [
@@ -103,7 +103,12 @@ data: ${JSON.stringify(payload)}
 
 `,
       ),
-    { schemaVersion: 1, projectId, status, run },
+    {
+      schemaVersion: 1,
+      projectId,
+      status,
+      run: run?.mode === 'PROCESS' ? { ...run, mode: undefined } : run,
+    },
   );
 }
 
@@ -128,7 +133,15 @@ test('a graph continues in the background and restores progress and cited result
     const status = total === 0 ? 'planning' : completed === total ? 'suggested' : 'ready';
     return {
       status,
-      run: { id, topic, revision: total === 0 ? 1 : completed + 2, completed, total, failed },
+      run: {
+        id,
+        topic,
+        mode: 'PROCESS',
+        revision: total === 0 ? 1 : completed + 2,
+        completed,
+        total,
+        failed,
+      },
       draft: status === 'suggested' ? draft : null,
       fieldErrors: [],
     };
@@ -409,4 +422,140 @@ test('a graph continues in the background and restores progress and cited result
     preparation.resolve();
     latestReadGate?.resolve();
   }
+});
+
+test('a requirement diagram restores its mode, cites versions, and exports its typed links', async ({
+  page,
+}) => {
+  const source = draft.edges[0].evidence[0];
+  const requirements: ProcessGraphRunFieldsFragment = {
+    status: 'suggested',
+    run: {
+      id: 'run-requirements',
+      topic: 'заявка',
+      mode: 'REQUIREMENTS',
+      revision: 2,
+      completed: 1,
+      total: 1,
+      failed: 0,
+    },
+    draft: {
+      nodes: [
+        {
+          id: 'general',
+          kind: 'requirement',
+          label: 'Регистрация заявки',
+          requirementId: 'req-2',
+          version: 1,
+        },
+        {
+          id: 'specific',
+          kind: 'requirement',
+          label: 'Принятие заявки',
+          requirementId: 'req-1',
+          version: 2,
+        },
+      ],
+      edges: [{ from: 'specific', to: 'general', kind: 'refines', label: '', evidence: [source] }],
+      sourceCount: 2,
+      partial: false,
+    },
+    fieldErrors: [],
+  };
+  const planning = {
+    ...requirements,
+    status: 'planning',
+    run: requirements.run && { ...requirements.run, revision: 1, completed: 0, total: 0 },
+    draft: null,
+  };
+  let latest: ProcessGraphRunFieldsFragment | null = null;
+  const inputs: unknown[] = [];
+  await mockStream(page);
+  await page.route('**/api/graphql', async (route) => {
+    const { operationName, variables } = route.request().postDataJSON();
+    const pageInfo = { hasNextPage: false, endCursor: null };
+    let data: unknown;
+    switch (operationName) {
+      case 'ProjectDetail':
+        data = { project: { id: 'demo', name: 'Заявки', goal: '', description: '' } };
+        break;
+      case 'LatestProcessGraphRun':
+        data = { latestProcessGraphRun: latest };
+        break;
+      case 'StartBackgroundProcessGraph':
+        inputs.push(variables.input);
+        latest = planning;
+        data = { startBackgroundProcessGraph: latest };
+        break;
+      default:
+        data = { projectsConnection: { items: [], pageInfo } };
+    }
+    await route.fulfill({ json: { data } });
+  });
+
+  await page.goto('/projects/demo/process-graphs');
+  const flowchart = page.getByRole('radio', { name: 'Граф процесса (Flowchart)' });
+  const requirementMode = page.getByRole('radio', {
+    name: 'Диаграмма требований (requirementDiagram)',
+  });
+  await expect(
+    page.getByRole('group', { name: 'Вид диаграммы' }).getByRole('radio').first(),
+  ).toBeChecked();
+  await expect(flowchart).toBeChecked();
+  await requirementMode.check();
+  await page.getByRole('textbox', { name: 'Ключевое слово или фраза' }).fill('заявка');
+  const build = page.getByRole('button', { name: 'Построить диаграмму требований' });
+  await build.click();
+  await expect(build).toBeDisabled();
+  await expect(requirementMode).toBeDisabled();
+  await expect(page.locator('#process-graph-status')).toContainText('Планируем порции для графа');
+  latest = requirements;
+  await pushProgress(page, requirements);
+  const heading = page.getByRole('heading', { name: 'Черновик диаграммы требований' });
+  await expect(heading).toBeVisible();
+  expect(inputs).toEqual([{ projectId: 'demo', keyword: 'заявка', mode: 'REQUIREMENTS' }]);
+  await expect(page.getByText('Уточняет', { exact: true }).last()).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: 'Требование req-2 · Версия 1', exact: true }),
+  ).toHaveAttribute(
+    'href',
+    '/projects/demo/requirements?requirement=req-2&version=1#requirement-req-2',
+  );
+  await page.getByText('Цитаты из требований', { exact: true }).click();
+  await expect(page.getByText(source.quote)).toBeVisible();
+  const evidencePath =
+    '/projects/demo/requirements?requirement=req-1&version=2&start=24&end=61#requirement-req-1';
+  await expect(
+    page.locator('details').getByRole('link', { name: 'Требование req-1 · Версия 2' }),
+  ).toHaveAttribute('href', evidencePath);
+  const diagramNode = page
+    .getByRole('region', { name: 'Схема связей требований' })
+    .getByRole('link', {
+      name: 'Принятие заявки · Требование req-1 · Версия 2',
+    });
+  await expect(diagramNode).toHaveAttribute('href', evidencePath);
+
+  await flowchart.check();
+  await expect(heading).toBeVisible();
+  const diagramReady = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Скачать Mermaid' }).click();
+  const diagram = await diagramReady;
+  expect(diagram.suggestedFilename()).toBe('requirement-diagram.mmd');
+  expect(await readFile(await diagram.path(), 'utf8')).toContain('r2 - refines -> r1');
+  const evidenceReady = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Скачать Markdown с источниками' }).click();
+  const evidence = await evidenceReady;
+  expect(evidence.suggestedFilename()).toBe('requirement-diagram.md');
+  const markdown = await readFile(await evidence.path(), 'utf8');
+  expect(markdown).toContain('```mermaid\nrequirementDiagram');
+  expect(markdown).toContain(`${new URL(page.url()).origin}${evidencePath}`);
+  expect(markdown).toContain(source.quote);
+
+  await page.getByRole('link', { name: 'Заявки', exact: true }).click();
+  await expect(page).toHaveURL('/projects/demo');
+  await page.goBack();
+  await expect(heading).toBeVisible();
+  await expect(requirementMode).toBeChecked();
+  await diagramNode.press('Enter');
+  await expect(page).toHaveURL(evidencePath);
 });

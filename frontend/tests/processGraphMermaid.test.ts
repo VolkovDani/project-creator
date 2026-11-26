@@ -1,14 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { processGraphMermaid } from '../app/projects/[id]/process-graphs/processGraphMermaid.ts';
+import {
+  processGraphMermaid,
+  requirementGraphMermaid,
+} from '../app/projects/[id]/process-graphs/processGraphMermaid.ts';
 import type { GraphDraft } from '../app/projects/[id]/process-graphs/processGraphView.ts';
 
 const origin = 'https://requirements.example:3100';
 const edgeLabels: Record<string, string> = { follows: 'Далее', requires: 'Требует' };
 const translateKind = (kind: string) => edgeLabels[kind] ?? kind;
-const action = { id: 'end', kind: 'action', label: 'Проверить "поле" [#34;] <x> | &' };
-const actor = { id: 'n1', kind: 'actor', label: 'Ревьюер' };
-const otherActor = { id: 'x---', kind: 'actor', label: actor.label };
+const action = {
+  id: 'end',
+  kind: 'action',
+  label: 'Проверить "поле" [#34;] <x> | &',
+  requirementId: null,
+  version: null,
+};
+const actor = { id: 'n1', kind: 'actor', label: 'Ревьюер', requirementId: null, version: null };
+const otherActor = { ...actor, id: 'x---' };
 const firstSource = {
   requirementId: 'req/first?',
   version: 2,
@@ -104,5 +113,66 @@ test('keeps cards without links when scheme or citation coordinates are invalid'
       translateKind,
     ),
     /click/,
+  );
+});
+
+test('exports versioned requirement nodes and supported directed relationships with their sources', () => {
+  const first = {
+    id: 'n1',
+    kind: 'requirement',
+    label: 'Проверка "полей"',
+    requirementId: firstSource.requirementId,
+    version: firstSource.version,
+  };
+  const second = {
+    id: '} %%',
+    kind: 'requirement',
+    label: 'Работа с заявкой',
+    requirementId: directSource.requirementId,
+    version: directSource.version,
+  };
+  const relation = {
+    from: first.id,
+    to: second.id,
+    kind: 'refines',
+    label: '',
+    evidence: [firstSource, directSource],
+  };
+  const relationTypes = [
+    'contains',
+    'copies',
+    'derives',
+    'satisfies',
+    'verifies',
+    'refines',
+    'traces',
+  ];
+  const requirements = draft(
+    [first, second, { ...first, id: 'process', kind: 'action' }],
+    [
+      ...relationTypes.map((kind) => ({ ...relation, kind })),
+      { ...relation, kind: 'requires' },
+      { ...relation, to: 'missing' },
+    ],
+  );
+  const diagram = requirementGraphMermaid(requirements, 'project/one', origin, 'Draft');
+  assert.equal(diagram, requirementGraphMermaid(requirements, 'project/one', origin, 'Draft'));
+  assert.ok(diagram.startsWith('requirementDiagram\n%% Draft\n'));
+  assert.match(diagram, /requirement r1 \{\n\s+id: "req\/first\? · v2"\n/);
+  assert.match(diagram, /requirement r2 \{\n\s+id: "req\/точный#35;1 · v5"\n/);
+  assert.match(diagram, /text: "Проверка #34;полей#34;"/);
+  assert.deepEqual(
+    diagram.match(/^\s*r1 - .* -> r2$/gm),
+    relationTypes.map((kind) => `  r1 - ${kind} -> r2`),
+  );
+  assert.doesNotMatch(diagram, /requirement r3| - requires -> |click /);
+  assert.ok(
+    diagram.includes(
+      `${origin}/projects/project%2Fone/requirements?requirement=req%2Ffirst%3F&version=2&start=14&end=33#requirement-req%2Ffirst%3F`,
+    ),
+  );
+  assert.doesNotMatch(
+    requirementGraphMermaid(requirements, 'p', 'javascript:malicious', 'Draft'),
+    /javascript:|\/projects\//,
   );
 });

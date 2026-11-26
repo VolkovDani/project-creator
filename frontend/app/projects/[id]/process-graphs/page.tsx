@@ -4,6 +4,7 @@ import { type FormEvent, useCallback, useEffect, useId, useMemo, useRef, useStat
 import { clientCache, clientSessionVersion, query } from '../../../../lib/client';
 import {
   LatestProcessGraphRunDocument,
+  type ProcessGraphMode,
   type ProcessGraphRunFieldsFragment,
   StartBackgroundProcessGraphDocument,
 } from '../../../../lib/generated';
@@ -75,6 +76,7 @@ export default function ProcessGraphsPage() {
 
 function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale: Locale }) {
   const [mode, setMode] = useState<'keyword' | 'term'>('keyword');
+  const [selectedGraphMode, setSelectedGraphMode] = useState<ProcessGraphMode>();
   const [keyword, setKeyword] = useState('');
   const [term, setTerm] = useState<Term>();
   const [result, setResult] = useState<Result | null>();
@@ -97,6 +99,9 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
   const invalid = result?.status === 'invalid';
   const loadingDraft = result?.status === 'suggested' && 'draft' in result && !result.draft;
   const running = result?.status === 'preparing' || isActiveRun(result?.status) || loadingDraft;
+  const progress = result && result.status !== 'stale' && 'run' in result ? result.run : undefined;
+  const runMode = progress?.mode === 'REQUIREMENTS' ? 'REQUIREMENTS' : 'PROCESS';
+  const graphMode = running && progress ? runMode : (selectedGraphMode ?? runMode);
 
   useEffect(() => {
     if (!running || !showBuildHelp) return;
@@ -198,6 +203,7 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
       setKeyword('');
       setTerm(undefined);
       setMode('keyword');
+      setSelectedGraphMode(undefined);
     },
   );
 
@@ -238,9 +244,11 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
     const pushes = order.current.pushes;
     const changed = () =>
       generation !== clientCache.generation || clientCache.invalidatedSince(revision, tags);
+    setSelectedGraphMode(graphMode);
     setResult({ status: 'preparing' });
     const input = {
       projectId,
+      ...(graphMode === 'REQUIREMENTS' ? { mode: graphMode } : {}),
       ...(mode === 'keyword' ? { keyword: anchor } : { termId: anchor }),
     };
     // The server owns the run. Keep the dispatched start alive across route changes.
@@ -277,7 +285,6 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
   const statusKey =
     result &&
     (loadingDraft ? 'app.loading' : (statusKeys[result.status] ?? 'processGraph.unavailable'));
-  const progress = result && result.status !== 'stale' && 'run' in result ? result.run : undefined;
   const activeBatch = result?.status === 'ready' && progress;
 
   return (
@@ -285,6 +292,23 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
       <section>
         <h2>{t(locale, 'nav.process-graphs')}</h2>
         <form onSubmit={build}>
+          <fieldset className={styles.modes} disabled={running}>
+            <legend>{t(locale, 'processGraph.diagramMode')}</legend>
+            {(['PROCESS', 'REQUIREMENTS'] as const).map((option) => (
+              <label key={option}>
+                <input
+                  type="radio"
+                  name="process-graph-mode"
+                  checked={graphMode === option}
+                  onChange={() => {
+                    clearFeedback();
+                    setSelectedGraphMode(option);
+                  }}
+                />
+                {t(locale, `processGraph.mode.${option}`)}
+              </label>
+            ))}
+          </fieldset>
           <fieldset className={styles.modes}>
             <legend>{t(locale, 'processGraph.anchor')}</legend>
             <label>
@@ -356,7 +380,12 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
                 if (!event.currentTarget.parentElement?.matches(':hover')) setShowBuildHelp(false);
               }}
             >
-              {t(locale, 'processGraph.build')}
+              {t(
+                locale,
+                graphMode === 'REQUIREMENTS'
+                  ? 'processGraph.buildRequirements'
+                  : 'processGraph.build',
+              )}
             </button>
             {running && (
               <span
@@ -400,7 +429,7 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
           </output>
         </form>
       </section>
-      {draft && <ProcessGraph draft={draft} projectId={projectId} locale={locale} />}
+      {draft && <ProcessGraph draft={draft} mode={runMode} projectId={projectId} locale={locale} />}
     </>
   );
 }

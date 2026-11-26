@@ -183,7 +183,7 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			serveEvents(db, ws, w, r, generatorProfile, embeddingProfile)
+			serveEvents(db, ws, w, r, backgroundRuns, generatorProfile, embeddingProfile)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)

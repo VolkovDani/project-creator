@@ -24,16 +24,18 @@ type BackgroundRuns struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu     sync.Mutex
-	latest map[projectScope]*backgroundRun
-	work   sync.WaitGroup
+	mu               sync.Mutex
+	latest           map[projectScope]*backgroundRun
+	progressWatchers map[string]map[chan struct{}]struct{}
+	work             sync.WaitGroup
 }
 
 func NewBackgroundRuns(g Generator) *BackgroundRuns {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &BackgroundRuns{
 		engine: newRunEngine(g), ctx: ctx, cancel: cancel,
-		latest: make(map[projectScope]*backgroundRun),
+		latest:           make(map[projectScope]*backgroundRun),
+		progressWatchers: make(map[string]map[chan struct{}]struct{}),
 	}
 }
 
@@ -88,6 +90,7 @@ func (s *BackgroundRuns) Start(ctx context.Context, target Target, req Request, 
 	} else {
 		entry.finishedAt = time.Now()
 	}
+	s.notifyProgress(scope.workspace)
 	return result, nil
 }
 
@@ -106,7 +109,8 @@ func (s *BackgroundRuns) Latest(ctx context.Context, workspace, project string,
 	check func(context.Context, Target) (string, error),
 ) (RunResult, error) {
 	s.mu.Lock()
-	entry := s.latest[projectScope{workspace, project}]
+	scope := projectScope{workspace, project}
+	entry := s.latest[scope]
 	if entry == nil {
 		s.mu.Unlock()
 		return RunResult{}, nil
@@ -125,7 +129,10 @@ func (s *BackgroundRuns) Latest(ctx context.Context, workspace, project string,
 			result = RunResult{Status: "stale", Run: &progress}
 
 			s.mu.Lock()
-			entry.result = result
+			if s.latest[scope] == entry && entry.result.Draft != nil {
+				entry.result = result
+				s.notifyProgress(workspace)
+			}
 			s.mu.Unlock()
 		}
 	}
@@ -177,6 +184,7 @@ func (s *BackgroundRuns) publish(run *graphRun, entry *backgroundRun, err error)
 	if run.status != "ready" {
 		entry.finishedAt = time.Now()
 	}
+	s.notifyProgress(entry.target.Workspace)
 }
 
 func (s *BackgroundRuns) evictCompleted() bool {

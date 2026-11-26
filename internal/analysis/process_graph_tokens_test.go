@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -99,6 +100,99 @@ func TestProcessGraphPlansAgainstTheConfiguredChatTokenBudget(t *testing.T) {
 				t.Fatalf("the measured batch was rejected or truncated: %+v, %v", answer, err)
 			}
 		})
+	}
+}
+
+func TestProcessGraphPreflightCountsAndSendsWholeRequirements(t *testing.T) {
+	model := "openvino-npu.test." + strings.Repeat("a", 64)
+	req := processgraph.Request{
+		Anchor: processgraph.Anchor{Name: "queue"},
+		Sources: []processgraph.Source{
+			{ID: "r1", Version: 1, Text: "The queue opens.\n"},
+			{ID: "r2", Version: 3, Text: " 🧾 The queue waits.\n\nThe queue closes.\n\t"},
+		},
+	}
+	generated := make(chan []string, len(req.Sources))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body tokenPlanChat
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Messages) != 2 {
+			t.Errorf("invalid model request: %+v, %v", body, err)
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		var data struct{ Sources []graphSource }
+		if err := json.Unmarshal([]byte(body.Messages[1]["content"]), &data); err != nil {
+			t.Errorf("invalid prompt: %v", err)
+			http.Error(w, "invalid prompt", http.StatusBadRequest)
+			return
+		}
+		var texts []string
+		var tokens, partNumber int
+		for i, source := range data.Sources {
+			if source.Number != i+1 {
+				t.Errorf("incorrect requirement number: %+v", source)
+			}
+			var text strings.Builder
+			for _, part := range source.Parts {
+				partNumber++
+				if part.Number != partNumber {
+					t.Errorf("incorrect citation number: %+v", part)
+				}
+				text.WriteString(part.Text)
+			}
+			value := text.String()
+			switch value {
+			case req.Sources[0].Text:
+			case req.Sources[1].Text:
+				if len(source.Parts) != 2 {
+					t.Errorf("expected two separately citable passages in one requirement: %+v", source)
+				}
+			default:
+				t.Errorf("%s received part of a requirement: %q", r.URL.Path, value)
+			}
+			tokens += len(value)
+			texts = append(texts, value)
+		}
+		switch r.URL.Path {
+		case "/v1/chat/token-count":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"model": model, "input_tokens": tokens, "max_input_tokens": len(req.Sources[1].Text),
+				"max_completion_tokens": 512, "exact": true,
+			})
+		case "/v1/chat/completions":
+			select {
+			case generated <- texts:
+			default:
+				t.Error("too many model calls")
+			}
+			_, _ = fmt.Fprint(w, `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"{\"r\":[]}"}}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	g, err := NewSummaryOpenAICompatible(server.URL+"/v1", model, "", "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := g.PlanProcessGraphWithContext(t.Context(), req)
+	if err != nil || plan.Partial || len(plan.Batches) != len(req.Sources) {
+		t.Fatalf("expected two complete batches: %+v, %v", plan, err)
+	}
+	for i, batch := range plan.Batches {
+		response, err := g.GenerateProcessGraphBatch(t.Context(), batch)
+		if err != nil || response.Partial || response.UsedSources != 1 {
+			t.Fatalf("expected one full requirement in completion: %+v, %v", response, err)
+		}
+		select {
+		case actual := <-generated:
+			if !slices.Equal(actual, []string{req.Sources[i].Text}) {
+				t.Errorf("generated batch %d should use the complete source: %q", i, actual)
+			}
+		default:
+			t.Fatalf("batch %d did not call the model", i)
+		}
 	}
 }
 

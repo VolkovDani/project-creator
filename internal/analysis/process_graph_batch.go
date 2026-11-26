@@ -3,9 +3,8 @@ package analysis
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/VolkovDani/project-creator/internal/processgraph"
 )
@@ -29,26 +28,26 @@ func (s *chatSummary) PlanProcessGraph(req processgraph.Request) (processgraph.B
 
 func planProcessGraph(req processgraph.Request, fits func(processgraph.Request) (bool, error)) (processgraph.BatchPlan, error) {
 	var plan processgraph.BatchPlan
-	for passages := processGraphPassages(req); len(passages) > 0; {
-		count, err := largestProcessGraphPrefix(len(passages), func(count int) (bool, error) {
-			return fits(processGraphBatchRequest(req, passages[:count]))
+	for sources := req.Sources; len(sources) > 0; {
+		count, err := largestProcessGraphPrefix(len(sources), func(count int) (bool, error) {
+			return fits(processGraphBatchRequest(req, sources[:count]))
 		})
 		if err != nil {
 			return processgraph.BatchPlan{}, err
 		}
 		if count == 0 {
 			plan.Partial = true
-			passages = passages[1:]
+			sources = sources[1:]
 			continue
 		}
-		plan.Batches = append(plan.Batches, processGraphBatchRequest(req, passages[:count]))
-		passages = passages[count:]
+		plan.Batches = append(plan.Batches, processGraphBatchRequest(req, sources[:count]))
+		sources = sources[count:]
 	}
 	return plan, nil
 }
 
 // Grow the candidate around the maximum fitting prefix instead of sending all
-// remaining passages on every tokenizer probe.
+// remaining requirements on every tokenizer probe.
 func largestProcessGraphPrefix(total int, fits func(int) (bool, error)) (int, error) {
 	best := 0
 	for probe := 1; ; probe = min(probe*2, total) {
@@ -118,54 +117,18 @@ func (s *chatSummary) prepareProcessGraphBatch(req processgraph.Request, matchGl
 }
 
 func (s *chatSummary) SplitProcessGraphBatch(req processgraph.Request) (processgraph.Request, processgraph.Request, bool) {
-	passages := processGraphPassages(req)
-	if len(passages) < 2 {
+	if len(req.Sources) < 2 {
 		return processgraph.Request{}, processgraph.Request{}, false
 	}
-	middle := len(passages) / 2
-	return processGraphBatchRequest(req, passages[:middle]), processGraphBatchRequest(req, passages[middle:]), true
+	middle := len(req.Sources) / 2
+	return processGraphBatchRequest(req, req.Sources[:middle]), processGraphBatchRequest(req, req.Sources[middle:]), true
 }
 
-type processGraphPassage struct {
-	source     int
-	start, end int // Byte offsets in the request source fragment.
-	offset     int // Rune offset in the original requirement.
-}
-
-func processGraphPassages(req processgraph.Request) []processGraphPassage {
-	var passages []processGraphPassage
-	for index, source := range req.Sources {
-		start, offset := 0, source.Offset
-		for _, passage := range explanationPassages(source.Text)[1:] {
-			end := start + len(passage)
-			if strings.TrimSpace(passage) != "" {
-				passages = append(passages, processGraphPassage{source: index, start: start, end: end, offset: offset})
-			}
-			start = end
-			offset += utf8.RuneCountInString(passage)
-		}
-	}
-	return passages
-}
-
-func processGraphBatchRequest(req processgraph.Request, passages []processGraphPassage) processgraph.Request {
+func processGraphBatchRequest(req processgraph.Request, sources []processgraph.Source) processgraph.Request {
 	batch := req
-	batch.Sources = nil
+	batch.Sources = slices.Clone(sources)
 	if len(batch.OriginalSources) == 0 {
 		batch.OriginalSources = req.Sources
-	}
-	for len(passages) > 0 {
-		first, end := passages[0], passages[0].end
-		count := 1
-		for count < len(passages) && passages[count].source == first.source && passages[count].start == end {
-			end = passages[count].end
-			count++
-		}
-		source := req.Sources[first.source]
-		source.Text = source.Text[first.start:end]
-		source.Offset = first.offset
-		batch.Sources = append(batch.Sources, source)
-		passages = passages[count:]
 	}
 	return batch
 }

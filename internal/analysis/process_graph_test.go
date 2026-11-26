@@ -16,7 +16,7 @@ func TestProcessGraphUsesConfiguredChatAndOriginalText(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			const quote = "После отправки заявки начинается проверка."
 			const source = "# Условие\n" + quote
-			const answer = `{"r":[{"a":"Отправить","b":"Проверить","c":"","k":"triggers","p":[2],"x":"action","y":"action"}]}`
+			const answer = `{"r":[{"a":"Отправки заявки","b":"Проверка","c":"","k":"triggers","p":[2],"x":"action","y":"action"}]}`
 			tags, chats := 0, 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/api/tags" && backend == "ollama" {
@@ -124,7 +124,7 @@ func TestManagedNPUProcessGraphRetriesWithSmallerCitedContext(t *testing.T) {
 			w.Write([]byte(`{"error":{"message":"model provider failed","code":"NPU_UNAVAILABLE"}}`))
 			return
 		}
-		processGraphTestCompletion(w, `{"r":[{"a":"Поступление заявки","b":"Проверить","c":"","k":"triggers","p":[2],"x":"event","y":"action"}]}`)
+		processGraphTestCompletion(w, `{"r":[{"a":"Поступление заявки","b":"Проверка","c":"","k":"triggers","p":[2],"x":"event","y":"action"}]}`)
 	}))
 	defer server.Close()
 	g, err := NewSummaryOpenAICompatible(server.URL+"/v1", "openvino-npu.fixture."+strings.Repeat("a", 64), "", "ru")
@@ -159,7 +159,7 @@ func TestManagedNPUProcessGraphKeepsCompletePassagesFromLongRecord(t *testing.T)
 		if len(sources) == 1 {
 			sentParts = sources[0].Parts
 		}
-		processGraphTestCompletion(w, `{"r":[{"a":"Поступление заявки","b":"Проверить","c":"","k":"triggers","p":[1],"x":"event","y":"action"}]}`)
+		processGraphTestCompletion(w, `{"r":[{"a":"Поступление заявки","b":"Проверка","c":"","k":"triggers","p":[1],"x":"event","y":"action"}]}`)
 	}))
 	defer server.Close()
 	g, err := NewSummaryOpenAICompatible(server.URL+"/v1", "openvino-npu.fixture."+strings.Repeat("a", 64), "", "ru")

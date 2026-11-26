@@ -39,9 +39,9 @@ func TestGraphKeepsRoleEvidenceTiedToSelectedConcept(t *testing.T) {
 			{ID: "general", Kind: "actor", Label: "Генподрядчик"},
 			{ID: "contractor", Kind: "actor", Label: "Представитель подрядной организации"},
 			{ID: "merged", Kind: "actor", Label: "Генподрядчик и Подрядчик"},
-			{ID: "check", Kind: "action", Label: "Проверить реестр"},
-			{ID: "copy", Kind: "action", Label: "Копировать"},
-			{ID: "send", Kind: "action", Label: "Отправить отчёт"},
+			{ID: "check", Kind: "action", Label: "Проверяет реестр"},
+			{ID: "copy", Kind: "action", Label: "Копирует заявку"},
+			{ID: "send", Kind: "action", Label: "Отправляет отчёт"},
 		}, Edges: []SuggestedEdge{
 			makeEdge("general", "check", 1, general),
 			makeEdge("contractor", "copy", 1, separate),
@@ -68,7 +68,7 @@ func TestGraphChecksFullGlossaryMentionWhenCitationsSplitAnAlias(t *testing.T) {
 	}
 	got, err := Build(t.Context(), stubGenerator(func(context.Context, Request) (Suggestion, error) {
 		return Suggestion{UsedSources: 1, Nodes: []Node{
-			{ID: "general", Kind: "actor", Label: "Генподрядчик"},
+			{ID: "general", Kind: "actor", Label: "Представитель ген. подрядной организации"},
 			{ID: "wrong", Kind: "actor", Label: "Представитель подрядной организации"},
 			{ID: "file", Kind: "action", Label: "Оформляет заявку"},
 		}, Edges: []SuggestedEdge{

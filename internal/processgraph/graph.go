@@ -104,18 +104,12 @@ func Build(ctx context.Context, g Generator, req Request) (Draft, error) {
 	var draft Draft
 	if err == nil {
 		draft, err = groundDraft(suggestion, req, proof)
-		if len(draft.Edges) > 0 {
-			return draft, nil
-		}
 	}
 	if ctx.Err() != nil {
 		return Draft{}, ctx.Err()
 	}
-	// A provider may return nothing usable for an explicitly written rule.
-	// Keep its literal condition and result without guessing a transition.
-	literal, literalErr := groundDraft(literalRelations(req.Sources), req, proof)
-	if literalErr == nil && len(literal.Edges) > 0 {
-		return literal, nil
+	if augmentLiteralDraft(&draft, req, proof) {
+		return draft, nil
 	}
 	return draft, err
 }
@@ -145,7 +139,8 @@ func groundDraft(suggestion Suggestion, req Request, proof *conceptProof) (Draft
 			continue
 		}
 		citations := groundedEvidence(edge.Evidence, sources, req.Anchor.Name)
-		if len(citations) == 0 || !supportsLabel(edge.Label, citations) || !proof.supports(from, to, citations) {
+		citations = relationshipEvidence(from, to, edge, citations)
+		if len(citations) == 0 || !proof.supports(from, to, citations) {
 			continue
 		}
 		edges[key] = true
@@ -162,17 +157,17 @@ func groundDraft(suggestion Suggestion, req Request, proof *conceptProof) (Draft
 	return draft, nil
 }
 
-func supportsLabel(label string, citations []Evidence) bool {
+func supportsLabel(label, quote string) bool {
 	if label == "" {
 		return true
 	}
-	normalize := func(text string) string {
-		return strings.ToLower(strings.Join(strings.Fields(text), " "))
+	words, condition := labelWords(quote), labelWords(label)
+	for i := 0; len(condition) > 0 && i+len(condition) <= len(words); i++ {
+		if slices.Equal(words[i:i+len(condition)], condition) {
+			return true
+		}
 	}
-	label = normalize(label)
-	return slices.ContainsFunc(citations, func(evidence Evidence) bool {
-		return strings.Contains(normalize(evidence.Quote), label)
-	})
+	return false
 }
 
 func validEndpoints(edge, from, to string) bool {

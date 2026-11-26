@@ -98,7 +98,8 @@ func (s *chatSummary) generateProcessGraphBatch(ctx context.Context, req process
 		return processgraph.Suggestion{}, err
 	}
 	content, err := s.complete(ctx, input.messages, output.schema)
-	if s.managedNPU && errors.Is(err, npuFailure("NPU_UNAVAILABLE")) && ctx.Err() == nil {
+	npuInputRejected := s.managedNPU && errors.Is(err, npuFailure("NPU_UNAVAILABLE"))
+	if ctx.Err() == nil && (npuInputRejected || errors.Is(err, errChatOutputLimit)) {
 		return processgraph.Suggestion{}, processgraph.ErrBatchTooLarge
 	}
 	if err != nil {

@@ -3,6 +3,9 @@ package analysis
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -146,5 +149,65 @@ func TestProcessGraphBatchPlanReportsUnfitPassageAndKeepsLaterSource(t *testing.
 	}
 	if _, err := s.GenerateProcessGraphBatch(t.Context(), req); !errors.Is(err, processgraph.ErrBatchTooLarge) {
 		t.Fatalf("expected a local batch size rejection: %v", err)
+	}
+}
+
+func TestProcessGraphBatchSplitsWhenTheProviderExhaustsOutputTokens(t *testing.T) {
+	for _, tc := range []struct {
+		name, provider string
+		status         int
+		body           string
+		split          bool
+	}{
+		{"managed NPU length", "npu", 502, `{"error":{"code":"OUTPUT_TOKEN_LIMIT","message":"model provider failed"}}`, true},
+		{"unrecognized NPU status", "npu", 503, `{"error":{"code":"OUTPUT_TOKEN_LIMIT","message":"model provider failed"}}`, false},
+		{"invalid NPU output", "npu", 502, `{"error":{"code":"INVALID_OUTPUT","message":"model provider failed"}}`, false},
+		{"compatible length", "compatible", 200, `{"choices":[{"finish_reason":"length","message":{"role":"assistant","content":"{\"r\":["}}]}`, true},
+		{"compatible invalid JSON", "compatible", 200, `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"{\"r\":["}}]}`, false},
+		{"Ollama length", "ollama", 200, `{"done":true,"done_reason":"length","message":{"role":"assistant","content":"{\"r\":["}}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := processgraph.Request{
+				Anchor: processgraph.Anchor{Name: "queue"},
+				Sources: []processgraph.Source{
+					{ID: "start", Version: 1, Text: "The queue begins."},
+					{ID: "end", Version: 1, Text: "The queue closes."},
+				},
+			}
+			const model = "test-chat:latest"
+			digest := strings.Repeat("a", 64)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/tags":
+					fmt.Fprintf(w, `{"models":[{"name":%q,"digest":%q}]}`, model, digest)
+				case "/v1/chat/completions", "/api/chat":
+					w.WriteHeader(tc.status)
+					fmt.Fprint(w, tc.body)
+				default:
+					t.Errorf("unexpected model route %s", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			var g processgraph.BatchGenerator
+			var err error
+			if tc.provider == "ollama" {
+				g, err = NewSummaryOllamaWithLanguages(server.URL, model, digest, "en")
+			} else {
+				id := model
+				if tc.provider == "npu" {
+					id = "openvino-npu.test." + digest
+				}
+				g, err = NewSummaryOpenAICompatible(server.URL+"/v1", id, "", "en")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			suggestion, err := g.GenerateProcessGraphBatch(t.Context(), req)
+			if err == nil || errors.Is(err, processgraph.ErrBatchTooLarge) != tc.split ||
+				suggestion.UsedSources != 0 || len(suggestion.Edges) != 0 {
+				t.Fatalf("incomplete output must be discarded, split=%t: %+v, %v", tc.split, suggestion, err)
+			}
+		})
 	}
 }

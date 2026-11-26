@@ -13,7 +13,8 @@ type BatchPlan struct {
 }
 
 // BatchGenerator plans complete passages and makes exactly one provider call
-// per batch. SplitProcessGraphBatch may replace a batch rejected for its size.
+// per batch. SplitProcessGraphBatch may replace a batch that exceeds the input
+// or output budget.
 type BatchGenerator interface {
 	Generator
 	PlanProcessGraph(Request) (BatchPlan, error)

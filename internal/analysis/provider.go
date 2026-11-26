@@ -251,6 +251,9 @@ func (o *Ollama) chat(ctx context.Context, messages []map[string]string, schema 
 	if err = o.request(ctx, "POST", "/api/chat", body, &response); err != nil {
 		return "", err
 	}
+	if response.Done && response.DoneReason == "length" {
+		return "", errChatOutputLimit
+	}
 	if !response.Done || response.DoneReason != "stop" || response.Message.Role != "assistant" || len(response.Message.ToolCalls) != 0 {
 		return "", invalidModelOutput("incomplete or unsupported local chat response")
 	}
@@ -262,7 +265,10 @@ type invalidModelOutput string
 
 func (e invalidModelOutput) Error() string { return string(e) }
 
-const errExplanationAlphabet invalidModelOutput = "comparison explanation contains unsupported characters"
+const (
+	errExplanationAlphabet invalidModelOutput = "comparison explanation contains unsupported characters"
+	errChatOutputLimit     invalidModelOutput = "chat completion exhausted the response token budget"
+)
 
 var pairLanguages = func() SummaryLanguagePolicy {
 	policy, err := NewSummaryLanguagePolicy(explanationAlphabet)

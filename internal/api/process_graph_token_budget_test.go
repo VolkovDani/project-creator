@@ -19,14 +19,17 @@ func TestModelManagerProcessGraphPreflight(t *testing.T) {
 	if binary == "" {
 		t.Skip("set MODELS_CONFIGURATOR_TEST_BIN to run the cross-repository test")
 	}
-	narrow := exerciseProcessGraphPreflight(t, binary, 1200)
-	wide := exerciseProcessGraphPreflight(t, binary, 4096)
+	narrow := exerciseProcessGraphPreflight(t, binary, 1200, false)
+	wide := exerciseProcessGraphPreflight(t, binary, 4096, false)
 	if wide < 1 || narrow <= wide {
 		t.Fatalf("increasing the input window did not reduce the number of planned batches: %d → %d", narrow, wide)
 	}
+	t.Run("response token limit", func(t *testing.T) {
+		exerciseProcessGraphPreflight(t, binary, 4096, true)
+	})
 }
 
-func exerciseProcessGraphPreflight(t *testing.T, binary string, window int) int {
+func exerciseProcessGraphPreflight(t *testing.T, binary string, window int, exhaustFirst bool) int {
 	t.Helper()
 	digest := strings.Repeat("b", 64)
 	socket := filepath.Join(t.TempDir(), "npu.sock")
@@ -75,6 +78,11 @@ func exerciseProcessGraphPreflight(t *testing.T, binary string, window int) int 
 				case <-r.Context().Done():
 					return
 				case <-release:
+				}
+				if exhaustFirst {
+					w.WriteHeader(http.StatusBadGateway)
+					_ = json.NewEncoder(w).Encode(map[string]string{"error": "NPU generation failed", "code": "OUTPUT_TOKEN_LIMIT"})
+					return
 				}
 			}
 			binding["content"] = `{"r":[]}`
@@ -142,16 +150,21 @@ func exerciseProcessGraphPreflight(t *testing.T, binary string, window int) int 
 		t.Fatalf("full plan was unavailable before generation completed: %v", active)
 	}
 	total := int(run["total"].(float64))
+	wantTotal, wantCalls := total, total
+	if exhaustFirst {
+		wantTotal++
+		wantCalls += 2
+	}
 	close(release)
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		status := call("token-a", latest, "latestProcessGraphRun")
 		if status["status"] != "ready" {
 			if final, ok := status["run"].(map[string]any); !ok || final["failed"] != float64(0) ||
-				final["completed"] != float64(total) || int(generated.Load()) != total {
-				t.Fatalf("planned %d and generated %d, final result %v", total, generated.Load(), status)
+				final["completed"] != float64(wantTotal) || final["total"] != float64(wantTotal) || int(generated.Load()) != wantCalls {
+				t.Fatalf("expected %d settled batches after %d calls, got %d calls and result %v", wantTotal, wantCalls, generated.Load(), status)
 			}
-			t.Logf("profile with %d input tokens planned %d batches from %d probes", window, total, counted.Load())
+			t.Logf("profile with %d input tokens planned %d batches from %d probes and settled %d with zero failures", window, total, counted.Load(), wantTotal)
 			return total
 		}
 		time.Sleep(10 * time.Millisecond)

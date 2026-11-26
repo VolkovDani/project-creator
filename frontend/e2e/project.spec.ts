@@ -71,7 +71,7 @@ test('project section help is shown on hover and keyboard focus without a click'
   await expect(requirements).toBeVisible();
   await expect(tooltip).toHaveCount(0);
   await requirements.hover();
-  await expect(tooltip).toContainText('Ищите и редактируйте бизнес-требования');
+  await expect(tooltip).toContainText('Ищите и редактируйте требования проекта');
   await page.mouse.move(0, 0);
   await expect(tooltip).toHaveCount(0);
 

@@ -447,7 +447,7 @@ export default function Requirements({
   return (
     <section className="ui-panel" aria-labelledby="requirements-heading">
       <header className={styles.heading}>
-        <h2 id="requirements-heading">{t(locale, 'requirements.title')}</h2>
+        <h2 id="requirements-heading">{t(locale, 'nav.requirements')}</h2>
         <button
           type="button"
           id="requirement-entry"

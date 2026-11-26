@@ -546,7 +546,7 @@ The backend continues processing when you leave the page or close the browser. W
 - Use native `details` and `summary` for expandable sections. The shared stylesheet supplies their frame, spacing and summary styling. Keep the native disclosure marker and keyboard interaction.
 - Give keyboard focus a visible outline in both themes. A focused navigation link must remain distinguishable from the current page.
 
-## Business requirements
+## Requirements
 
 Use **Add requirement** to open the create dialog. In **Search requirements**, submit an ID or text with Enter or **Search**. One submission shows case-insensitive ID and text matches from active and archived requirements, plus separate semantic results from the project's index. ID and text matches are available independently of the embedding provider. Text results mark the matching passage in its original casing and show the surrounding context. A matching ID is highlighted beside the requirement text. Open a result to see its details. The previous search URL redirects to this form.
 

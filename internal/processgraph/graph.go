@@ -80,7 +80,7 @@ type Evidence struct {
 }
 
 var nodeKinds = []string{"actor", "action", "condition", "event", "state", "object", "rule"}
-var edgeKinds = []string{"performs", "follows", "triggers", "requires", "permits", "prohibits", "leads_to", "constrains"}
+var edgeKinds = []string{"performs", "follows", "triggers", "requires", "permits", "prohibits", "leads_to", "constrains", "needs"}
 var nodeID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 
 // NodeKinds and EdgeKinds are shared by the validator and the generation schema.
@@ -172,6 +172,8 @@ func validEndpoints(edge, from, to string) bool {
 	switch edge {
 	case "performs":
 		return from == "actor" && to == "action"
+	case "needs":
+		return from == "actor" && (to == "action" || to == "event" || to == "state")
 	case "follows":
 		return from == "action" && to == "action"
 	case "triggers":

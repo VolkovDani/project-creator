@@ -3,6 +3,7 @@ fragment ProcessGraphRunFields on ProcessGraphRunPayload {
   run {
     id
     topic
+    mode
     revision
     completed
     total
@@ -13,6 +14,8 @@ fragment ProcessGraphRunFields on ProcessGraphRunPayload {
       id
       kind
       label
+      requirementId
+      version
     }
     edges {
       from

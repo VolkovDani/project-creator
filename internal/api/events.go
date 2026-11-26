@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/VolkovDani/project-creator/internal/processgraph"
 )
 
 const analysisEventPrefix = "project:"
@@ -261,15 +263,15 @@ func writeAnalysisProgress(w http.ResponseWriter, event analysisProgressEvent) e
 	return err
 }
 
-func serveEvents(db *sql.DB, workspace string, w http.ResponseWriter, r *http.Request, profiles ...string) {
-	serveEventsWithProfiles(db, workspace, w, r, 300*time.Millisecond, 15*time.Second, profiles...)
+func serveEvents(db *sql.DB, workspace string, w http.ResponseWriter, r *http.Request, runs *processgraph.BackgroundRuns, profiles ...string) {
+	serveEventsWithProfiles(db, workspace, w, r, 300*time.Millisecond, 15*time.Second, runs, profiles...)
 }
 
 func serveEventsWithTiming(db *sql.DB, workspace string, w http.ResponseWriter, r *http.Request, pollInterval, heartbeatInterval time.Duration) {
-	serveEventsWithProfiles(db, workspace, w, r, pollInterval, heartbeatInterval)
+	serveEventsWithProfiles(db, workspace, w, r, pollInterval, heartbeatInterval, nil)
 }
 
-func serveEventsWithProfiles(db *sql.DB, workspace string, w http.ResponseWriter, r *http.Request, pollInterval, heartbeatInterval time.Duration, profiles ...string) {
+func serveEventsWithProfiles(db *sql.DB, workspace string, w http.ResponseWriter, r *http.Request, pollInterval, heartbeatInterval time.Duration, runs *processgraph.BackgroundRuns, profiles ...string) {
 	if _, ok := w.(http.Flusher); !ok {
 		http.Error(w, "streaming unavailable", http.StatusInternalServerError)
 		return
@@ -339,6 +341,36 @@ func serveEventsWithProfiles(db *sql.DB, workspace string, w http.ResponseWriter
 	if !send(batch) {
 		return
 	}
+	var graphChanged <-chan struct{}
+	var lastGraphProgress map[string]processgraph.BackgroundProgress
+	sendGraphProgress := func() bool {
+		snapshots := runs.ProgressSnapshots(workspace)
+		current := make(map[string]processgraph.BackgroundProgress, len(snapshots))
+		wrote := false
+		for _, snapshot := range snapshots {
+			current[snapshot.ProjectID] = snapshot
+			if lastGraphProgress[snapshot.ProjectID] == snapshot {
+				continue
+			}
+			if !wrote {
+				_ = controller.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			}
+			if writeProcessGraphProgress(w, snapshot) != nil {
+				return false
+			}
+			wrote = true
+		}
+		lastGraphProgress = current
+		return !wrote || flush()
+	}
+	if runs != nil {
+		changed, unwatch := runs.WatchProgress(workspace)
+		defer unwatch()
+		graphChanged = changed
+		if !sendGraphProgress() {
+			return
+		}
+	}
 	cursor := batch.cursor
 	poll := time.NewTicker(pollInterval)
 	defer poll.Stop()
@@ -348,6 +380,10 @@ func serveEventsWithProfiles(db *sql.DB, workspace string, w http.ResponseWriter
 		select {
 		case <-r.Context().Done():
 			return
+		case <-graphChanged:
+			if !sendGraphProgress() {
+				return
+			}
 		case <-poll.C:
 			batch, err = readEventBatch(r.Context(), db, workspace, cursor, profiles...)
 			if err != nil {

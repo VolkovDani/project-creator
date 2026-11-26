@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { expect, type Page, test } from '@playwright/test';
 import type { ProcessGraphRunFieldsFragment } from '../lib/generated';
 
 const nodes = [
@@ -6,7 +7,7 @@ const nodes = [
   { id: 'approve', kind: 'state', label: 'Принята' },
   { id: 'return', kind: 'state', label: 'Возвращена' },
   { id: 'operator', kind: 'actor', label: 'Оператор' },
-];
+].map((node) => ({ ...node, requirementId: null, version: null }));
 const draft = {
   nodes,
   edges: [
@@ -60,6 +61,57 @@ const draft = {
   partial: true,
 };
 
+type StreamWindow = Window & {
+  graphPush: (frame: string) => void;
+  graphClose: () => void;
+  graphConnections: Array<string | null>;
+};
+
+async function mockStream(page: Page) {
+  await page.addInitScript(() => {
+    let active: ReadableStreamDefaultController<Uint8Array>;
+    const target = window as unknown as StreamWindow;
+    target.graphConnections = [];
+    const original = window.fetch;
+    window.fetch = (input, init) => {
+      if (String(input) !== '/api/events') return original(input, init);
+      target.graphConnections.push(new Headers(init?.headers).get('Last-Event-ID'));
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          active = controller;
+        },
+      });
+      return Promise.resolve(
+        new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+      );
+    };
+    target.graphPush = (frame) => active.enqueue(new TextEncoder().encode(frame));
+    target.graphClose = () => active.close();
+  });
+}
+
+async function pushProgress(
+  page: Page,
+  { status, run }: ProcessGraphRunFieldsFragment,
+  projectId = 'demo',
+) {
+  await page.evaluate(
+    (payload) =>
+      (window as unknown as StreamWindow).graphPush(
+        `event: process_graph.progress
+data: ${JSON.stringify(payload)}
+
+`,
+      ),
+    {
+      schemaVersion: 1,
+      projectId,
+      status,
+      run: run?.mode === 'PROCESS' ? { ...run, mode: undefined } : run,
+    },
+  );
+}
+
 test('a graph continues in the background and restores progress and cited results', async ({
   page,
 }) => {
@@ -67,9 +119,9 @@ test('a graph continues in the background and restores progress and cited result
   const batches: unknown[] = [];
   const latestReads: unknown[] = [];
   const preparation = Promise.withResolvers<void>();
-  const invalidation = Promise.withResolvers<void>();
   let failNextRead = false;
   let failedReads = 0;
+  let latestReadGate: ReturnType<typeof Promise.withResolvers<void>> | undefined;
   let latest: ProcessGraphRunFieldsFragment | null = null;
   function snapshot(
     id: string,
@@ -81,19 +133,21 @@ test('a graph continues in the background and restores progress and cited result
     const status = total === 0 ? 'planning' : completed === total ? 'suggested' : 'ready';
     return {
       status,
-      run: { id, topic, revision: total === 0 ? 1 : completed + 2, completed, total, failed },
+      run: {
+        id,
+        topic,
+        mode: 'PROCESS',
+        revision: total === 0 ? 1 : completed + 2,
+        completed,
+        total,
+        failed,
+      },
       draft: status === 'suggested' ? draft : null,
       fieldErrors: [],
     };
   }
 
-  await page.route('**/api/events', async (route) => {
-    await invalidation.promise;
-    const body =
-      'id: 17\nevent: cache.invalidate\ndata: {"schemaVersion":1,"keys":["project:demo:requirements"]}\n\n';
-    // A reload can disconnect an earlier stream. The client deduplicates the replay.
-    await route.fulfill({ contentType: 'text/event-stream', body }).catch(() => {});
-  });
+  await mockStream(page);
   await page.route('**/api/graphql', async (route) => {
     const { operationName, variables } = route.request().postDataJSON();
     const pageInfo = { hasNextPage: false, endCursor: null };
@@ -145,6 +199,11 @@ test('a graph continues in the background and restores progress and cited result
           return;
         }
         data = { latestProcessGraphRun: latest };
+        if (latestReadGate) {
+          const gate = latestReadGate;
+          latestReadGate = undefined;
+          await gate.promise;
+        }
         break;
       case 'ProcessGraphBatch':
         batches.push(variables.input);
@@ -189,24 +248,77 @@ test('a graph continues in the background and restores progress and cited result
     await page.goBack();
     await expect(status).toContainText(planning);
     await expect(keyword).toHaveValue('');
-    latest = snapshot('run-1', 'заявка', 0, 2, 0);
+    const firstBatch = snapshot('run-1', 'заявка', 0, 2, 0);
+    const planningReads = latestReads.length;
+    await pushProgress(page, firstBatch, 'other-project');
+    await expect(status).toContainText(planning);
+    await pushProgress(page, firstBatch);
     await expect(status).toContainText('Обрабатываем порцию 1 из 2');
     await expect(status).toContainText('Завершено 0 из 2');
     await expect(build).toBeDisabled();
+    const buildHelp = page.getByRole('tooltip').filter({
+      hasText: 'Дождитесь результата текущего запуска.',
+    });
+    await build.hover();
+    await expect(buildHelp).toBeVisible();
+    await page.mouse.move(0, 0);
+    await expect(buildHelp).toBeHidden();
+    await keyword.focus();
+    await page.keyboard.press('Tab');
+    await expect(build).toBeFocused();
+    await expect(buildHelp).toBeVisible();
+    await page.keyboard.press('Enter');
+    expect(anchors).toHaveLength(1);
+    await page.keyboard.press('Escape');
+    await expect(buildHelp).toBeHidden();
+    await expect(build).toBeFocused();
+    await pushProgress(page, firstBatch);
+    await pushProgress(page, snapshot('run-1', 'заявка', 0, 0, 0));
+    await expect(status).toContainText('Обрабатываем порцию 1 из 2');
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    expect(latestReads).toHaveLength(planningReads);
 
     await openOverview();
-    latest = snapshot('run-1', 'заявка', 2, 3, 1);
+    latest = snapshot('run-1', 'заявка', 1, 3, 0);
+    const beforeReentry = latestReads.length;
     failNextRead = true;
     await page.goBack();
     await expect.poll(() => failedReads).toBe(1);
-    await expect(status).toContainText('Обрабатываем порцию 3 из 3');
-    await expect(status).toContainText('Завершено 2 из 3');
-    await expect(status).toContainText('Порций с ошибками — 1');
-    await expect(status).toContainText('Тема графа — заявка');
-    await expect(keyword).toHaveValue('');
-    await expect(heading).toHaveCount(0);
+    await expect(status).toContainText('Обрабатываем порцию 2 из 3');
+    expect(latestReads).toHaveLength(beforeReentry + 2);
+    const beforeReconnect = latestReads.length;
+    latest = snapshot('run-1', 'заявка', 2, 3, 1);
+    const delayedReconnect = Promise.withResolvers<void>();
+    latestReadGate = delayedReconnect;
+    try {
+      await page.evaluate(() => {
+        const stream = window as unknown as StreamWindow;
+        stream.graphPush(
+          'id: 17\nevent: cache.invalidate\ndata: {"schemaVersion":1,"keys":["unrelated"]}\n\n',
+        );
+        stream.graphClose();
+      });
+      await expect.poll(() => latestReads.length).toBe(beforeReconnect + 1);
+      expect(
+        await page.evaluate(() => (window as unknown as StreamWindow).graphConnections),
+      ).toEqual([null, '17']);
 
-    latest = snapshot('run-1', 'заявка', 3, 3, 1);
+      await pushProgress(page, latest);
+      await expect(status).toContainText('Обрабатываем порцию 3 из 3');
+      await expect(status).toContainText('Завершено 2 из 3');
+      await expect(status).toContainText('Порций с ошибками — 1');
+      await expect(status).toContainText('Тема графа — заявка');
+      await expect(keyword).toHaveValue('');
+      await expect(heading).toHaveCount(0);
+
+      latest = snapshot('run-1', 'заявка', 3, 3, 1);
+      await pushProgress(page, latest);
+      await pushProgress(page, latest);
+      await expect(heading).toBeVisible();
+      expect(latestReads).toHaveLength(beforeReconnect + 2);
+    } finally {
+      delayedReconnect.resolve();
+    }
     await expect(heading).toBeVisible();
     await page.reload();
     await expect(heading).toBeVisible();
@@ -214,6 +326,19 @@ test('a graph continues in the background and restores progress and cited result
     await expect(status).toContainText('Порций с ошибками — 1');
     await expect(status).toContainText('Тема графа — заявка');
     await expect(page.getByText('Черновик охватывает часть доступных сведений.')).toBeVisible();
+
+    const completedReads = latestReads.length;
+    await openOverview();
+    await pushProgress(page, latest);
+    await pushProgress(page, snapshot('run-1', 'заявка', 2, 3, 1));
+    await page.goBack();
+    await expect(heading).toBeVisible();
+    expect(latestReads).toHaveLength(completedReads);
+
+    await page.evaluate(() => (window as unknown as StreamWindow).graphClose());
+    await expect.poll(() => latestReads.length).toBe(completedReads + 1);
+    await expect(heading).toBeVisible();
+
     await expect(page.getByText('Ошибок нет', { exact: true }).last()).toBeVisible();
     await expect(page.getByText('Найдены ошибки', { exact: true }).last()).toBeVisible();
     await expect(page.getByText('Нужно', { exact: true }).last()).toBeVisible();
@@ -223,14 +348,31 @@ test('a graph continues in the background and restores progress and cited result
       'href',
       '/projects/demo/requirements?requirement=req-1&version=2&start=24&end=61#requirement-req-1',
     );
+    const exportButton = page.getByRole('button', { name: 'Скачать Mermaid' });
+    const downloadReady = page.waitForEvent('download');
+    await exportButton.press('Enter');
+    const download = await downloadReady;
+    expect(download.suggestedFilename()).toBe('process-graph.mmd');
+    const mermaid = await readFile(await download.path(), 'utf8');
+    expect(mermaid).toContain('n1["Проверить заявку"]');
+    expect(mermaid).toContain('n1 -->|"Ошибок нет"| n2');
+    expect(mermaid).toContain('n4 -->|"Нужно"| n1');
+    expect(mermaid).toContain(
+      `click n2 href "${new URL(page.url()).origin}/projects/demo/requirements?requirement=req-1&version=2&start=24&end=61#requirement-req-1"`,
+    );
     expect(anchors).toEqual([{ projectId: 'demo', keyword: 'заявка' }]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       390,
     );
 
     latest = { status: 'stale', run: null, draft: null, fieldErrors: [] };
-    invalidation.resolve();
+    await page.evaluate(() =>
+      (window as unknown as StreamWindow).graphPush(
+        'id: 18\nevent: cache.invalidate\ndata: {"schemaVersion":1,"keys":["project:demo:requirements"]}\n\n',
+      ),
+    );
     await expect(heading).toHaveCount(0);
+    await expect(exportButton).toHaveCount(0);
     await expect(status).toContainText('Данные проекта изменились.');
 
     await page.getByRole('radio', { name: 'По термину словаря' }).check();
@@ -243,8 +385,177 @@ test('a graph continues in the background and restores progress and cited result
     expect(latestReads.length).toBeGreaterThanOrEqual(4);
     expect(latestReads).toEqual(latestReads.map(() => ({ projectId: 'demo' })));
     expect(batches).toEqual([]);
+
+    const beforeReadingReplacement = latestReads.length;
+    await openOverview();
+    await page.goBack();
+    await expect(heading).toBeVisible();
+    expect(latestReads).toHaveLength(beforeReadingReplacement + 1);
+
+    const replacementReads = latestReads.length;
+    await openOverview();
+    await page.goBack();
+    await expect(heading).toBeVisible();
+    expect(latestReads).toHaveLength(replacementReads);
+
+    await openOverview();
+    latest = snapshot('run-3', 'новая заявка', 0, 0, 0);
+    await pushProgress(page, latest);
+    await page.goBack();
+    await expect(heading).toHaveCount(0);
+    await expect(status).toContainText('Тема графа — новая заявка');
+    expect(latestReads).toHaveLength(replacementReads + 1);
+
+    latest = snapshot('run-3', 'новая заявка', 2, 2, 0);
+    await pushProgress(page, latest);
+    await expect(heading).toBeVisible();
+    const beforeClear = latestReads.length;
+    latest = null;
+    await page.evaluate(() =>
+      (window as unknown as StreamWindow).graphPush(
+        'id: 19\nevent: cache.invalidate\ndata: {"schemaVersion":1,"keys":["project:demo:process-graph"]}\n\n',
+      ),
+    );
+    await expect(heading).toHaveCount(0);
+    expect(latestReads).toHaveLength(beforeClear + 1);
   } finally {
     preparation.resolve();
-    invalidation.resolve();
+    latestReadGate?.resolve();
   }
+});
+
+test('a requirement diagram restores its mode, cites versions, and exports its typed links', async ({
+  page,
+}) => {
+  const source = draft.edges[0].evidence[0];
+  const requirements: ProcessGraphRunFieldsFragment = {
+    status: 'suggested',
+    run: {
+      id: 'run-requirements',
+      topic: 'заявка',
+      mode: 'REQUIREMENTS',
+      revision: 2,
+      completed: 1,
+      total: 1,
+      failed: 0,
+    },
+    draft: {
+      nodes: [
+        {
+          id: 'general',
+          kind: 'requirement',
+          label: 'Регистрация заявки',
+          requirementId: 'req-2',
+          version: 1,
+        },
+        {
+          id: 'specific',
+          kind: 'requirement',
+          label: 'Принятие заявки',
+          requirementId: 'req-1',
+          version: 2,
+        },
+      ],
+      edges: [{ from: 'specific', to: 'general', kind: 'refines', label: '', evidence: [source] }],
+      sourceCount: 2,
+      partial: false,
+    },
+    fieldErrors: [],
+  };
+  const planning = {
+    ...requirements,
+    status: 'planning',
+    run: requirements.run && { ...requirements.run, revision: 1, completed: 0, total: 0 },
+    draft: null,
+  };
+  let latest: ProcessGraphRunFieldsFragment | null = null;
+  const inputs: unknown[] = [];
+  await mockStream(page);
+  await page.route('**/api/graphql', async (route) => {
+    const { operationName, variables } = route.request().postDataJSON();
+    const pageInfo = { hasNextPage: false, endCursor: null };
+    let data: unknown;
+    switch (operationName) {
+      case 'ProjectDetail':
+        data = { project: { id: 'demo', name: 'Заявки', goal: '', description: '' } };
+        break;
+      case 'LatestProcessGraphRun':
+        data = { latestProcessGraphRun: latest };
+        break;
+      case 'StartBackgroundProcessGraph':
+        inputs.push(variables.input);
+        latest = planning;
+        data = { startBackgroundProcessGraph: latest };
+        break;
+      default:
+        data = { projectsConnection: { items: [], pageInfo } };
+    }
+    await route.fulfill({ json: { data } });
+  });
+
+  await page.goto('/projects/demo/process-graphs');
+  const flowchart = page.getByRole('radio', { name: 'Граф процесса (Flowchart)' });
+  const requirementMode = page.getByRole('radio', {
+    name: 'Диаграмма требований (requirementDiagram)',
+  });
+  await expect(
+    page.getByRole('group', { name: 'Вид диаграммы' }).getByRole('radio').first(),
+  ).toBeChecked();
+  await expect(flowchart).toBeChecked();
+  await requirementMode.check();
+  await page.getByRole('textbox', { name: 'Ключевое слово или фраза' }).fill('заявка');
+  const build = page.getByRole('button', { name: 'Построить диаграмму требований' });
+  await build.click();
+  await expect(build).toBeDisabled();
+  await expect(requirementMode).toBeDisabled();
+  await expect(page.locator('#process-graph-status')).toContainText('Планируем порции для графа');
+  latest = requirements;
+  await pushProgress(page, requirements);
+  const heading = page.getByRole('heading', { name: 'Черновик диаграммы требований' });
+  await expect(heading).toBeVisible();
+  expect(inputs).toEqual([{ projectId: 'demo', keyword: 'заявка', mode: 'REQUIREMENTS' }]);
+  await expect(page.getByText('Уточняет', { exact: true }).last()).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: 'Требование req-2 · Версия 1', exact: true }),
+  ).toHaveAttribute(
+    'href',
+    '/projects/demo/requirements?requirement=req-2&version=1#requirement-req-2',
+  );
+  await page.getByText('Цитаты из требований', { exact: true }).click();
+  await expect(page.getByText(source.quote)).toBeVisible();
+  const evidencePath =
+    '/projects/demo/requirements?requirement=req-1&version=2&start=24&end=61#requirement-req-1';
+  await expect(
+    page.locator('details').getByRole('link', { name: 'Требование req-1 · Версия 2' }),
+  ).toHaveAttribute('href', evidencePath);
+  const diagramNode = page
+    .getByRole('region', { name: 'Схема связей требований' })
+    .getByRole('link', {
+      name: 'Принятие заявки · Требование req-1 · Версия 2',
+    });
+  await expect(diagramNode).toHaveAttribute('href', evidencePath);
+
+  await flowchart.check();
+  await expect(heading).toBeVisible();
+  const diagramReady = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Скачать Mermaid' }).click();
+  const diagram = await diagramReady;
+  expect(diagram.suggestedFilename()).toBe('requirement-diagram.mmd');
+  expect(await readFile(await diagram.path(), 'utf8')).toContain('r2 - refines -> r1');
+  const evidenceReady = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Скачать Markdown с источниками' }).click();
+  const evidence = await evidenceReady;
+  expect(evidence.suggestedFilename()).toBe('requirement-diagram.md');
+  const markdown = await readFile(await evidence.path(), 'utf8');
+  expect(markdown).toContain('```mermaid\nrequirementDiagram');
+  expect(markdown).toContain(`${new URL(page.url()).origin}${evidencePath}`);
+  expect(markdown).toContain(source.quote);
+
+  await page.getByRole('link', { name: 'Заявки', exact: true }).click();
+  await expect(page).toHaveURL('/projects/demo');
+  await page.goBack();
+  await expect(heading).toBeVisible();
+  await expect(requirementMode).toBeChecked();
+  await diagramNode.press('Enter');
+  await expect(page).toHaveURL(evidencePath);
 });

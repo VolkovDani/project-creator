@@ -5,14 +5,14 @@ import (
 	"errors"
 )
 
-// BatchPlan preserves the provider's processing order and records any passages
+// BatchPlan preserves the provider's processing order and records any requirements
 // it could not fit even by themselves.
 type BatchPlan struct {
 	Batches []Request
 	Partial bool
 }
 
-// BatchGenerator plans complete passages and makes exactly one provider call
+// BatchGenerator plans complete requirements and makes exactly one provider call
 // per batch. SplitProcessGraphBatch may replace a batch that exceeds the input
 // or output budget.
 type BatchGenerator interface {

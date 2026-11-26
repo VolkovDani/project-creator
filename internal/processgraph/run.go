@@ -17,10 +17,12 @@ const (
 
 type Target struct {
 	Workspace, Project, TermID, Keyword string
+	Mode                                Mode `json:",omitempty"`
 }
 
 type Progress struct {
 	ID, Topic                          string
+	Mode                               Mode `json:",omitempty"`
 	Revision, Completed, Total, Failed int
 }
 
@@ -120,15 +122,22 @@ func (e runEngine) newRun(target Target, req Request, snapshotKey string, partia
 	if len(req.Sources) > MaxRunSources || snapshotKey == "" {
 		return nil, errors.New("invalid process graph run request")
 	}
-	return &graphRun{
+	run := &graphRun{
 		target: target, snapshotKey: snapshotKey, gate: make(chan struct{}, 1), original: req,
-		progress: Progress{ID: rand.Text(), Topic: req.Anchor.Name, Revision: 1},
+		progress: Progress{ID: rand.Text(), Topic: req.Anchor.Name, Mode: req.Mode, Revision: 1},
 		status:   "planning", draft: Draft{Partial: partial},
-	}, nil
+	}
+	if req.Mode == RequirementMode && len(req.Sources) == 1 {
+		run.status = "insufficient"
+		run.clearWork()
+	}
+	return run, nil
 }
 
 func (r *graphRun) applyPlan(plan BatchPlan) {
-	r.proof = buildConceptProof(r.original)
+	if r.original.Mode != RequirementMode {
+		r.proof = buildConceptProof(r.original)
+	}
 	r.inspected = make(map[string]bool)
 	r.status = "ready"
 	r.progress.Total = len(plan.Batches)
@@ -152,7 +161,7 @@ func (e runEngine) plan(ctx context.Context, req Request) (BatchPlan, error) {
 		return e.batch.PlanProcessGraph(req)
 	}
 	var plan BatchPlan
-	for offset := 0; offset < len(req.Sources); offset += MaxSources {
+	for offset := 0; offset < len(req.Sources); {
 		last := min(offset+MaxSources, len(req.Sources))
 		batch := req
 		if len(batch.OriginalSources) == 0 {
@@ -160,6 +169,11 @@ func (e runEngine) plan(ctx context.Context, req Request) (BatchPlan, error) {
 		}
 		batch.Sources = req.Sources[offset:last]
 		plan.Batches = append(plan.Batches, batch)
+		offset = last
+		if req.Mode == RequirementMode && last < len(req.Sources) {
+			plan.Partial = true
+			offset--
+		}
 	}
 	return plan, nil
 }
@@ -222,6 +236,9 @@ func (e runEngine) advance(ctx context.Context, run *graphRun, check func(contex
 				{request: right, depth: current.depth + 1},
 			}, run.pending[1:]...)
 			run.progress.Total++
+			if run.original.Mode == RequirementMode {
+				run.draft.Partial = true
+			}
 			run.progress.Revision++
 			return nil
 		}
@@ -270,13 +287,15 @@ func (r *graphRun) settle(batch Request, suggestion Suggestion, generationErr er
 }
 
 func (r *graphRun) finish() {
-	if augmentLiteralDraft(&r.draft, r.original, r.proof) {
+	if r.original.Mode != RequirementMode && augmentLiteralDraft(&r.draft, r.original, r.proof) {
 		for _, source := range r.original.Sources {
 			r.inspected[source.ID] = true
 		}
 		r.draft.SourceCount = len(r.inspected)
 	}
-	r.proof.mergeActorCards(&r.draft)
+	if r.original.Mode != RequirementMode {
+		r.proof.mergeActorCards(&r.draft)
+	}
 	switch {
 	case len(r.draft.Edges) > 0:
 		r.status = "suggested"

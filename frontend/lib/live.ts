@@ -7,7 +7,112 @@ import {
   clientSessionVersion,
   rejectClientSession,
 } from './client';
+import type { ProcessGraphRunFieldsFragment } from './generated';
 import { nextCursor, retryDelay, SSEParser } from './sse';
+
+export type ProcessGraphProgress = {
+  status: string;
+  run: NonNullable<ProcessGraphRunFieldsFragment['run']>;
+};
+
+const processGraphConnectionTag = 'process-graph:connection';
+export const processGraphTag = (projectId: string) => `project:${projectId}:process-graph`;
+let processGraphSession: number | undefined;
+
+export function cachedProcessGraph(projectId: string) {
+  if (processGraphSession === clientSessionVersion())
+    return clientCache.get<ProcessGraphRunFieldsFragment>(processGraphTag(projectId));
+}
+
+export function cacheProcessGraph(
+  projectId: string,
+  result: ProcessGraphRunFieldsFragment,
+  sourceTags: string[],
+  revision: number,
+) {
+  if (
+    result.status === 'suggested' &&
+    result.run &&
+    result.draft &&
+    processGraphSession === clientSessionVersion() &&
+    !clientCache.invalidatedSince(revision, [processGraphConnectionTag])
+  ) {
+    const tag = processGraphTag(projectId);
+    clientCache.set(tag, result, [...sourceTags, tag, processGraphConnectionTag]);
+  }
+}
+
+export function forgetProcessGraph(projectId: string) {
+  clientCache.evict([processGraphTag(projectId)]);
+}
+
+function disconnectProcessGraphs() {
+  if (processGraphSession === undefined) return;
+  processGraphSession = undefined;
+  clientCache.evict([processGraphConnectionTag]);
+}
+
+type ProcessGraphListener = {
+  update: (progress: ProcessGraphProgress) => void;
+  reconnect: () => void;
+};
+const processGraphListeners = new Map<string, Set<ProcessGraphListener>>();
+const processGraphStatuses = new Set([
+  'planning',
+  'ready',
+  'suggested',
+  'stale',
+  'insufficient',
+  'unavailable',
+]);
+function parseProcessGraphProgress(
+  data: string,
+): (ProcessGraphProgress & { projectId: string }) | undefined {
+  const payload: unknown = JSON.parse(data);
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    !('schemaVersion' in payload) ||
+    payload.schemaVersion !== 1 ||
+    !('projectId' in payload) ||
+    typeof payload.projectId !== 'string' ||
+    !payload.projectId ||
+    !('status' in payload) ||
+    typeof payload.status !== 'string' ||
+    !processGraphStatuses.has(payload.status) ||
+    !('run' in payload) ||
+    !payload.run ||
+    typeof payload.run !== 'object'
+  )
+    return;
+  const { projectId, status, run } = payload;
+  const isCount = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+  if (
+    !('id' in run) ||
+    typeof run.id !== 'string' ||
+    !run.id ||
+    !('topic' in run) ||
+    typeof run.topic !== 'string' ||
+    !('revision' in run) ||
+    !isCount(run.revision) ||
+    !run.revision ||
+    !('completed' in run) ||
+    !isCount(run.completed) ||
+    !('total' in run) ||
+    !isCount(run.total) ||
+    !('failed' in run) ||
+    !isCount(run.failed) ||
+    run.completed > run.total ||
+    run.failed > run.completed ||
+    (status === 'ready' && run.completed === run.total)
+  )
+    return;
+  const { id, topic, revision, completed, total, failed } = run;
+  const mode = 'mode' in run ? run.mode : 'PROCESS';
+  if (mode !== 'PROCESS' && mode !== 'REQUIREMENTS') return;
+  return { projectId, status, run: { id, topic, mode, revision, completed, total, failed } };
+}
 
 const analysisChannel = new AnalysisChannel<AnalysisSnapshot>();
 let updateTimer: ReturnType<typeof setTimeout> | undefined;
@@ -53,7 +158,10 @@ function clearUpdates() {
 }
 // A GraphQL authorization failure also clears retained push snapshots.
 clientCache.subscribe([], (clear) => {
-  if (clear) clearUpdates();
+  if (clear) {
+    disconnectProcessGraphs();
+    clearUpdates();
+  }
 });
 let users = 0;
 let controller: AbortController | undefined;
@@ -75,6 +183,7 @@ const wait = (ms: number, signal: AbortSignal) =>
 async function stream(signal: AbortSignal) {
   const session = clientSessionVersion();
   let attempt = 0;
+  let connectedBefore = false;
   while (!signal.aborted && session === clientSessionVersion()) {
     try {
       const headers: Record<string, string> = { accept: 'text/event-stream' };
@@ -93,10 +202,37 @@ async function stream(signal: AbortSignal) {
         throw Error('unauthorized');
       }
       if (!response.ok || !response.body) throw Error('events unavailable');
+      if (session !== clientSessionVersion()) break;
+      processGraphSession = session;
+      if (connectedBefore || attempt > 0) {
+        for (const listeners of processGraphListeners.values())
+          for (const listener of listeners) listener.reconnect();
+      }
+      connectedBefore = true;
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       const parser = new SSEParser((frame) => {
         if (session !== clientSessionVersion()) return;
+        if (frame.event === 'process_graph.progress') {
+          let progress: ReturnType<typeof parseProcessGraphProgress>;
+          try {
+            progress = parseProcessGraphProgress(frame.data);
+          } catch {
+            return;
+          }
+          if (progress) {
+            attempt = 0;
+            const cachedRun = cachedProcessGraph(progress.projectId)?.run;
+            if (
+              cachedRun &&
+              (progress.run.id !== cachedRun.id || progress.run.revision > cachedRun.revision)
+            )
+              forgetProcessGraph(progress.projectId);
+            for (const listener of processGraphListeners.get(progress.projectId) ?? [])
+              listener.update(progress);
+          }
+          return;
+        }
         if (!['cache.invalidate', 'cache.reset', 'analysis.progress'].includes(frame.event)) return;
         try {
           const payload = JSON.parse(frame.data);
@@ -135,6 +271,7 @@ async function stream(signal: AbortSignal) {
           if (!signal.aborted) parser.push(decoder.decode(value, { stream: true }));
         }
       } finally {
+        if (!signal.aborted && session === clientSessionVersion()) disconnectProcessGraphs();
         await reader.cancel().catch(() => {});
         reader.releaseLock();
       }
@@ -154,6 +291,7 @@ function connect() {
     if (--users === 0) {
       controller?.abort();
       controller = undefined;
+      disconnectProcessGraphs();
       clearTimeout(updateTimer);
       updateTimer = undefined;
       pendingKeys.clear();
@@ -199,4 +337,32 @@ export function useAnalysisProgress(
     () => analysisChannel.subscribe(projectId, (snapshot) => callback.current(snapshot)),
     [projectId],
   );
+}
+
+export function useProcessGraphProgress(
+  projectId: string,
+  sourceTags: string[],
+  update: ProcessGraphListener['update'],
+  reconnect: ProcessGraphListener['reconnect'],
+) {
+  const callbacks = useRef({ update, reconnect });
+  callbacks.current = { update, reconnect };
+  useEffect(() => {
+    const listener: ProcessGraphListener = {
+      update: (progress) => {
+        // A queued source invalidation will refresh GraphQL against the new sources.
+        if (!sourceTags.some((tag) => pendingKeys.has(tag))) callbacks.current.update(progress);
+      },
+      reconnect: () => callbacks.current.reconnect(),
+    };
+    const listeners = processGraphListeners.get(projectId) ?? new Set<ProcessGraphListener>();
+    processGraphListeners.set(projectId, listeners);
+    listeners.add(listener);
+    const disconnect = connect();
+    return () => {
+      listeners.delete(listener);
+      if (!listeners.size) processGraphListeners.delete(projectId);
+      disconnect();
+    };
+  }, [projectId, sourceTags]);
 }

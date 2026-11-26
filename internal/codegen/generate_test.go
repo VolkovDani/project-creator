@@ -41,3 +41,15 @@ func TestGenerateFloatSimilarity(t *testing.T) {
 		t.Fatalf("float binding: %s", out)
 	}
 }
+
+func TestGenerateEnumFields(t *testing.T) {
+	out, err := Generate(`enum Mode { FIRST SECOND } input Start { mode: Mode } type Run { mode: Mode! }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, binding := range []string{"Mode *Mode", "Mode Mode"} {
+		if !strings.Contains(string(out), binding) {
+			t.Fatalf("missing enum binding %q: %s", binding, out)
+		}
+	}
+}

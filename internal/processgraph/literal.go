@@ -79,6 +79,14 @@ type literalClause struct {
 	quote  string
 	start  int
 	links  []literalLink
+	story  *literalStory
+}
+
+type literalStory struct {
+	role   Node
+	action string
+	quote  string
+	start  int
 }
 
 func (c literalClause) suggestion() Suggestion {
@@ -109,11 +117,13 @@ func (c literalClause) suggestion() Suggestion {
 func explicitLiteralClauses(sources []Source) []literalClause {
 	var chains, explicit, needs []literalClause
 	for _, source := range sources {
+		var transitions, rules []literalClause
+		var stories []literalStory
 		for _, match := range temporalClause.FindAllStringSubmatchIndex(source.Text, -1) {
 			clause := citedLiteralClause(source, match[2], match[3])
 			if link, ok := explicitTemporalLink(beforeStoryPurpose(clause.quote)); ok {
 				clause.links = []literalLink{link}
-				explicit = append(explicit, clause)
+				transitions = append(transitions, clause)
 			}
 		}
 		for _, pattern := range literalPatterns {
@@ -128,12 +138,13 @@ func explicitLiteralClauses(sources []Source) []literalClause {
 					right = beforeStoryPurpose(right)
 					if validLabel(right, false) && (pattern.relationship != "leads_to" || explicitResult(right)) {
 						clause.links = []literalLink{{from: Node{Kind: pattern.fromKind, Label: left}, to: Node{Kind: pattern.toKind, Label: right}, kind: pattern.relationship}}
-						explicit = append(explicit, clause)
+						rules = append(rules, clause)
 					}
 					continue
 				}
 				right = storyAction(right)
 				role := Node{Kind: "actor", Label: left}
+				stories = append(stories, literalStory{role: role, action: right, quote: clause.quote, start: clause.start})
 				if transition, ok := explicitTemporalLink(right); ok {
 					clause.links = []literalLink{{from: role, to: transition.from, kind: "needs"}, transition}
 					chains = append(chains, clause)
@@ -143,8 +154,51 @@ func explicitLiteralClauses(sources []Source) []literalClause {
 				}
 			}
 		}
+		if len(stories) == 1 {
+			story := &stories[0]
+			for i, transition := range transitions {
+				if story.covers(transition) {
+					transitions[i].story = story
+				}
+			}
+		}
+		explicit = append(explicit, transitions...)
+		explicit = append(explicit, rules...)
 	}
 	return slices.Concat(chains, explicit, needs)
+}
+
+// An acceptance criterion can describe a change to the same named field
+// requested in a preceding story. Require the full result subject and
+// a single story in the requirement before connecting the two clauses.
+func (s *literalStory) covers(clause literalClause) bool {
+	result := clause.links[0].to.Label
+	predicate := finiteResult.FindStringIndex(result)
+	if predicate == nil || clause.start < s.start+utf8.RuneCountInString(s.quote) {
+		return false
+	}
+	subject := labelWords(result[:predicate[0]])
+	return len(subject) >= 2 && sourceLabelPosition(subject, labelWords(s.action)) >= 0
+}
+
+func (c literalClause) attachStory(draft *Draft, proof *conceptProof) {
+	if c.story == nil || len(draft.Edges) != 1 {
+		return
+	}
+	transition := draft.Edges[0]
+	index := slices.IndexFunc(draft.Nodes, func(node Node) bool { return node.ID == transition.From })
+	evidence := groundedEvidence([]SuggestedEvidence{{Source: 1, Start: &c.story.start, Quote: c.story.quote}}, []Source{c.source}, "")
+	if index < 0 || len(evidence) == 0 {
+		return
+	}
+	evidence = append(evidence, transition.Evidence...)
+	role := c.story.role
+	if !proof.supports(role, draft.Nodes[index], evidence) {
+		return
+	}
+	role.ID = strconv.Itoa(len(draft.Nodes) + 1)
+	draft.Nodes = append(draft.Nodes, role)
+	draft.Edges = append(draft.Edges, Edge{From: role.ID, To: transition.From, Kind: "needs", Evidence: evidence})
 }
 
 func citedLiteralClause(source Source, start, end int) literalClause {
@@ -178,12 +232,16 @@ func augmentLiteralDraft(draft *Draft, req Request, proof *conceptProof) bool {
 		if err != nil {
 			continue
 		}
+		extracted := len(literal.Edges)
+		clause.attachStory(&literal, proof)
 		retainLiteralEdges(&literal, model, modelNodes)
-		if len(literal.Edges) == 0 || added+len(literal.Edges) > MaxEdges {
+		// A story link adds context to an extracted transition within the same unit of work.
+		count := min(extracted, len(literal.Edges))
+		if count == 0 || added+count > MaxEdges {
 			continue
 		}
 		mergeDraft(draft, literal)
-		added += len(literal.Edges)
+		added += count
 		if added == MaxEdges {
 			break
 		}

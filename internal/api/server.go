@@ -13,6 +13,7 @@ import (
 	"github.com/VolkovDani/project-creator/internal/explanation"
 	"github.com/VolkovDani/project-creator/internal/glossary"
 	"github.com/VolkovDani/project-creator/internal/processgraph"
+	"github.com/VolkovDani/project-creator/internal/processgraphcache"
 	"github.com/VolkovDani/project-creator/internal/proposal"
 	"github.com/VolkovDani/project-creator/internal/rag"
 	"github.com/VolkovDani/project-creator/internal/storage"
@@ -116,7 +117,11 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 	}
 	definitions, _ := cfg.Summarizer.(glossary.DefinitionGenerator)
 	processGraphs, _ := cfg.Summarizer.(processgraph.Generator)
-	backgroundRuns := processgraph.NewBackgroundRuns(processGraphs)
+	graphProfile := ""
+	if cfg.Summarizer != nil {
+		graphProfile = cfg.Summarizer.Profile()
+	}
+	backgroundRuns := processgraph.NewCachedBackgroundRuns(processGraphs, processgraphcache.New(db, graphProfile))
 	resolver := &graph.Resolver{
 		DB: db, Proposals: proposal.New(db), Classifications: classifications, Explanations: explanation.New(db, explainer),
 		RAG: retriever, Analysis: analyzer, Summaries: summaries, Definitions: definitions,
@@ -183,7 +188,7 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			serveEvents(db, ws, w, r, generatorProfile, embeddingProfile)
+			serveEvents(db, ws, w, r, backgroundRuns, generatorProfile, embeddingProfile)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)

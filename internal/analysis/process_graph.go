@@ -50,7 +50,7 @@ type graphRelation struct {
 }
 
 func (s *chatSummary) GenerateProcessGraph(ctx context.Context, req processgraph.Request) (processgraph.Suggestion, error) {
-	output, err := s.processGraphOutput()
+	output, err := s.processGraphOutput(req.Mode)
 	if err != nil {
 		return processgraph.Suggestion{}, err
 	}
@@ -59,7 +59,7 @@ func (s *chatSummary) GenerateProcessGraph(ctx context.Context, req processgraph
 	if err != nil {
 		return processgraph.Suggestion{}, err
 	}
-	return s.decodeProcessGraph(ctx, input, content, output.edgeLimit)
+	return s.decodeGraph(ctx, req.Mode, input, content, output.edgeLimit)
 }
 
 type processGraphOutput struct {
@@ -67,18 +67,24 @@ type processGraphOutput struct {
 	schemaBytes, edgeLimit int
 }
 
-func (s *chatSummary) processGraphOutput() (processGraphOutput, error) {
+func (s *chatSummary) processGraphOutput(mode processgraph.Mode) (processGraphOutput, error) {
 	edgeLimit := processgraph.MaxEdges
 	if s.managedNPU {
 		// The deployment can cap output below the requested completion budget.
 		edgeLimit = 3
 	}
 	schema := processGraphSchema(edgeLimit)
+	if mode == processgraph.RequirementMode {
+		schema = requirementGraphSchema(edgeLimit)
+	}
 	schemaBytes, err := json.Marshal(schema)
 	return processGraphOutput{schema: schema, schemaBytes: len(schemaBytes), edgeLimit: edgeLimit}, err
 }
 
 func (s *chatSummary) processGraphPrompt(req processgraph.Request, edgeLimit int) string {
+	if req.Mode == processgraph.RequirementMode {
+		return requirementGraphPrompt + " Maximum relations: " + strconv.Itoa(edgeLimit) + "."
+	}
 	prompt := processGraphPrompt
 	if len(req.Sources) > 0 {
 		policy := s.languages.forSource(req.Sources[0].Text)
@@ -87,6 +93,17 @@ func (s *chatSummary) processGraphPrompt(req processgraph.Request, edgeLimit int
 		}
 	}
 	return prompt + " Maximum relations: " + strconv.Itoa(edgeLimit) + "."
+}
+
+func (s *chatSummary) decodeGraph(ctx context.Context, mode processgraph.Mode, input processGraphInput, content string, edgeLimit int) (processgraph.Suggestion, error) {
+	if mode == processgraph.RequirementMode {
+		result, err := decodeRequirementGraph(input, content, edgeLimit)
+		if err != nil {
+			return result, err
+		}
+		return result, s.verify(ctx)
+	}
+	return s.decodeProcessGraph(ctx, input, content, edgeLimit)
 }
 
 func (s *chatSummary) decodeProcessGraph(ctx context.Context, input processGraphInput, content string, edgeLimit int) (processgraph.Suggestion, error) {
@@ -148,9 +165,12 @@ func (s *chatSummary) completeProcessGraph(ctx context.Context, req processgraph
 	partLimit := 0
 	matchGlossary := processGraphGlossaryMatches(req)
 	for attempt := 0; ; attempt++ {
-		input, err := prepareProcessGraph(req, matchGlossary, prompt, schemaBytes, s.managedNPU, partLimit, true)
+		input, err := prepareProcessGraph(req, matchGlossary, prompt, schemaBytes, s.managedNPU, partLimit, req.Mode != processgraph.RequirementMode)
 		if err != nil {
 			return input, "", err
+		}
+		if req.Mode == processgraph.RequirementMode && input.sourceCount < 2 {
+			return input, "", ErrSummaryInputTooLong
 		}
 		if attempt == 0 {
 			if err := s.verify(ctx); err != nil {
@@ -159,7 +179,7 @@ func (s *chatSummary) completeProcessGraph(ctx context.Context, req processgraph
 		}
 		content, err := s.complete(ctx, input.messages, schema)
 		parts := len(input.citations) - 1
-		if !s.managedNPU || !errors.Is(err, npuFailure("NPU_UNAVAILABLE")) ||
+		if req.Mode == processgraph.RequirementMode || !s.managedNPU || !errors.Is(err, npuFailure("NPU_UNAVAILABLE")) ||
 			ctx.Err() != nil || parts <= 1 || attempt >= 2 {
 			return input, content, err
 		}

@@ -6,10 +6,11 @@ import {
   layoutProcessGraph,
 } from '../app/projects/[id]/process-graphs/processGraphView.ts';
 
-const decision = { id: 'check', label: 'Check payment', kind: 'condition' };
-const approve = { id: 'approve', label: 'Approve order', kind: 'action' };
-const retry = { id: 'retry', label: 'Retry payment', kind: 'action' };
-const operator = { id: 'operator', label: 'Operator', kind: 'actor' };
+const processNode = { requirementId: null, version: null };
+const decision = { ...processNode, id: 'check', label: 'Check payment', kind: 'condition' };
+const approve = { ...processNode, id: 'approve', label: 'Approve order', kind: 'action' };
+const retry = { ...processNode, id: 'retry', label: 'Retry payment', kind: 'action' };
+const operator = { ...processNode, id: 'operator', label: 'Operator', kind: 'actor' };
 const evidence = {
   requirementId: 'requirement-1',
   version: 3,
@@ -67,7 +68,7 @@ test('preserves different relations between the same nodes and ignores missing e
 });
 
 test('lays out each node once, preserving branches, a back edge, and a disconnected node', () => {
-  const start = { id: 'start', label: 'Open order', kind: 'event' };
+  const start = { ...processNode, id: 'start', label: 'Open order', kind: 'event' };
   const trigger = { ...success, from: 'start', to: 'check', kind: 'triggers' };
   const layout = layoutProcessGraph(
     [start, decision, approve, retry, operator],

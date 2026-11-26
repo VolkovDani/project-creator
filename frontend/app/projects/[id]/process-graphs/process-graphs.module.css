@@ -11,6 +11,34 @@
   min-height: var(--control-height);
 }
 
+.buildAction {
+  display: inline-flex;
+  position: relative;
+}
+
+.buildAction button[aria-disabled="true"],
+.buildAction button[aria-disabled="true"]:hover {
+  cursor: not-allowed;
+  color: var(--text-muted);
+  background: var(--surface-subtle);
+  border-color: var(--border);
+}
+
+.buildHelp {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-start: 0;
+  z-index: 1;
+  inline-size: min(16rem, calc(100vw - 3rem));
+  padding: var(--space-2) var(--space-3);
+  border: var(--line) solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: var(--text-small);
+}
+
 .status {
   display: block;
   margin-block-start: var(--space-2);
@@ -40,6 +68,12 @@
   padding-inline-start: var(--space-3);
 }
 
+.downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .graph,
 .branches {
   margin: 0;
@@ -65,24 +99,61 @@
   padding: var(--space-3);
 }
 
+.kind {
+  --graph-node-accent: var(--control-border);
+  --graph-node-fill: color-mix(in srgb, var(--graph-node-accent) 12%, var(--surface-subtle));
+}
+
+.kind[data-kind="actor"] {
+  --graph-node-accent: light-dark(#3459a6, #86abff);
+}
+
+.kind[data-kind="action"] {
+  --graph-node-accent: light-dark(#086957, #5ad0b3);
+}
+
+.kind[data-kind="condition"] {
+  --graph-node-accent: light-dark(#955e0c, #efb753);
+}
+
+.kind[data-kind="event"] {
+  --graph-node-accent: light-dark(#6b4299, #c6a0ef);
+}
+
+.kind[data-kind="state"] {
+  --graph-node-accent: light-dark(#4c702a, #a8d675);
+}
+
+.kind[data-kind="object"] {
+  --graph-node-accent: light-dark(#536579, #a9bacf);
+}
+
+.kind[data-kind="rule"] {
+  --graph-node-accent: light-dark(#963d6b, #ed9abf);
+}
+
 .node {
-  background: var(--surface-subtle);
-  border: var(--line) solid var(--border);
+  background: var(--graph-node-fill);
+  border: var(--line) solid var(--graph-node-accent);
   border-radius: var(--radius-control);
   display: grid;
   min-width: 0;
   padding: var(--space-2) var(--space-3);
 }
 
-.node[data-kind="condition"] {
-  background: var(--action-tint);
-  border-color: var(--action);
+.node span,
+.node a,
+.relation span {
+  font-size: var(--text-small);
 }
 
 .node span,
 .relation span {
   color: var(--text-muted);
-  font-size: var(--text-small);
+}
+
+.node a {
+  overflow-wrap: anywhere;
 }
 
 .branches {
@@ -174,10 +245,33 @@
   }
 }
 
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--text-small);
+  gap: var(--space-2) var(--space-4);
+  list-style: none;
+  margin-block: var(--space-4) var(--space-2);
+  padding: 0;
+}
+
+.legend li {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.legendSwatch {
+  background-color: var(--graph-node-accent);
+  border-radius: 50%;
+  block-size: 0.75em;
+  inline-size: 0.75em;
+}
+
 .diagram {
   border: var(--line) solid var(--border);
   border-radius: var(--radius-panel);
-  margin-block: var(--space-4) var(--space-5);
+  margin-block: var(--space-2) var(--space-5);
   max-block-size: min(60vh, 36rem);
   overflow: auto;
   padding: 0;
@@ -189,13 +283,13 @@
 }
 
 .diagramNode rect {
-  fill: var(--surface-subtle);
-  stroke: var(--control-border);
+  fill: var(--graph-node-fill);
+  stroke: var(--graph-node-accent);
 }
 
-.diagramNode[data-kind="condition"] rect {
-  fill: var(--action-tint);
+.diagramNodeLink:is(:hover, :focus-visible) rect {
   stroke: var(--action);
+  stroke-width: 3px;
 }
 
 .diagramNode text {

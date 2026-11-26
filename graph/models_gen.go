@@ -268,6 +268,7 @@ type BuildProcessGraphInput struct {
 	ProjectId graphql.ID
 	TermId    *graphql.ID
 	Keyword   *string
+	Mode      *ProcessGraphMode
 }
 type ProcessGraphBatchInput struct {
 	ProjectId graphql.ID
@@ -275,9 +276,11 @@ type ProcessGraphBatchInput struct {
 	Revision  int32
 }
 type ProcessGraphNode struct {
-	ID    graphql.ID
-	Kind  string
-	Label string
+	ID            graphql.ID
+	Kind          string
+	Label         string
+	RequirementId *graphql.ID
+	Version       *int32
 }
 type ProcessGraphEvidence struct {
 	RequirementId graphql.ID
@@ -307,6 +310,7 @@ type ProcessGraphPayload struct {
 type ProcessGraphRun struct {
 	ID        graphql.ID
 	Topic     string
+	Mode      ProcessGraphMode
 	Revision  int32
 	Completed int32
 	Total     int32

@@ -62,25 +62,30 @@ func TestProcessGraphSendsOnlyMatchedGlossaryConcepts(t *testing.T) {
 	}
 }
 
-func TestProcessGraphSplitDoesNotMatchSuffixOfLongerConcept(t *testing.T) {
+func TestProcessGraphSplitKeepsOnlyGlossaryMatchesFromTheRetainedRequirements(t *testing.T) {
 	const full = "🧾 Представитель ген. подрядной организации проверяет заявку."
+	const later = "РП получает уведомление."
 	s := &chatSummary{
 		managedNPU: true,
 		verify:     context.Context.Err,
 		complete: func(_ context.Context, messages []map[string]string, _ map[string]any) (string, error) {
 			content := messages[1]["content"]
-			if got := graphTestGlossary(t, content); len(got) > 0 {
-				t.Errorf("truncated alias must not identify another concept: %#v", got)
+			want := []map[string]any{{"spelling": "РП", "ambiguous": true}}
+			if got := graphTestGlossary(t, content); !reflect.DeepEqual(got, want) {
+				t.Errorf("unexpected matched glossary: %#v", got)
 			}
-			if strings.Contains(content, "Представитель ген.") || !strings.Contains(content, "подрядной организации проверяет заявку.") {
-				t.Errorf("unexpected transmitted source range: %s", content)
+			if strings.Contains(content, "подрядной организации") || !strings.Contains(content, later) {
+				t.Errorf("unexpected transmitted requirement: %s", content)
 			}
 			return `{"r":[]}`, nil
 		},
 	}
 	req := processgraph.Request{
-		Anchor:   processgraph.Anchor{Name: "Заявка"},
-		Sources:  []processgraph.Source{{ID: "r1", Version: 4, Text: full}},
+		Anchor: processgraph.Anchor{Name: "Заявка"},
+		Sources: []processgraph.Source{
+			{ID: "r1", Version: 4, Text: full},
+			{ID: "r2", Version: 2, Text: later},
+		},
 		Glossary: processGraphGlossaryFixture(),
 	}
 	plan, err := s.PlanProcessGraph(req)

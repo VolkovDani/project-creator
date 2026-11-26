@@ -155,6 +155,53 @@ class InstallerTestCase(unittest.TestCase):
         self.app.config.ensure('cpu')
 
 
+class ClearProcessGraphCacheTests(InstallerTestCase):
+    def invoke(self, *options, lang='en'):
+        output, errors = io.StringIO(), io.StringIO()
+        with patch.object(cli, 'Runner', return_value=self.runner), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            code = cli.main(self.root, ['--lang', lang, 'clear-process-graph-cache', *options])
+        return code, output.getvalue(), errors.getvalue()
+
+    def test_preview_counts_whole_installation(self):
+        self.runner.responses['/app/server clear-process-graph-cache'] = '12\n'
+        code, output, errors = self.invoke()
+        self.assertEqual((code, errors), (0, ''))
+        self.assertIn('12', output)
+        self.assertIn('--yes', output)
+        command, = self.runner.calls
+        self.assertEqual(command[command.index('exec'):],
+                         ['exec', '-T', 'backend', '/app/server', 'clear-process-graph-cache'])
+        self.assertEqual(command[command.index('--project-name') + 1], self.app.config.state['project'])
+
+    def test_confirmation_clears_only_selected_project(self):
+        self.runner.responses['/app/server clear-process-graph-cache'] = '3\n'
+        code, output, errors = self.invoke('--project-id', 'project-123', '--yes', lang='ru')
+        self.assertEqual((code, errors), (0, ''))
+        self.assertIn('Удалено', output)
+        self.assertIn('project-123', output)
+        self.assertIn('3', output)
+        command, = self.runner.calls
+        self.assertEqual(command[command.index('exec'):],
+                         ['exec', '-T', 'backend', '/app/server', 'clear-process-graph-cache',
+                          '--project-id', 'project-123', '--yes'])
+        for key in ('POSTGRES_PASSWORD', 'PROJECT_CREATOR_TOKEN'):
+            self.assertNotIn(self.app.config.values[key], ' '.join(command) + output)
+
+    def test_empty_explicit_scope_cannot_clear_whole_installation(self):
+        code, output, errors = self.invoke('--project-id', ' ', '--yes')
+        self.assertEqual((code, output), (1, ''))
+        self.assertIn('project ID', errors)
+        self.assertEqual(self.runner.calls, [])
+
+    def test_unexpected_backend_output_is_not_displayed(self):
+        self.runner.responses['/app/server clear-process-graph-cache'] = 'unexpected private data\n'
+        code, output, errors = self.invoke()
+        self.assertEqual((code, output), (1, ''))
+        self.assertIn('PROCESS_GRAPH_CACHE', errors)
+        self.assertNotIn('private data', errors)
+
+
 class InstallTests(InstallerTestCase):
     @unittest.skipUnless(cli.shutil.which('docker'), 'Docker Compose is required')
     def test_compose_passes_analysis_threshold_from_dotenv_to_backend(self):

@@ -1,4 +1,4 @@
-// Package processgraph builds source-grounded drafts of product processes.
+// Package processgraph builds source-grounded drafts of processes and requirement maps.
 package processgraph
 
 import (
@@ -35,7 +35,23 @@ type Source struct {
 	Offset   int // Starting rune offset of this fragment in the original source.
 }
 
+type Mode string
+
+// The zero value preserves the process graph cache key and API default.
+const (
+	ProcessMode     Mode = ""
+	RequirementMode Mode = "REQUIREMENTS"
+)
+
+func (m Mode) Name() string {
+	if m == RequirementMode {
+		return string(m)
+	}
+	return "PROCESS"
+}
+
 type Request struct {
+	Mode            Mode
 	Anchor          Anchor
 	Sources         []Source
 	Glossary        []glossary.Term `json:"-"`
@@ -55,6 +71,8 @@ type Suggestion struct {
 
 type Node struct {
 	ID, Kind, Label string
+	RequirementID   string `json:",omitempty"`
+	Version         int    `json:",omitempty"`
 }
 
 type SuggestedEdge struct {
@@ -99,6 +117,16 @@ func Build(ctx context.Context, g Generator, req Request) (Draft, error) {
 	if g == nil || len(req.Sources) == 0 || len(req.Sources) > MaxSources {
 		return Draft{}, errors.New("invalid process graph request")
 	}
+	if req.Mode == RequirementMode {
+		if len(req.Sources) < 2 {
+			return Draft{SourceCount: len(req.Sources)}, nil
+		}
+		suggestion, err := g.GenerateProcessGraph(ctx, req)
+		if err != nil {
+			return Draft{}, err
+		}
+		return groundDraft(suggestion, req, nil)
+	}
 	proof := buildConceptProof(req)
 	suggestion, err := g.GenerateProcessGraph(ctx, req)
 	var draft Draft
@@ -124,6 +152,10 @@ func groundDraft(suggestion Suggestion, req Request, proof *conceptProof) (Draft
 	draft := Draft{
 		SourceCount: suggestion.UsedSources,
 		Partial:     suggestion.Partial || suggestion.UsedSources < len(req.Sources) || len(suggestion.Edges) == MaxEdges,
+	}
+	if req.Mode == RequirementMode {
+		groundRequirementGraph(&draft, suggestion, req)
+		return draft, nil
 	}
 	sources := req.Sources[:suggestion.UsedSources]
 	nodes := validatedNodes(suggestion.Nodes)

@@ -40,6 +40,7 @@ type graphRun struct {
 	snapshotKey string
 	gate        chan struct{}
 	original    Request
+	proof       *conceptProof
 	pending     []pendingBatch
 	progress    Progress
 	status      string
@@ -83,7 +84,7 @@ func (s *RunStore) Start(ctx context.Context, target Target, req Request, snapsh
 		return RunResult{}, err
 	}
 	run := &graphRun{
-		target: target, snapshotKey: snapshotKey, gate: make(chan struct{}, 1), original: req,
+		target: target, snapshotKey: snapshotKey, gate: make(chan struct{}, 1), original: req, proof: buildConceptProof(req),
 		progress: Progress{ID: rand.Text(), Revision: 1, Total: len(plan.Batches)},
 		status:   "ready", draft: Draft{Partial: partial || plan.Partial},
 		inspected: make(map[string]bool), lastUsed: time.Now(),
@@ -108,7 +109,12 @@ func (s *RunStore) plan(req Request) (BatchPlan, error) {
 	var plan BatchPlan
 	for offset := 0; offset < len(req.Sources); offset += MaxSources {
 		last := min(offset+MaxSources, len(req.Sources))
-		plan.Batches = append(plan.Batches, Request{Anchor: req.Anchor, Sources: req.Sources[offset:last]})
+		batch := req
+		if len(batch.OriginalSources) == 0 {
+			batch.OriginalSources = req.Sources
+		}
+		batch.Sources = req.Sources[offset:last]
+		plan.Batches = append(plan.Batches, batch)
 	}
 	return plan, nil
 }
@@ -188,7 +194,7 @@ func (r *graphRun) check(ctx context.Context, check func(context.Context, Target
 
 func (r *graphRun) settle(batch Request, suggestion Suggestion, generationErr error) {
 	if generationErr == nil {
-		draft, err := groundDraft(suggestion, batch)
+		draft, err := groundDraft(suggestion, batch, r.proof)
 		generationErr = err
 		if err == nil {
 			for _, source := range batch.Sources[:draft.SourceCount] {
@@ -213,7 +219,7 @@ func (r *graphRun) settle(batch Request, suggestion Suggestion, generationErr er
 
 func (r *graphRun) finish() {
 	if len(r.draft.Edges) == 0 {
-		literal, err := groundDraft(literalRelations(r.original.Sources), r.original)
+		literal, err := groundDraft(literalRelations(r.original.Sources), r.original, r.proof)
 		if err == nil && len(literal.Edges) > 0 {
 			for _, source := range r.original.Sources[:literal.SourceCount] {
 				r.inspected[source.ID] = true
@@ -235,6 +241,7 @@ func (r *graphRun) finish() {
 
 func (r *graphRun) clearWork() {
 	r.original = Request{}
+	r.proof = nil
 	r.pending = nil
 	r.inspected = nil
 }

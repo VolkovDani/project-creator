@@ -96,7 +96,7 @@ func TestProcessGraphSelectsCurrentScopedEvidence(t *testing.T) {
 	var beforeReturn func() error
 	const quote = "ГП проверяет заявку."
 	generator.generate = func(req processgraph.Request) (processgraph.Suggestion, error) {
-		anchor := processgraph.Anchor{Name: "Генеральный подрядчик", Definition: "Исполнитель проекта.", Context: "Строительство"}
+		anchor := processgraph.Anchor{Name: "Генеральный подрядчик", Definition: "Исполнитель проекта.", Context: "Строительство", ConceptID: "t"}
 		sources := []processgraph.Source{{ID: "r1", Version: 1, Text: "🧾 " + quote}}
 		if req.Anchor != anchor || !slices.Equal(req.Sources, sources) {
 			t.Errorf("unexpected model inputs: %+v", req)

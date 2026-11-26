@@ -4,6 +4,7 @@ import { type Locale, t } from '../../../../lib/i18n';
 import { requirementURL } from '../../../../lib/rag';
 import { ProcessGraphDiagram } from './ProcessGraphDiagram';
 import styles from './process-graphs.module.css';
+import { processGraphMermaid } from './processGraphMermaid';
 import { type GraphDraft, type GraphNode, groupProcessGraph } from './processGraphView';
 
 export function ProcessGraph({
@@ -18,11 +19,27 @@ export function ProcessGraph({
   const heading = useId();
   const { groups, isolated } = groupProcessGraph(draft.nodes, draft.edges);
   const kinds = [...new Set(draft.nodes.map((node) => node.kind))];
+
+  function downloadMermaid() {
+    const text = processGraphMermaid(draft, projectId, window.location.origin, (kind) =>
+      t(locale, `processGraph.edge.${kind}`),
+    );
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'process-graph.mmd';
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
   return (
     <section aria-labelledby={heading}>
       <h2 id={heading}>{t(locale, 'processGraph.draft')}</h2>
       <p>{t(locale, 'processGraph.sourceCount', { count: draft.sourceCount })}</p>
       {draft.partial && <p className={styles.partial}>{t(locale, 'processGraph.partial')}</p>}
+      <button type="button" onClick={downloadMermaid}>
+        {t(locale, 'processGraph.downloadMermaid')}
+      </button>
       {kinds.length > 0 && (
         <ul className={styles.legend} aria-label={t(locale, 'processGraph.legend')}>
           {kinds.map((kind) => (

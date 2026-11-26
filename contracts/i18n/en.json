@@ -623,6 +623,7 @@
   "processGraph.draft": "Process graph draft",
   "processGraph.sourceCount": "Requirements reviewed · {count}",
   "processGraph.partial": "The draft covers part of the available information.",
+  "processGraph.downloadMermaid": "Download Mermaid",
   "processGraph.diagram": "Process graph overview",
   "processGraph.connections": "Connections and evidence",
   "processGraph.evidence": "Requirement evidence",

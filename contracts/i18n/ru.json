@@ -623,6 +623,7 @@
   "processGraph.draft": "Черновик графа процесса",
   "processGraph.sourceCount": "Просмотрено требований · {count}",
   "processGraph.partial": "Черновик охватывает часть доступных сведений.",
+  "processGraph.downloadMermaid": "Скачать Mermaid",
   "processGraph.diagram": "Схема процесса",
   "processGraph.connections": "Связи и источники",
   "processGraph.evidence": "Цитаты из требований",

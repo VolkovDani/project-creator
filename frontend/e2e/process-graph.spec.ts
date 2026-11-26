@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { expect, type Page, test } from '@playwright/test';
 import type { ProcessGraphRunFieldsFragment } from '../lib/generated';
 
@@ -334,6 +335,18 @@ test('a graph continues in the background and restores progress and cited result
       'href',
       '/projects/demo/requirements?requirement=req-1&version=2&start=24&end=61#requirement-req-1',
     );
+    const exportButton = page.getByRole('button', { name: 'Скачать Mermaid' });
+    const downloadReady = page.waitForEvent('download');
+    await exportButton.press('Enter');
+    const download = await downloadReady;
+    expect(download.suggestedFilename()).toBe('process-graph.mmd');
+    const mermaid = await readFile(await download.path(), 'utf8');
+    expect(mermaid).toContain('n1["Проверить заявку"]');
+    expect(mermaid).toContain('n1 -->|"Ошибок нет"| n2');
+    expect(mermaid).toContain('n4 -->|"Нужно"| n1');
+    expect(mermaid).toContain(
+      `click n2 href "${new URL(page.url()).origin}/projects/demo/requirements?requirement=req-1&version=2&start=24&end=61#requirement-req-1"`,
+    );
     expect(anchors).toEqual([{ projectId: 'demo', keyword: 'заявка' }]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       390,
@@ -346,6 +359,7 @@ test('a graph continues in the background and restores progress and cited result
       ),
     );
     await expect(heading).toHaveCount(0);
+    await expect(exportButton).toHaveCount(0);
     await expect(status).toContainText('Данные проекта изменились.');
 
     await page.getByRole('radio', { name: 'По термину словаря' }).check();

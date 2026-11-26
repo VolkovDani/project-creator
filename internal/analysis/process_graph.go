@@ -171,6 +171,16 @@ func (s *chatSummary) completeProcessGraph(ctx context.Context, req processgraph
 }
 
 func prepareProcessGraph(req processgraph.Request, matchGlossary processGraphGlossaryMatcher, prompt string, schemaBytes int, managed bool, partLimit int, allowPartial bool) (processGraphInput, error) {
+	return renderProcessGraph(req, matchGlossary, prompt, partLimit, managed && allowPartial, func(messages []map[string]string) bool {
+		return graphRequestFits(messages, schemaBytes, managed)
+	})
+}
+
+// Without a local size check, render the entire candidate for the configured
+// model's preflight or reuse the same rendering for inference.
+func renderProcessGraph(req processgraph.Request, matchGlossary processGraphGlossaryMatcher, prompt string, partLimit int, shorten bool,
+	fits func([]map[string]string) bool,
+) (processGraphInput, error) {
 	result := processGraphInput{
 		messages:  []map[string]string{{"role": "system", "content": prompt}, {"role": "user", "content": ""}},
 		citations: []processgraph.SuggestedEvidence{{}},
@@ -201,18 +211,22 @@ func prepareProcessGraph(req processgraph.Request, matchGlossary processGraphGlo
 				}
 				input.Glossary = appendProcessGraphGlossary(previousGlossary, matchGlossary(src), src.Offset, end)
 			}
+			if fits == nil {
+				result.sourceCount++
+				break
+			}
 			encoded, err := json.Marshal(input)
 			if err != nil {
 				return result, err
 			}
 			trial := []map[string]string{result.messages[0], {"role": "user", "content": string(encoded)}}
-			if graphRequestFits(trial, schemaBytes, managed) {
+			if fits(trial) {
 				result.messages = trial
 				result.sourceCount++
 				break
 			}
 			input.Sources = input.Sources[:i]
-			if !managed || !allowPartial {
+			if !shorten {
 				kept = 0
 				break
 			}
@@ -234,6 +248,13 @@ func prepareProcessGraph(req processgraph.Request, matchGlossary processGraphGlo
 	}
 	if result.sourceCount == 0 {
 		return result, ErrSummaryInputTooLong
+	}
+	if fits == nil {
+		encoded, err := json.Marshal(input)
+		if err != nil {
+			return result, err
+		}
+		result.messages[1]["content"] = string(encoded)
 	}
 	return result, nil
 }

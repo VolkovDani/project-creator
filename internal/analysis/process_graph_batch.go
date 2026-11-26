@@ -18,25 +18,23 @@ func (s *chatSummary) PlanProcessGraph(req processgraph.Request) (processgraph.B
 		return processgraph.BatchPlan{}, err
 	}
 	matchGlossary := processGraphGlossaryMatches(req)
+	return planProcessGraph(req, func(batch processgraph.Request) (bool, error) {
+		_, err := s.prepareProcessGraphBatch(batch, matchGlossary, output)
+		if errors.Is(err, processgraph.ErrBatchTooLarge) {
+			return false, nil
+		}
+		return err == nil, err
+	})
+}
+
+func planProcessGraph(req processgraph.Request, fits func(processgraph.Request) (bool, error)) (processgraph.BatchPlan, error) {
 	var plan processgraph.BatchPlan
 	for passages := processGraphPassages(req); len(passages) > 0; {
-		var prepareErr error
-		tooLarge := func(index int) bool {
-			batch := processGraphBatchRequest(req, passages[:index+1])
-			_, err := s.prepareProcessGraphBatch(batch, matchGlossary, output)
-			if err != nil && !errors.Is(err, processgraph.ErrBatchTooLarge) {
-				prepareErr = err
-			}
-			return err != nil
-		}
-		// A fitting request needs exactly one completion. Otherwise find an
-		// advancing prefix at a passage boundary within the rendered budget.
-		count := len(passages)
-		if tooLarge(count - 1) {
-			count = sort.Search(count, tooLarge)
-		}
-		if prepareErr != nil {
-			return processgraph.BatchPlan{}, prepareErr
+		count, err := largestProcessGraphPrefix(len(passages), func(count int) (bool, error) {
+			return fits(processGraphBatchRequest(req, passages[:count]))
+		})
+		if err != nil {
+			return processgraph.BatchPlan{}, err
 		}
 		if count == 0 {
 			plan.Partial = true
@@ -49,12 +47,50 @@ func (s *chatSummary) PlanProcessGraph(req processgraph.Request) (processgraph.B
 	return plan, nil
 }
 
+// Grow the candidate around the maximum fitting prefix instead of sending all
+// remaining passages on every tokenizer probe.
+func largestProcessGraphPrefix(total int, fits func(int) (bool, error)) (int, error) {
+	best := 0
+	for probe := 1; ; probe = min(probe*2, total) {
+		ok, err := fits(probe)
+		if err != nil {
+			return 0, err
+		}
+		if ok {
+			if probe == total {
+				return probe, nil
+			}
+			best = probe
+			continue
+		}
+		firstUnfit := sort.Search(probe-best-1, func(i int) bool {
+			if err != nil {
+				return true
+			}
+			var fitting bool
+			fitting, err = fits(best + i + 1)
+			return err != nil || !fitting
+		})
+		return best + firstUnfit, err
+	}
+}
+
 func (s *chatSummary) GenerateProcessGraphBatch(ctx context.Context, req processgraph.Request) (processgraph.Suggestion, error) {
+	return s.generateProcessGraphBatch(ctx, req, false)
+}
+
+func (s *chatSummary) generateProcessGraphBatch(ctx context.Context, req processgraph.Request, usePreflight bool) (processgraph.Suggestion, error) {
 	output, err := s.processGraphOutput()
 	if err != nil {
 		return processgraph.Suggestion{}, err
 	}
-	input, err := s.prepareProcessGraphBatch(req, processGraphGlossaryMatches(req), output)
+	matchGlossary := processGraphGlossaryMatches(req)
+	var input processGraphInput
+	if usePreflight {
+		input, err = renderProcessGraph(req, matchGlossary, s.processGraphPrompt(req, output.edgeLimit), 0, false, nil)
+	} else {
+		input, err = s.prepareProcessGraphBatch(req, matchGlossary, output)
+	}
 	if err != nil {
 		return processgraph.Suggestion{}, err
 	}

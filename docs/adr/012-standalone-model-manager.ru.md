@@ -44,6 +44,8 @@ MODELS_CONFIGURATOR_TEST_BIN=/tmp/models-configurator-test go test -count=1 ./in
 
 Чтобы проверить независимую оценку классификации через тот же бинарный файл менеджера, выполните `MODELS_CONFIGURATOR_TEST_BIN=/tmp/models-configurator-test go test -count=1 ./internal/api -run '^TestModelManagerAssessmentIntegration$'`. Тест подставляет ответы среды NPU и проверяет права доступа через GraphQL, цитаты из исходного текста и повторное использование кеша.
 
+Для проверки планирования графа процессов запустите `MODELS_CONFIGURATOR_TEST_BIN=/tmp/models-configurator-test go test -v -count=1 ./internal/api -run '^TestModelManagerProcessGraphPreflight$'`. Заглушка NPU возвращает два входных бюджета. Тест проверяет, что широкому окну требуется меньше порций из целых фрагментов и что планирование заканчивается до генерации. Зафиксируйте обе ревизии вместе с результатом.
+
 Тест проверяет сохранённые выжимки, индексацию и поиск, анализ коллизий и изоляцию рабочих областей через API. Обычные Go-тесты используют детерминированные провайдеры и могут запускаться без репозитория менеджера.
 
 Для прогона трёх фиксированных аппаратных примеров через клиент менеджера задайте `MANAGED_NPU_REAL_SMOKE=1`, `MANAGED_NPU_URL=http://127.0.0.1:8317/v1` и полный NPU ID в `MANAGED_NPU_MODEL`, затем выполните `go test -v -count=1 ./internal/analysis -run '^TestManagedOpenVINORealNPUSmoke$'`.

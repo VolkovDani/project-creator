@@ -9,6 +9,7 @@ import (
 	"regexp"
 
 	"github.com/VolkovDani/project-creator/internal/oaicompat"
+	"github.com/VolkovDani/project-creator/internal/processgraph"
 )
 
 // OpenAICompatible compares requirements using the configured Chat Completions endpoint.
@@ -24,6 +25,7 @@ const chatCompletionTokens = 1024
 
 // Models Configurator IDs consist of the provider, configured name and SHA-256 identity.
 var managedNPUModelID = regexp.MustCompile(`^openvino-npu\.[A-Za-z0-9][A-Za-z0-9_.-]{0,79}\.[0-9a-f]{64}$`)
+var managedChatModelID = regexp.MustCompile(`^(openvino-npu|ollama|openai-compatible)\.[A-Za-z0-9][A-Za-z0-9_.-]{0,79}\.[0-9a-f]{64}$`)
 
 // Use the strict schema subset shared by compatible servers. The local decoders
 // still enforce the original length, version and source constraints.
@@ -120,7 +122,10 @@ func (g *OpenAICompatible) generateFinding(ctx context.Context, pair Pair, promp
 }
 
 // SummaryOpenAICompatible generates scoped previews using Chat Completions.
-type SummaryOpenAICompatible struct{ *chatSummary }
+type SummaryOpenAICompatible struct {
+	*chatSummary
+	budget *oaicompat.Client
+}
 
 func NewSummaryOpenAICompatible(baseURL, model, key, allowedLanguages string) (*SummaryOpenAICompatible, error) {
 	client, err := oaicompat.New(baseURL, model, key)
@@ -129,6 +134,15 @@ func NewSummaryOpenAICompatible(baseURL, model, key, allowedLanguages string) (*
 	}
 	spec := compatibleProvenance(client, "openai-compatible-summary-v1")
 	managedNPU := managedNPUModelID.MatchString(model)
+	var budgetClient *oaicompat.Client
+	if localModelManagerURL(baseURL) && managedChatModelID.MatchString(model) {
+		budgetClient = client.WithErrorCodes(func(status int, code string) error {
+			if status == 413 && code == "TOKEN_COUNT_REQUEST_TOO_LARGE" {
+				return processgraph.ErrBatchTooLarge
+			}
+			return nil
+		})
+	}
 	if managedNPU {
 		// The runtime can report an overlong prompt with this same sanitized code.
 		client = client.WithErrorCodes(func(status int, code string) error {
@@ -149,7 +163,7 @@ func NewSummaryOpenAICompatible(baseURL, model, key, allowedLanguages string) (*
 		return schema
 	}
 	summary, err := newChatSummary(allowedLanguages, spec, schemaFor, context.Context.Err, func(ctx context.Context, messages []map[string]string, schema map[string]any) (string, error) {
-		return compatibleChat(ctx, client, messages, "requirement_summary", schema)
+		return compatibleChat(ctx, client, messages, summaryChatSchemaName, schema)
 	})
 	if err != nil {
 		return nil, err
@@ -158,14 +172,20 @@ func NewSummaryOpenAICompatible(baseURL, model, key, allowedLanguages string) (*
 		summary.managedNPU = true
 		summary.outputValidation += "+managed-npu-language-repair-exactly-one-property+ordered-source-number-retry-v1"
 	}
-	return &SummaryOpenAICompatible{summary}, nil
+	return &SummaryOpenAICompatible{chatSummary: summary, budget: budgetClient}, nil
 }
 
-func compatibleChat(ctx context.Context, client *oaicompat.Client, messages []map[string]string, name string, schema map[string]any) (string, error) {
-	body := map[string]any{
+const summaryChatSchemaName = "requirement_summary"
+
+func compatibleChatBody(client *oaicompat.Client, messages []map[string]string, name string, schema map[string]any) map[string]any {
+	return map[string]any{
 		"model": client.Model(), "messages": messages, "stream": false, "max_completion_tokens": chatCompletionTokens,
 		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": name, "strict": true, "schema": schema}},
 	}
+}
+
+func compatibleChat(ctx context.Context, client *oaicompat.Client, messages []map[string]string, name string, schema map[string]any) (string, error) {
+	body := compatibleChatBody(client, messages, name, schema)
 	var response struct {
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`

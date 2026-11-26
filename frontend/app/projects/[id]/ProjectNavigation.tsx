@@ -21,6 +21,7 @@ export const sections = [
   'requirements',
   'classification',
   'glossary',
+  'process-graphs',
   'analysis',
 ] as const;
 export function sectionLabel(locale: Locale, section: (typeof sections)[number]) {

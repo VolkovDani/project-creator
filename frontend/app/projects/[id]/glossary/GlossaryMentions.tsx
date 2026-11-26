@@ -5,7 +5,7 @@ import { query } from '../../../../lib/client';
 import { GlossaryMentionsDocument } from '../../../../lib/generated';
 import { type Locale, t } from '../../../../lib/i18n';
 import { requirementURL } from '../../../../lib/rag';
-import { GlossaryListView, useGlossaryList } from './GlossaryListView';
+import { GlossaryListView } from './GlossaryListView';
 
 export default function GlossaryMentions({
   projectId,
@@ -35,12 +35,6 @@ export default function GlossaryMentions({
       ).glossaryMentions,
     [projectId, term.id],
   );
-  const identity = JSON.stringify(['mentions', projectId, term.id]);
-  const list = useGlossaryList({
-    identity,
-    tags: [`project:${projectId}:requirements`, `project:${projectId}:glossary`],
-    load,
-  });
   return (
     <dialog ref={ref} aria-labelledby="glossary-mentions-title" onCancel={onClose}>
       <h2 id="glossary-mentions-title">
@@ -48,8 +42,9 @@ export default function GlossaryMentions({
       </h2>
       <GlossaryListView
         locale={locale}
-        identity={identity}
-        list={list}
+        identity={JSON.stringify(['mentions', projectId, term.id])}
+        tags={[`project:${projectId}:requirements`, `project:${projectId}:glossary`]}
+        load={load}
         empty={t(locale, 'glossary.noMentions')}
         render={(row) => (
           <p key={row.id}>

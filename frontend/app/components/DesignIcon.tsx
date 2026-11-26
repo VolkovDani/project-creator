@@ -8,6 +8,7 @@ const symbols = {
   help: 'help-circle',
   classification: 'layers',
   glossary: 'book-open',
+  'process-graphs': 'git-branch',
   analysis: 'bar-chart-2',
   technical: 'database',
   indexing: 'database',

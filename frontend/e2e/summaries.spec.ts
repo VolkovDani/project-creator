@@ -10,6 +10,9 @@ const project = {
 };
 const original = 'Полный исходный текст требования, который не должен заменяться.';
 const suggestion = 'Краткое предложение по требованию.';
+const provenance = '{"model":"local-test-generator","revision":"1"}';
+const summaryTitle = 'Краткая выжимка';
+const provenanceTitle = 'Версия и происхождение резюме';
 
 async function fixture(
   page: Page,
@@ -37,6 +40,8 @@ async function fixture(
   const failedCount = () => offscreenFailures + Number(status === 'failed');
   let cancellations = 0;
   let summaryReads = 0;
+  const provenanceReads: unknown[] = [];
+  const summaryQueries: string[] = [];
   const matchQueries: string[] = [];
   let termReads = 0;
   let releaseTerms = () => {};
@@ -82,7 +87,6 @@ async function fixture(
     byteLength: new TextEncoder().encode(summaryText()).length,
     layaEligible: new TextEncoder().encode(summaryText()).length <= 350,
     profile: 'local-test-profile',
-    provenance: 'local-test-generator',
     createdAt: '2026-11-06T12:00:00Z',
     errorCode: status === 'failed' ? (options?.errorCode ?? '') : '',
   });
@@ -91,10 +95,14 @@ async function fixture(
     route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': heartbeat\n\n' }),
   );
   await page.route('**/api/graphql', async (route) => {
-    const { query } = route.request().postDataJSON();
+    const { operationName, query, variables } = route.request().postDataJSON();
     let data: unknown;
-    if (query.includes('requirementSummariesByIds(')) {
+    if (operationName === 'RequirementSummaryProvenance') {
+      provenanceReads.push(variables);
+      data = { requirementSummariesByIds: [{ ...summary(), provenance }] };
+    } else if (query.includes('requirementSummariesByIds(')) {
       summaryReads++;
+      summaryQueries.push(query);
       matchQueries.push(query);
       if (failSummaryReads) {
         await route.fulfill({ status: 503, json: { error: 'fixture summary failure' } });
@@ -185,6 +193,8 @@ async function fixture(
     bulkRetries: () => bulkRetries,
     cancellations: () => cancellations,
     summaryReads: () => summaryReads,
+    summaryQueries,
+    provenanceReads,
     setStatus: (next: string) => {
       status = next;
     },
@@ -194,19 +204,39 @@ async function fixture(
   };
 }
 
-test('the selected requirement shows its summary, full source and summary provenance', async ({
+test('requirement details show the original and load provenance only on disclosure', async ({
   page,
 }) => {
-  await fixture(page);
+  const api = await fixture(page);
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
+  await expect(card.getByText(original, { exact: true })).toBeVisible();
+  await expect.poll(api.summaryReads).toBeGreaterThan(0);
+  await expect(card.getByText(suggestion, { exact: true })).toBeHidden();
+  const headings = card.locator(':scope > details > summary');
+  await expect(headings).toHaveText([
+    summaryTitle,
+    'Классификация',
+    'История текста требования',
+    provenanceTitle,
+  ]);
+  const metadata = card.locator(':scope > details:last-of-type + dl');
+  await expect(metadata).toContainText('req-1');
+  await expect(metadata).toHaveCSS('display', 'grid');
+  await expect(card.locator(':scope > dl ~ button')).toHaveText(['Изменить', 'В архив']);
+  expect(api.summaryQueries.every((query) => !/\bprovenance\b/.test(query))).toBe(true);
+  expect(api.provenanceReads).toHaveLength(0);
+
+  await headings.filter({ hasText: summaryTitle }).press('Enter');
   await expect(card.getByText(suggestion, { exact: true })).toBeVisible();
   await expect(card.getByText(original, { exact: true })).toBeVisible();
+  expect(api.provenanceReads).toHaveLength(0);
 
-  await card.getByText('Версия и происхождение резюме', { exact: true }).click();
+  await headings.filter({ hasText: provenanceTitle }).press('Enter');
   await expect(card.getByText('local-test-profile')).toBeVisible();
-  await expect(card.getByText('local-test-generator')).toBeVisible();
+  await expect(card.getByText(provenance, { exact: true })).toBeVisible();
   await expect(card.getByText('2026-11-06T12:00:00Z')).toBeVisible();
+  expect(api.provenanceReads).toEqual([{ projectId: project.id, requirementIds: ['req-1'] }]);
 });
 
 test('requirement action dialogs stay centered on the viewport after scrolling', async ({
@@ -243,6 +273,7 @@ test('failed summary generation can be retried and cancelled', async ({ page }) 
   const api = await fixture(page, { initialStatus: 'failed' });
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
+  await card.getByText(summaryTitle, { exact: true }).click();
   await expect(card.getByText('Не удалось создать резюме.', { exact: true })).toBeVisible();
   await card.getByRole('button', { name: 'Повторить создание резюме', exact: true }).click();
   await expect.poll(api.retries).toBe(1);
@@ -270,6 +301,7 @@ test('bulk retry includes offscreen failures and requires a click after invalida
   });
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
+  await card.getByText(summaryTitle, { exact: true }).click();
   await expect(card.getByText(suggestion, { exact: true })).toBeVisible();
   const retry = (count: number) =>
     page.getByRole('button', {
@@ -302,6 +334,7 @@ test('summary query failure preserves source access and offers refresh, not gene
   const api = await fixture(page, { failSummaryReads: true });
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
+  await card.getByText(summaryTitle, { exact: true }).click();
   await expect(card.getByText('Не удалось загрузить резюме.', { exact: false })).toBeVisible();
   await expect(card.getByText(suggestion, { exact: true })).toHaveCount(0);
   await expect(card.getByRole('button', { name: 'Создать резюме', exact: true })).toHaveCount(0);
@@ -315,8 +348,10 @@ test('an old summary version is never shown as the current suggestion', async ({
   await fixture(page, { summaryVersion: 2 });
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
+  await card.getByText(summaryTitle, { exact: true }).click();
   await expect(card.getByText('Это резюме устарело.', { exact: true })).toBeVisible();
   await expect(card.getByText(suggestion, { exact: true })).toHaveCount(0);
+  await expect(card.getByText(provenanceTitle, { exact: true })).toHaveCount(0);
   await expect(
     card.getByRole('button', { name: 'Повторить создание резюме', exact: true }),
   ).toBeVisible();
@@ -332,6 +367,7 @@ test('saving a new source version refetches its summary without another SSE even
   const api = await fixture(page);
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
+  await card.getByText(summaryTitle, { exact: true }).click();
   await expect(card.getByText(suggestion, { exact: true })).toBeVisible();
   const before = api.summaryReads();
   await card.getByRole('button', { name: 'Изменить', exact: true }).click();
@@ -350,6 +386,7 @@ test('a ready preview over the Laya limit remains visible without an eligibility
   await fixture(page, { longPreview: true });
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
+  await card.getByText(summaryTitle, { exact: true }).click();
   await expect(card.getByText('я'.repeat(176), { exact: true })).toBeVisible();
   await expect(card.getByText(/Предпросмотр занимает 352 байт UTF-8/)).toHaveCount(0);
   await expect(card.getByText(original, { exact: true })).toBeVisible();
@@ -359,6 +396,7 @@ test('the summary and visible original reuse glossary definitions', async ({ pag
   const api = await fixture(page, { highlight: true });
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
+  await card.getByText(summaryTitle, { exact: true }).click();
   const term = card.getByRole('button', { name: 'предложение', exact: true });
   await expect(term).toBeVisible();
   await expect.poll(api.termReads).toBe(1);
@@ -399,6 +437,7 @@ test('the summary and visible original reuse glossary definitions', async ({ pag
 test('selection in a requirement summary offers to link an existing term', async ({ page }) => {
   await fixture(page);
   await page.goto('/projects/summary-project/requirements');
+  await page.getByText(summaryTitle, { exact: true }).click();
   await page.getByText(suggestion, { exact: true }).evaluate((el) => {
     const range = document.createRange();
     range.selectNodeContents(el);
@@ -412,6 +451,7 @@ test('selection in a requirement summary offers to link an existing term', async
 test('a language rejection explains the failure and offers retry', async ({ page }) => {
   await fixture(page, { initialStatus: 'failed', errorCode: 'INVALID_LANGUAGE' });
   await page.goto('/projects/summary-project/requirements');
+  await page.getByText(summaryTitle, { exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'языку' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Повторить создание резюме' })).toBeVisible();
 });
@@ -488,6 +528,7 @@ test('formatted summaries and originals open glossary definitions within Markdow
   api.releaseTerms();
   await page.goto('/projects/summary-project/requirements');
   const card = page.locator('#requirement-req-1');
+  await card.getByText(summaryTitle, { exact: true }).click();
   const summaryMatch = card.getByRole('heading').getByRole('button', { name: 'API' });
   await expect(summaryMatch).toHaveCSS('text-decoration-style', 'dotted');
   await summaryMatch.focus();

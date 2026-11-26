@@ -485,7 +485,7 @@ without separate authentication and access control.
 
 The workspace opens in dark mode on the first visit and restores an explicitly selected theme on later visits. Both themes use the same semantic tokens from `frontend/app/tokens.css`. Text passages have a reading measure, while tables and analysis panels use the available workspace width.
 
-The project menu follows the working order Overview, Requirements, Classification, Glossary and Analysis. Hover over a help icon or focus it with Tab to see what the section does. Press Escape to dismiss the tooltip. Open the **Technical section** to review analysis history, manage scheduled deletions, check automatic indexing or retry a failed record. The existing indexing URL still opens directly. The menu can be collapsed on desktop and opened when needed on mobile.
+The project menu follows the working order Overview, Requirements, Classification, Glossary, Process graphs and Analysis. Hover over a help icon or focus it with Tab to see what the section does. Press Escape to dismiss the tooltip. Open the **Technical section** to review analysis history, manage scheduled deletions, check automatic indexing or retry a failed record. The existing indexing URL still opens directly. The menu can be collapsed on desktop and opened when needed on mobile.
 
 To switch projects, choose another project you have access to directly from the desktop sidebar. On mobile, open the project menu to make the same choice. The selected project opens in the current section. With a keyboard, press Tab to reach the project switcher.
 
@@ -523,6 +523,14 @@ cd frontend
 bun run e2e
 ```
 
+### Process graphs
+
+Open **Process graphs** in the project menu. Enter a word or phrase for a case-insensitive match at whole-word boundaries, or select a confirmed glossary term to search by its name and variants. Ambiguous glossary matches are skipped. The search reads active requirements in the project and does not require classification or embeddings.
+
+Select **Build process graph** to send the matching originals to the configured generation adapter. The draft can combine actions, rules, conditions and outcomes from user stories, statements, tables, scenarios and acceptance criteria. Each connection links to a quote in an exact requirement version. Review the quote to check what it supports. The graph stays on the page as a draft. If its sources change, build it again. When generation yields no usable connections, the application can still show literal conditions, outcomes, and prohibitions such as “If …, …” or “The customer cannot create an inspection”. It marks that draft as partial.
+
+The draft uses up to 12 matches in requirement ID order, within the adapter's input budget, and shows up to eight suggested connections around the selected concept. Some local profiles use a smaller limit. The page indicates partial coverage when these bounds are reached. Choose a more specific term or phrase to inspect another part of the process. Generation uses the same configuration as [requirement summaries](requirement-analysis.md).
+
 ### Controls, links and text
 
 - Use a native button for actions such as **Copy code** or **Save**. Give it a visible boundary or fill so the action is recognizable before hover.
@@ -538,7 +546,7 @@ bun run e2e
 
 Use **Add requirement** to open the create dialog. In **Search requirements**, submit an ID or text with Enter or **Search**. One submission shows case-insensitive ID and text matches from active and archived requirements, plus separate semantic results from the project's index. ID and text matches are available independently of the embedding provider. Text results mark the matching passage in its original casing and show the surrounding context. A matching ID is highlighted beside the requirement text. Open a result to see its details. The previous search URL redirects to this form.
 
-Select a row to open its details beside the list. The panel shows the full requirement ID used by the API and MCP, the project, version, dates and status. It also contains the original text, classification and revision history. On narrow screens, **Back to requirements** returns to the selected row. Archived rows open in the same panel.
+Select a row to open its details beside the list. Below the original text, **Short summary** is collapsed by default, followed by classification, revision history and **Summary version and origin** for a ready summary. Opening the provenance section loads its JSON through a separate GraphQL query. The full requirement ID used by the API and MCP, the project, version, dates, status and actions appear at the bottom. On narrow screens, **Back to requirements** returns to the selected row. Archived rows open in the same panel.
 
 Requirements render Markdown headings, paragraphs, lists, tables, quotations, links and fenced code. Known fence languages receive syntax highlighting. Use **Copy code** for the contents of a block. Select visible document text to add a glossary entry. In formatted requirements and ready summaries, project glossary terms have a dotted underline. Hover over a term or focus it with Tab to read its definition. Markdown links and code retain their usual behavior. **Markdown source** shows every matched range in the stored text, including terms that overlap Markdown syntax. Links to a specific glossary occurrence open the exact text at its saved offsets. Editing always uses the stored source.
 

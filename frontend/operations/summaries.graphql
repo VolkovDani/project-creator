@@ -7,11 +7,22 @@ query RequirementSummariesByIds($projectId: ID!, $requirementIds: [ID!]!) {
     text
     glossaryMatches { start end terms { id } }
     profile
-    provenance
     createdAt
     errorCode
     byteLength
     layaEligible
+  }
+}
+
+query RequirementSummaryProvenance($projectId: ID!, $requirementIds: [ID!]!) {
+  requirementSummariesByIds(projectId: $projectId, requirementIds: $requirementIds) {
+    requirementId
+    projectId
+    version
+    status
+    profile
+    createdAt
+    provenance
   }
 }
 
@@ -23,7 +34,6 @@ mutation RetryRequirementSummary($projectId: ID!, $requirementId: ID!) {
     status
     text
     profile
-    provenance
     createdAt
     errorCode
     byteLength
@@ -39,7 +49,6 @@ mutation CancelRequirementSummary($projectId: ID!, $requirementId: ID!) {
     status
     text
     profile
-    provenance
     createdAt
     errorCode
     byteLength

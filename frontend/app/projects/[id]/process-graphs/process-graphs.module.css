@@ -1,0 +1,226 @@
+.modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+}
+
+.modes label {
+  align-items: center;
+  display: inline-flex;
+  margin: 0;
+  min-height: var(--control-height);
+}
+
+.status {
+  display: block;
+  margin-block-start: var(--space-2);
+}
+
+.status:empty {
+  margin-block-start: 0;
+}
+
+.term {
+  margin-block: var(--space-1);
+  text-align: start;
+}
+
+.term[aria-pressed="true"] {
+  background: var(--action-tint);
+  border-color: var(--action);
+}
+
+.partial {
+  border-inline-start: 2px solid var(--warning);
+  color: var(--warning);
+  padding-inline-start: var(--space-3);
+}
+
+.graph,
+.branches {
+  margin: 0;
+  padding: 0;
+}
+
+.graph > li::marker,
+.branches > li::marker {
+  color: transparent;
+}
+
+.graph {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.group {
+  align-items: start;
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius-panel);
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) minmax(0, 3fr);
+  padding: var(--space-3);
+}
+
+.node {
+  background: var(--surface-subtle);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius-control);
+  display: grid;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+}
+
+.node[data-kind="condition"] {
+  background: var(--action-tint);
+  border-color: var(--action);
+}
+
+.node span,
+.relation span {
+  color: var(--text-muted);
+  font-size: var(--text-small);
+}
+
+.branches {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.branch {
+  display: grid;
+  grid-template-columns: minmax(5rem, 1fr) minmax(0, 2fr);
+  position: relative;
+}
+
+.branch:not(:last-child)::before {
+  border-inline-start: var(--line) solid var(--control-border);
+  content: "";
+  height: calc(100% + var(--space-3));
+  inset-block-start: 1.2rem;
+  inset-inline-start: var(--space-2);
+  position: absolute;
+}
+
+.relation {
+  display: grid;
+  align-content: start;
+  padding-inline: var(--space-4);
+  position: relative;
+}
+
+.relation::before,
+.relation::after {
+  border-block-start: var(--line) solid var(--control-border);
+  content: "";
+  position: absolute;
+}
+
+.relation::before {
+  inset-block-start: 1.2rem;
+  inset-inline-start: 0;
+  width: var(--space-3);
+}
+
+.branch:not(:first-child) .relation::before {
+  inset-inline-start: var(--space-2);
+}
+
+.relation::after {
+  block-size: 0.4rem;
+  border-inline-end: var(--line) solid var(--control-border);
+  inset-block-start: 1rem;
+  inset-inline-end: var(--space-1);
+  transform: rotate(45deg);
+  width: 0.4rem;
+}
+
+.evidence {
+  grid-column: 2;
+  margin-block: var(--space-2) 0;
+}
+
+.evidence ul {
+  margin-block: 0;
+  padding-inline-start: var(--space-4);
+}
+
+.evidence li + li {
+  margin-block-start: var(--space-3);
+}
+
+.evidence blockquote {
+  border-inline-start: var(--line) solid var(--control-border);
+  margin: 0 0 var(--space-1);
+  padding-inline-start: var(--space-3);
+  white-space: pre-wrap;
+}
+
+@media (max-width: 42rem) {
+  .group {
+    display: block;
+  }
+
+  .branches {
+    margin-block-start: var(--space-2);
+  }
+
+  .branch {
+    grid-template-columns: minmax(4rem, 1fr) minmax(0, 2fr);
+  }
+}
+
+.diagram {
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius-panel);
+  margin-block: var(--space-4) var(--space-5);
+  max-block-size: min(60vh, 36rem);
+  overflow: auto;
+  padding: 0;
+}
+
+.diagram svg {
+  display: block;
+  margin-inline: auto;
+}
+
+.diagramNode rect {
+  fill: var(--surface-subtle);
+  stroke: var(--control-border);
+}
+
+.diagramNode[data-kind="condition"] rect {
+  fill: var(--action-tint);
+  stroke: var(--action);
+}
+
+.diagramNode text {
+  fill: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.diagramNode .diagramKind,
+.diagramEdgeLabel {
+  fill: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.diagramEdge {
+  fill: none;
+  stroke: var(--control-border);
+  stroke-width: 1.5;
+}
+
+.diagram marker path {
+  fill: var(--control-border);
+}
+
+.diagramEdgeLabel {
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-linejoin: round;
+  stroke-width: 5px;
+  text-anchor: middle;
+}

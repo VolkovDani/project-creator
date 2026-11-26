@@ -17,7 +17,7 @@ import layout from '../requirements/requirements.module.css';
 import { useNarrowWorkspace } from '../useNarrowWorkspace';
 import CandidateExcerpt from './CandidateExcerpt';
 import { GlossaryDetails } from './GlossaryDetails';
-import { GlossaryListView, useGlossaryList } from './GlossaryListView';
+import { GlossaryListRows, GlossaryListView, useGlossaryList } from './GlossaryListView';
 import styles from './glossary.module.css';
 
 export default function GlossaryPage() {
@@ -58,13 +58,7 @@ function Glossary() {
     [projectId, tag, reqTag],
   );
   const identity = JSON.stringify(['glossary', projectId, search]);
-  const candidateIdentity = JSON.stringify(['glossaryCandidates', projectId]);
   const terms = useGlossaryList({ identity, tags: [tag], load });
-  const candidates = useGlossaryList({
-    identity: candidateIdentity,
-    tags: [reqTag, tag],
-    load: scan,
-  });
   const selected = terms.rows.find((term) => term.id === selectedId);
 
   return (
@@ -107,11 +101,10 @@ function Glossary() {
               anchorId="glossary-concepts"
               title={t(locale, 'glossary.concepts')}
             >
-              <GlossaryListView
+              <GlossaryListRows
                 key={identity}
                 locale={locale}
                 list={terms}
-                identity={identity}
                 empty={t(locale, 'glossary.empty')}
                 focusedId={selected?.id}
                 estimatedRowHeight={60}
@@ -157,8 +150,9 @@ function Glossary() {
         >
           <GlossaryListView
             locale={locale}
-            list={candidates}
-            identity={candidateIdentity}
+            identity={JSON.stringify(['glossaryCandidates', projectId])}
+            tags={[reqTag, tag]}
+            load={scan}
             empty={t(locale, 'glossary.noCandidates')}
             render={(c) => (
               <article className="card" key={c.id}>

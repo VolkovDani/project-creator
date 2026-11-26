@@ -4,6 +4,7 @@ const nodes = [
   { id: 'check', kind: 'action', label: 'Проверить заявку' },
   { id: 'approve', kind: 'state', label: 'Принята' },
   { id: 'return', kind: 'state', label: 'Возвращена' },
+  { id: 'operator', kind: 'actor', label: 'Оператор' },
 ];
 const draft = {
   nodes,
@@ -38,8 +39,23 @@ const draft = {
         },
       ],
     },
+    {
+      from: 'operator',
+      to: 'check',
+      kind: 'needs',
+      label: '',
+      evidence: [
+        {
+          requirementId: 'req-3',
+          version: 1,
+          start: 0,
+          end: 37,
+          quote: 'Как оператор я хочу проверить заявку.',
+        },
+      ],
+    },
   ],
-  sourceCount: 2,
+  sourceCount: 3,
   partial: true,
 };
 
@@ -110,6 +126,7 @@ test('a keyword or glossary term builds cited branches and source changes invali
     await expect(page.getByText('Черновик охватывает часть доступных сведений.')).toBeVisible();
     await expect(page.getByText('Ошибок нет', { exact: true }).last()).toBeVisible();
     await expect(page.getByText('Найдены ошибки', { exact: true }).last()).toBeVisible();
+    await expect(page.getByText('Нужно', { exact: true }).last()).toBeVisible();
     await page.getByText('Цитаты из требований', { exact: true }).first().click();
     await expect(page.getByText(draft.edges[0].evidence[0].quote)).toBeVisible();
     await expect(page.getByRole('link', { name: 'Требование req-1 · Версия 2' })).toHaveAttribute(

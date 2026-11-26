@@ -537,6 +537,8 @@ The backend plans up to 256 matching requirements in requirement ID order. It pa
 
 The backend continues processing when you leave the page or close the browser. When you reopen **Process graphs**, the page shows the topic and progress or result of the latest run for that project. The existing `/api/events` stream sends progress changes without carrying graph nodes or citations. The page reads the latest run through GraphQL when no valid cached draft is available, after reconnecting, and when the draft is ready. While the event stream stays connected, returning to the graph can reuse the completed draft in browser memory. New runs, source changes, disconnects, and session resets invalidate the relevant cached drafts. Only one run per project can be active. Active progress is held in memory. The backend stores completed background drafts in PostgreSQL and restores the latest draft for the configured profile after a restart, subject to the current requirements and glossary. Repeating the same request reuses a draft when its model profile and source snapshot match and every planned batch succeeded.
 
+During an active run, hover over **Build process graph** or focus it with Tab to see why it is disabled. Escape dismisses the tooltip.
+
 Run `./project-creator clear-process-graph-cache` to preview how many cached drafts the installation holds. Add `--project-id ID` to scope it to one project and `--yes` to remove the selected records. The command uses the running backend container and requires Docker access. Open graph pages refresh after the clear. Active runs can save new results when they complete.
 
 ### Controls, links and text

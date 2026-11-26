@@ -610,6 +610,7 @@
   "processGraph.topic": "Graph topic — {topic}",
   "processGraph.loadFailed": "Could not load the latest process graph.",
   "processGraph.activeBatch": "Processing batch {batch} of {total}…",
+  "processGraph.buildBusy": "Wait for the current run to finish.",
   "processGraph.completedBatches": "Completed {completed} of {total} batches.",
   "processGraph.failedBatches": "Failed batches — {failed}.",
   "processGraph.ready": "Draft ready for review.",

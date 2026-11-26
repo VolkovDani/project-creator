@@ -242,6 +242,22 @@ test('a graph continues in the background and restores progress and cited result
     await expect(status).toContainText('Обрабатываем порцию 1 из 2');
     await expect(status).toContainText('Завершено 0 из 2');
     await expect(build).toBeDisabled();
+    const buildHelp = page.getByRole('tooltip').filter({
+      hasText: 'Дождитесь результата текущего запуска.',
+    });
+    await build.hover();
+    await expect(buildHelp).toBeVisible();
+    await page.mouse.move(0, 0);
+    await expect(buildHelp).toBeHidden();
+    await keyword.focus();
+    await page.keyboard.press('Tab');
+    await expect(build).toBeFocused();
+    await expect(buildHelp).toBeVisible();
+    await page.keyboard.press('Enter');
+    expect(anchors).toHaveLength(1);
+    await page.keyboard.press('Escape');
+    await expect(buildHelp).toBeHidden();
+    await expect(build).toBeFocused();
     await pushProgress(page, firstBatch);
     await pushProgress(page, snapshot('run-1', 'заявка', 0, 0, 0));
     await expect(status).toContainText('Обрабатываем порцию 1 из 2');

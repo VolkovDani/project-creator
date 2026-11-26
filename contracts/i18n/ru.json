@@ -610,6 +610,7 @@
   "processGraph.topic": "Тема графа — {topic}",
   "processGraph.loadFailed": "Не удалось получить последний граф процесса.",
   "processGraph.activeBatch": "Обрабатываем порцию {batch} из {total}…",
+  "processGraph.buildBusy": "Дождитесь результата текущего запуска.",
   "processGraph.completedBatches": "Завершено {completed} из {total}.",
   "processGraph.failedBatches": "Порций с ошибками — {failed}.",
   "processGraph.ready": "Черновик готов к проверке.",

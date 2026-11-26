@@ -1,6 +1,6 @@
 'use client';
 
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { clientCache, clientSessionVersion, query } from '../../../../lib/client';
 import {
   LatestProcessGraphRunDocument,
@@ -78,6 +78,8 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
   const [keyword, setKeyword] = useState('');
   const [term, setTerm] = useState<Term>();
   const [result, setResult] = useState<Result | null>();
+  const [showBuildHelp, setShowBuildHelp] = useState(false);
+  const buildHelpId = useId();
   const reader = useRef<AbortController | null>(null);
   const submission = useRef(new Latest());
   const order = useRef<RunOrder>({ revisions: new Map(), pushes: 0 });
@@ -95,6 +97,15 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
   const invalid = result?.status === 'invalid';
   const loadingDraft = result?.status === 'suggested' && 'draft' in result && !result.draft;
   const running = result?.status === 'preparing' || isActiveRun(result?.status) || loadingDraft;
+
+  useEffect(() => {
+    if (!running || !showBuildHelp) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowBuildHelp(false);
+    };
+    window.addEventListener('keydown', dismiss);
+    return () => window.removeEventListener('keydown', dismiss);
+  }, [running, showBuildHelp]);
 
   const readLatest = useCallback(() => {
     reader.current?.abort();
@@ -326,9 +337,38 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
               }}
             />
           )}
-          <button type="submit" disabled={!anchor || result === undefined || running}>
-            {t(locale, 'processGraph.build')}
-          </button>
+          <span
+            className={styles.buildAction}
+            onPointerEnter={(event) => {
+              if (event.pointerType !== 'touch') setShowBuildHelp(true);
+            }}
+            onPointerLeave={(event) => {
+              if (!event.currentTarget.matches(':focus-within')) setShowBuildHelp(false);
+            }}
+          >
+            <button
+              type="submit"
+              disabled={!running && (!anchor || result === undefined)}
+              aria-disabled={running || undefined}
+              aria-describedby={running ? buildHelpId : undefined}
+              onFocus={() => setShowBuildHelp(true)}
+              onBlur={(event) => {
+                if (!event.currentTarget.parentElement?.matches(':hover')) setShowBuildHelp(false);
+              }}
+            >
+              {t(locale, 'processGraph.build')}
+            </button>
+            {running && (
+              <span
+                id={buildHelpId}
+                role="tooltip"
+                className={styles.buildHelp}
+                hidden={!showBuildHelp}
+              >
+                {t(locale, 'processGraph.buildBusy')}
+              </span>
+            )}
+          </span>
           <output id="process-graph-status" className={styles.status}>
             {progress?.topic && (
               <span className={styles.topic}>

@@ -112,3 +112,89 @@ func TestProcessGraphRejectsMalformedCompletion(t *testing.T) {
 		t.Fatal("expected invalid model response")
 	}
 }
+
+func TestManagedNPUProcessGraphRetriesWithSmallerCitedContext(t *testing.T) {
+	const quote = "Поступление заявки запускает проверку."
+	var counts []int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sources := processGraphTestSources(t, r)
+		counts = append(counts, len(sources))
+		if len(sources) > 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"error":{"message":"model provider failed","code":"NPU_UNAVAILABLE"}}`))
+			return
+		}
+		processGraphTestCompletion(w, `{"r":[{"a":"Поступление заявки","b":"Проверить","c":"","k":"triggers","p":[2],"x":"event","y":"action"}]}`)
+	}))
+	defer server.Close()
+	g, err := NewSummaryOpenAICompatible(server.URL+"/v1", "openvino-npu.fixture."+strings.Repeat("a", 64), "", "ru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, err := processgraph.Build(t.Context(), g, processgraph.Request{
+		Anchor: processgraph.Anchor{Name: "Заявка"},
+		Sources: []processgraph.Source{
+			{ID: "first", Version: 1, Text: "Заявка поступила."},
+			{ID: "second", Version: 7, Text: quote},
+			{ID: "third", Version: 1, Text: "Заявка проверяется."},
+			{ID: "fourth", Version: 1, Text: "Заявка сохранена."},
+		},
+	})
+	if err != nil || !draft.Partial || draft.SourceCount != 2 || len(draft.Edges) != 1 ||
+		draft.Edges[0].Evidence[0].RequirementID != "second" || draft.Edges[0].Evidence[0].Version != 7 ||
+		draft.Edges[0].Evidence[0].Quote != quote {
+		t.Fatalf("expected a cited partial result from a smaller context: %+v, %v", draft, err)
+	}
+	if len(counts) != 2 || counts[0] != 4 || counts[1] != 2 {
+		t.Fatalf("source counts per request: %v", counts)
+	}
+}
+
+func TestManagedNPUProcessGraphKeepsCompletePassagesFromLongRecord(t *testing.T) {
+	const quote = "Поступление заявки запускает проверку."
+	record := strings.Repeat(quote+"\n", 160)
+	var sentParts []graphPart
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sources := processGraphTestSources(t, r)
+		if len(sources) == 1 {
+			sentParts = sources[0].Parts
+		}
+		processGraphTestCompletion(w, `{"r":[{"a":"Поступление заявки","b":"Проверить","c":"","k":"triggers","p":[1],"x":"event","y":"action"}]}`)
+	}))
+	defer server.Close()
+	g, err := NewSummaryOpenAICompatible(server.URL+"/v1", "openvino-npu.fixture."+strings.Repeat("a", 64), "", "ru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, err := processgraph.Build(t.Context(), g, processgraph.Request{
+		Anchor:  processgraph.Anchor{Name: "Заявка"},
+		Sources: []processgraph.Source{{ID: "long", Version: 1, Text: record}},
+	})
+	if err != nil || !draft.Partial || draft.SourceCount != 1 || len(draft.Edges) != 1 ||
+		draft.Edges[0].Evidence[0].Quote != quote {
+		t.Fatalf("expected a partial result with a whole original passage: %+v, %v", draft, err)
+	}
+	if len(sentParts) == 0 || len(sentParts) >= 160 || sentParts[0].Text != quote+"\n" {
+		t.Fatalf("unexpected context: sent %d passages", len(sentParts))
+	}
+}
+
+func processGraphTestSources(t *testing.T, r *http.Request) []graphSource {
+	t.Helper()
+	var payload struct{ Messages []map[string]string }
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || len(payload.Messages) != 2 {
+		t.Errorf("invalid request: %v", err)
+		return nil
+	}
+	var input struct{ Sources []graphSource }
+	if err := json.Unmarshal([]byte(payload.Messages[1]["content"]), &input); err != nil {
+		t.Errorf("invalid graph source input: %v", err)
+	}
+	return input.Sources
+}
+
+func processGraphTestCompletion(w http.ResponseWriter, content string) {
+	json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{
+		"finish_reason": "stop", "message": map[string]any{"role": "assistant", "content": content},
+	}}})
+}

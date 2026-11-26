@@ -19,6 +19,25 @@ func startTestModelManager(t *testing.T, binary, upstream string) (base, chat, e
 		{"name": "chat", "provider": "openai-compatible", "base_url": upstream, "role": "chat", "model": "chat", "revision": "test-1", "key_env": "GEN_KEY"},
 		{"name": "embed", "provider": "openai-compatible", "base_url": upstream, "role": "embeddings", "model": "embed", "revision": "test-1", "key_env": "EMBED_KEY"},
 	}
+	base, models := startTestManager(t, binary, profiles, []string{"GEN_KEY=generation-key", "EMBED_KEY=embedding-key"})
+	for _, model := range models {
+		switch model.Role {
+		case "chat":
+			chat = model.ID
+		case "embeddings":
+			embedding = model.ID
+		}
+	}
+	if chat == "" || embedding == "" || chat == embedding {
+		t.Fatalf("unexpected inventory: %+v", models)
+	}
+	return base, chat, embedding
+}
+
+type testManagerModel struct{ ID, Role string }
+
+func startTestManager(t *testing.T, binary string, profiles []map[string]string, env []string) (string, []testManagerModel) {
+	t.Helper()
 	data, err := json.Marshal(map[string]any{"models": profiles})
 	if err != nil {
 		t.Fatal(err)
@@ -37,14 +56,14 @@ func startTestModelManager(t *testing.T, binary, upstream string) (base, chat, e
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cmd := exec.CommandContext(ctx, binary, "-config", config, "-listen", address)
-	cmd.Env = []string{"GEN_KEY=generation-key", "EMBED_KEY=embedding-key"}
+	cmd.Env = env
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		cancel()
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { cancel(); _ = cmd.Wait() })
-	base = "http://" + address + "/v1"
+	base := "http://" + address + "/v1"
 	client := &http.Client{Timeout: time.Second}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -53,25 +72,14 @@ func startTestModelManager(t *testing.T, binary, upstream string) (base, chat, e
 			time.Sleep(30 * time.Millisecond)
 			continue
 		}
-		var inventory struct{ Data []struct{ ID, Role string } }
+		var inventory struct{ Data []testManagerModel }
 		err = json.NewDecoder(res.Body).Decode(&inventory)
 		res.Body.Close()
 		if err != nil || res.StatusCode != 200 {
 			t.Fatalf("inventory returned %d: %v", res.StatusCode, err)
 		}
-		for _, m := range inventory.Data {
-			switch m.Role {
-			case "chat":
-				chat = m.ID
-			case "embeddings":
-				embedding = m.ID
-			}
-		}
-		if chat == "" || embedding == "" || chat == embedding {
-			t.Fatalf("unexpected inventory: %+v", inventory)
-		}
-		return
+		return base, inventory.Data
 	}
 	t.Fatalf("model manager did not start on %s", address)
-	return
+	return "", nil
 }

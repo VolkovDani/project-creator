@@ -20,15 +20,15 @@ func TestBuildGroundsMixedRequirementFormats(t *testing.T) {
 			{ID: "rule", Version: 2, Text: "Заявку вправе отклонить только руководитель."},
 			{ID: "acceptance", Version: 3, Text: "Если заявку отклонили, статус меняется на «Отклонена»."},
 			{ID: "scenario", Version: 4, Text: "Открыть заявку. Затем проверить реквизиты."},
-			{ID: "statement", Version: 5, Text: "Отправка заявки запускает проверку."},
+			{ID: "statement", Version: 5, Text: "Команда «Направить заявку» запускает действие «Проверить реквизиты»."},
 			{ID: "topic", Version: 6, Text: "Заявка"},
 			{ID: "skipped", Version: 7, Text: "Заявка появляется в архиве."},
 		},
 	}
 	rels := []SuggestedEdge{
-		{From: "operator", To: "submit", Kind: "performs", Evidence: []SuggestedEvidence{{Source: 1, Quote: req.Sources[0].Text}}},
+		{From: "operator", To: "submit", Kind: "needs", Evidence: []SuggestedEvidence{{Source: 1, Quote: req.Sources[0].Text}}},
 		{From: "supervisor", To: "reject", Kind: "permits", Label: "Только руководитель", Evidence: []SuggestedEvidence{{Source: 2, Quote: req.Sources[1].Text}}},
-		{From: "reject", To: "rejected", Kind: "leads_to", Evidence: []SuggestedEvidence{{Source: 3, Quote: "статус меняется на «Отклонена»"}}},
+		{From: "reject", To: "rejected", Kind: "leads_to", Evidence: []SuggestedEvidence{{Source: 3, Quote: req.Sources[2].Text}}},
 		{From: "open", To: "check", Kind: "follows", Evidence: []SuggestedEvidence{{Source: 4, Quote: req.Sources[3].Text}}},
 		{From: "submit", To: "check", Kind: "triggers", Evidence: []SuggestedEvidence{{Source: 5, Quote: req.Sources[4].Text}}},
 		{From: "check", To: "irrelevant", Kind: "follows", Evidence: []SuggestedEvidence{{Source: 6, Quote: req.Sources[5].Text}}},
@@ -38,7 +38,7 @@ func TestBuildGroundsMixedRequirementFormats(t *testing.T) {
 	nodes := []Node{
 		{ID: "operator", Kind: "actor", Label: "Оператор"},
 		{ID: "supervisor", Kind: "actor", Label: "Руководитель"},
-		{ID: "submit", Kind: "action", Label: "Отправить заявку"},
+		{ID: "submit", Kind: "action", Label: "Направить заявку"},
 		{ID: "check", Kind: "action", Label: "Проверить реквизиты"},
 		{ID: "reject", Kind: "action", Label: "Отклонить заявку"},
 		{ID: "rejected", Kind: "state", Label: "Отклонена"},
@@ -73,14 +73,14 @@ func TestBuildKeepsBranchesAndDropsAmbiguousNodeIDs(t *testing.T) {
 	req := Request{Anchor: Anchor{Name: "проверка"}, Sources: []Source{{ID: "branch", Version: 1, Text: text}}}
 	got, err := Build(t.Context(), stubGenerator(func(context.Context, Request) (Suggestion, error) {
 		return Suggestion{UsedSources: 1, Nodes: []Node{
-			{ID: "check", Kind: "action", Label: "Проверить"},
+			{ID: "check", Kind: "action", Label: "Проверка"},
 			{ID: "approve", Kind: "action", Label: "Принять"},
 			{ID: "return", Kind: "action", Label: "Вернуть"},
 			{ID: "duplicate", Kind: "state", Label: "Одно"},
 			{ID: "duplicate", Kind: "state", Label: "Другое"},
 		}, Edges: []SuggestedEdge{
-			{From: "check", To: "approve", Kind: "leads_to", Label: "Ошибок нет", Evidence: []SuggestedEvidence{{Source: 1, Quote: "если ошибок нет — принять"}}},
-			{From: "check", To: "return", Kind: "leads_to", Label: "Найдены ошибки", Evidence: []SuggestedEvidence{{Source: 1, Quote: "Если найдены ошибки — вернуть"}}},
+			{From: "check", To: "approve", Kind: "leads_to", Label: "Ошибок нет", Evidence: []SuggestedEvidence{{Source: 1, Quote: text}}},
+			{From: "check", To: "return", Kind: "leads_to", Label: "Найдены ошибки", Evidence: []SuggestedEvidence{{Source: 1, Quote: text}}},
 			{From: "approve", To: "duplicate", Kind: "leads_to", Evidence: []SuggestedEvidence{{Source: 1, Quote: text}}},
 			{From: "check", To: "approve", Kind: "leads_to", Label: "Сумма верна", Evidence: []SuggestedEvidence{{Source: 1, Quote: text}}},
 		}}, nil
@@ -99,7 +99,7 @@ func TestBuildDropsRelationshipsWithIncompatibleEndpointKinds(t *testing.T) {
 			Nodes: []Node{
 				{ID: "actor", Kind: "actor", Label: "Operator"},
 				{ID: "submit", Kind: "action", Label: "Send request"},
-				{ID: "approve", Kind: "action", Label: "Approve request"},
+				{ID: "approve", Kind: "action", Label: "Approval"},
 			},
 			Edges: []SuggestedEdge{
 				{From: "actor", To: "submit", Kind: "performs", Evidence: evidence},
@@ -115,7 +115,7 @@ func TestBuildDropsRelationshipsWithIncompatibleEndpointKinds(t *testing.T) {
 }
 
 func TestBuildKeepsTheSelectedOccurrenceOfRepeatedEvidence(t *testing.T) {
-	const quote = "При ошибке вернуть заявку."
+	const quote = "Проверить заявку. При ошибке вернуть заявку."
 	prefix := "😀 " + quote + "\n"
 	start := len([]rune(prefix))
 	text := prefix + quote

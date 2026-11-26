@@ -270,15 +270,11 @@ func (r *graphRun) settle(batch Request, suggestion Suggestion, generationErr er
 }
 
 func (r *graphRun) finish() {
-	if len(r.draft.Edges) == 0 {
-		literal, err := groundDraft(literalRelations(r.original.Sources), r.original, r.proof)
-		if err == nil && len(literal.Edges) > 0 {
-			for _, source := range r.original.Sources[:literal.SourceCount] {
-				r.inspected[source.ID] = true
-			}
-			literal.SourceCount = len(r.inspected)
-			r.draft = literal
+	if augmentLiteralDraft(&r.draft, r.original, r.proof) {
+		for _, source := range r.original.Sources {
+			r.inspected[source.ID] = true
 		}
+		r.draft.SourceCount = len(r.inspected)
 	}
 	switch {
 	case len(r.draft.Edges) > 0:

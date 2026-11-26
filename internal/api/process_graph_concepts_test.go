@@ -28,7 +28,7 @@ func TestProcessGraphKeepsDistinctConfirmedRolesInCitedEdges(t *testing.T) {
 			return processgraph.Suggestion{
 				UsedSources: len(req.Sources),
 				Nodes: []processgraph.Node{
-					{ID: "gen", Kind: "actor", Label: "Генеральный подрядчик"},
+					{ID: "gen", Kind: "actor", Label: "Главный подрядчик"},
 					{ID: "contractor", Kind: "actor", Label: "Представитель подрядной организации"},
 					{ID: "review", Kind: "action", Label: "проверяет отчёт"},
 					{ID: "send", Kind: "action", Label: "передаёт отчёт"},
@@ -113,7 +113,7 @@ func TestProcessGraphKeepsDistinctConfirmedRolesInCitedEdges(t *testing.T) {
 						actors[node["label"].(string)] = node["id"].(string)
 					}
 				}
-				genID := actors["Генеральный подрядчик"]
+				genID := actors["Главный подрядчик"]
 				contractorID := actors["Представитель подрядной организации"]
 				if contractorID == "" {
 					contractorID = actors["Подрядчик"]

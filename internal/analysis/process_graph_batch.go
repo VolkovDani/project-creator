@@ -12,7 +12,7 @@ import (
 var _ processgraph.BatchGenerator = (*chatSummary)(nil)
 
 func (s *chatSummary) PlanProcessGraph(req processgraph.Request) (processgraph.BatchPlan, error) {
-	output, err := s.processGraphOutput()
+	output, err := s.processGraphOutput(req.Mode)
 	if err != nil {
 		return processgraph.BatchPlan{}, err
 	}
@@ -28,19 +28,45 @@ func (s *chatSummary) PlanProcessGraph(req processgraph.Request) (processgraph.B
 
 func planProcessGraph(req processgraph.Request, fits func(processgraph.Request) (bool, error)) (processgraph.BatchPlan, error) {
 	var plan processgraph.BatchPlan
-	for sources := req.Sources; len(sources) > 0; {
+	minimum := 1
+	sources := req.Sources
+	if req.Mode == processgraph.RequirementMode {
+		minimum = 2
+		sources = slices.Clone(sources)
+	}
+	for len(sources) >= minimum {
 		count, err := largestProcessGraphPrefix(len(sources), func(count int) (bool, error) {
 			return fits(processGraphBatchRequest(req, sources[:count]))
 		})
 		if err != nil {
 			return processgraph.BatchPlan{}, err
 		}
-		if count == 0 {
+		if count < minimum {
 			plan.Partial = true
+			if minimum == 2 && count == 1 {
+				// An oversized next source must not prevent comparing the
+				// fitting first source with a later one.
+				nextFits, err := fits(processGraphBatchRequest(req, sources[1:2]))
+				if err != nil {
+					return processgraph.BatchPlan{}, err
+				}
+				if !nextFits {
+					sources = slices.Delete(sources, 1, 2)
+					continue
+				}
+			}
 			sources = sources[1:]
 			continue
 		}
 		plan.Batches = append(plan.Batches, processGraphBatchRequest(req, sources[:count]))
+		if count == len(sources) {
+			break
+		}
+		if req.Mode == processgraph.RequirementMode {
+			// Retain one whole source so adjacent windows can share a node.
+			plan.Partial = true
+			count--
+		}
 		sources = sources[count:]
 	}
 	return plan, nil
@@ -79,7 +105,7 @@ func (s *chatSummary) GenerateProcessGraphBatch(ctx context.Context, req process
 }
 
 func (s *chatSummary) generateProcessGraphBatch(ctx context.Context, req processgraph.Request, usePreflight bool) (processgraph.Suggestion, error) {
-	output, err := s.processGraphOutput()
+	output, err := s.processGraphOutput(req.Mode)
 	if err != nil {
 		return processgraph.Suggestion{}, err
 	}
@@ -104,7 +130,7 @@ func (s *chatSummary) generateProcessGraphBatch(ctx context.Context, req process
 	if err != nil {
 		return processgraph.Suggestion{}, err
 	}
-	return s.decodeProcessGraph(ctx, input, content, output.edgeLimit)
+	return s.decodeGraph(ctx, req.Mode, input, content, output.edgeLimit)
 }
 
 func (s *chatSummary) prepareProcessGraphBatch(req processgraph.Request, matchGlossary processGraphGlossaryMatcher, output processGraphOutput) (processGraphInput, error) {
@@ -121,7 +147,15 @@ func (s *chatSummary) SplitProcessGraphBatch(req processgraph.Request) (processg
 		return processgraph.Request{}, processgraph.Request{}, false
 	}
 	middle := len(req.Sources) / 2
-	return processGraphBatchRequest(req, req.Sources[:middle]), processGraphBatchRequest(req, req.Sources[middle:]), true
+	right := middle
+	if req.Mode == processgraph.RequirementMode {
+		if len(req.Sources) < 3 {
+			return processgraph.Request{}, processgraph.Request{}, false
+		}
+		middle = (len(req.Sources) + 1) / 2
+		right = middle - 1
+	}
+	return processGraphBatchRequest(req, req.Sources[:middle]), processGraphBatchRequest(req, req.Sources[right:]), true
 }
 
 func processGraphBatchRequest(req processgraph.Request, sources []processgraph.Source) processgraph.Request {

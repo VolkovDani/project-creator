@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -19,6 +20,19 @@ var (
 	errProcessGraphSources = errors.New("process graph sources unavailable")
 	errProcessGraphRun     = errors.New("process graph run unavailable")
 )
+
+type ProcessGraphMode string
+
+func (ProcessGraphMode) ImplementsGraphQLType(name string) bool { return name == "ProcessGraphMode" }
+
+func (m *ProcessGraphMode) UnmarshalGraphQL(input any) error {
+	name, ok := input.(string)
+	if !ok || (name != processgraph.ProcessMode.Name() && name != processgraph.RequirementMode.Name()) {
+		return fmt.Errorf("invalid process graph mode: %v", input)
+	}
+	*m = ProcessGraphMode(name)
+	return nil
+}
 
 func (r *Resolver) BuildProcessGraph(ctx context.Context, args BuildProcessGraphArgs) (*ProcessGraphPayload, error) {
 	if err := consume(ctx); err != nil {
@@ -189,6 +203,9 @@ func (r *Resolver) currentProcessGraphKey(ctx context.Context, target processgra
 
 func processGraphTarget(ctx context.Context, input BuildProcessGraphInput) (processgraph.Target, *FieldError) {
 	target := processgraph.Target{Workspace: workspace(ctx), Project: string(input.ProjectId)}
+	if input.Mode != nil && string(*input.Mode) == processgraph.RequirementMode.Name() {
+		target.Mode = processgraph.RequirementMode
+	}
 	path := "keyword"
 	valid := (input.TermId == nil) != (input.Keyword == nil)
 	if input.TermId != nil {
@@ -239,7 +256,7 @@ func (s processGraphSnapshot) key(target processgraph.Target) (string, error) {
 }
 
 func (r *Resolver) processGraphSnapshot(ctx context.Context, target processgraph.Target, maxSources int) (processGraphSnapshot, error) {
-	var snapshot processGraphSnapshot
+	snapshot := processGraphSnapshot{request: processgraph.Request{Mode: target.Mode}}
 	tx, err := r.DB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		return snapshot, err
@@ -308,7 +325,7 @@ func processGraphRunPayload(result processgraph.RunResult) *ProcessGraphRunPaylo
 	out := &ProcessGraphRunPayload{Status: result.Status, FieldErrors: []*FieldError{}}
 	if run := result.Run; run != nil {
 		out.Run = &ProcessGraphRun{
-			ID: graphql.ID(run.ID), Topic: run.Topic, Revision: int32(run.Revision), Completed: int32(run.Completed),
+			ID: graphql.ID(run.ID), Topic: run.Topic, Mode: ProcessGraphMode(run.Mode.Name()), Revision: int32(run.Revision), Completed: int32(run.Completed),
 			Total: int32(run.Total), Failed: int32(run.Failed),
 		}
 	}
@@ -324,7 +341,12 @@ func processGraphDraft(draft processgraph.Draft) *ProcessGraphDraft {
 		SourceCount: int32(draft.SourceCount), Partial: draft.Partial,
 	}
 	for _, node := range draft.Nodes {
-		out.Nodes = append(out.Nodes, &ProcessGraphNode{ID: graphql.ID(node.ID), Kind: node.Kind, Label: node.Label})
+		view := &ProcessGraphNode{ID: graphql.ID(node.ID), Kind: node.Kind, Label: node.Label}
+		if node.RequirementID != "" {
+			id, version := graphql.ID(node.RequirementID), int32(node.Version)
+			view.RequirementId, view.Version = &id, &version
+		}
+		out.Nodes = append(out.Nodes, view)
 	}
 	for _, edge := range draft.Edges {
 		view := &ProcessGraphEdge{From: graphql.ID(edge.From), To: graphql.ID(edge.To), Kind: edge.Kind, Label: edge.Label,

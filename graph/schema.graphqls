@@ -43,14 +43,15 @@ input SaveExternalProposalInput { glossary: ExternalProposalGlossaryInput projec
 type ExternalProposalPayload { proposal: ExternalProposal fieldErrors: [FieldError!]! }
 type ExternalProposalPage { items: [ExternalProposal!]! pageInfo: PageInfo! }
 
-input BuildProcessGraphInput { projectId: ID! termId: ID keyword: String }
+enum ProcessGraphMode { PROCESS REQUIREMENTS }
+input BuildProcessGraphInput { projectId: ID! termId: ID keyword: String mode: ProcessGraphMode }
 input ProcessGraphBatchInput { projectId: ID! runId: ID! revision: Int! }
-type ProcessGraphNode { id: ID! kind: String! label: String! }
+type ProcessGraphNode { id: ID! kind: String! label: String! requirementId: ID version: Int }
 type ProcessGraphEvidence { requirementId: ID! version: Int! start: Int! end: Int! quote: String! }
 type ProcessGraphEdge { from: ID! to: ID! kind: String! label: String! evidence: [ProcessGraphEvidence!]! }
 type ProcessGraphDraft { nodes: [ProcessGraphNode!]! edges: [ProcessGraphEdge!]! sourceCount: Int! partial: Boolean! }
 type ProcessGraphPayload { status: String! draft: ProcessGraphDraft fieldErrors: [FieldError!]! }
-type ProcessGraphRun { id: ID! topic: String! revision: Int! completed: Int! total: Int! failed: Int! }
+type ProcessGraphRun { id: ID! topic: String! mode: ProcessGraphMode! revision: Int! completed: Int! total: Int! failed: Int! }
 type ProcessGraphRunPayload { status: String! run: ProcessGraphRun draft: ProcessGraphDraft fieldErrors: [FieldError!]! }
 
 type PairGlossaryHint { termId: ID version: Int spelling: String! name: String definition: String context: String ambiguous: Boolean! }

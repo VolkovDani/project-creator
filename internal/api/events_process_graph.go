@@ -16,12 +16,13 @@ type processGraphProgressEvent struct {
 }
 
 type processGraphProgressRun struct {
-	ID        string `json:"id"`
-	Topic     string `json:"topic"`
-	Revision  int    `json:"revision"`
-	Completed int    `json:"completed"`
-	Total     int    `json:"total"`
-	Failed    int    `json:"failed"`
+	ID        string            `json:"id"`
+	Topic     string            `json:"topic"`
+	Mode      processgraph.Mode `json:"mode,omitempty"`
+	Revision  int               `json:"revision"`
+	Completed int               `json:"completed"`
+	Total     int               `json:"total"`
+	Failed    int               `json:"failed"`
 }
 
 func writeProcessGraphProgress(w http.ResponseWriter, snapshot processgraph.BackgroundProgress) error {
@@ -32,6 +33,7 @@ func writeProcessGraphProgress(w http.ResponseWriter, snapshot processgraph.Back
 		Run: processGraphProgressRun{
 			ID:        snapshot.Run.ID,
 			Topic:     snapshot.Run.Topic,
+			Mode:      snapshot.Run.Mode,
 			Revision:  snapshot.Run.Revision,
 			Completed: snapshot.Run.Completed,
 			Total:     snapshot.Run.Total,

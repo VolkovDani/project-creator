@@ -65,6 +65,9 @@ func (s *Store) Latest(ctx context.Context, workspace, project string) (processg
 	if err := json.Unmarshal(encoded, &run.Result); err != nil {
 		return processgraph.CachedRun{}, err
 	}
+	if run.Result.Run != nil {
+		run.Target.Mode = run.Result.Run.Mode
+	}
 	return run, nil
 }
 

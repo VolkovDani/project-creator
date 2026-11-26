@@ -106,9 +106,9 @@ func Generate(src string) ([]byte, error) {
 	}
 	p := parser{t: toks, names: map[string]bool{}, inputs: map[string]bool{}}
 	for i := 0; i+1 < len(toks); i++ {
-		if toks[i] == "type" || toks[i] == "input" {
+		if toks[i] == "type" || toks[i] == "input" || toks[i] == "enum" {
 			p.names[toks[i+1]] = true
-			if toks[i] == "input" {
+			if toks[i] != "type" {
 				p.inputs[toks[i+1]] = true
 			}
 		}
@@ -117,7 +117,7 @@ func Generate(src string) ([]byte, error) {
 	b.WriteString("// Code generated from schema.graphqls; DO NOT EDIT.\npackage graph\nimport graphql \"github.com/graph-gophers/graphql-go\"\n")
 	for p.i < len(p.t) {
 		kind, _ := p.pop()
-		if kind != "type" && kind != "input" {
+		if kind != "type" && kind != "input" && kind != "enum" {
 			return nil, fmt.Errorf("unsupported definition %s", kind)
 		}
 		name, e := p.pop()
@@ -126,6 +126,15 @@ func Generate(src string) ([]byte, error) {
 		}
 		if e = p.want("{"); e != nil {
 			return nil, e
+		}
+		if kind == "enum" {
+			for !p.peek("}") {
+				if _, err := p.pop(); err != nil {
+					return nil, err
+				}
+			}
+			p.i++
+			continue
 		}
 		root := name == "Query" || name == "Mutation"
 		if !root {

@@ -14,7 +14,7 @@ func (s *SummaryOpenAICompatible) PlanProcessGraphWithContext(ctx context.Contex
 	if s.budget == nil {
 		return s.PlanProcessGraph(req)
 	}
-	output, err := s.processGraphOutput()
+	output, err := s.processGraphOutput(req.Mode)
 	if err != nil {
 		return processgraph.BatchPlan{}, err
 	}

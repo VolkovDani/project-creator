@@ -10,10 +10,13 @@ import (
 // different wording stays distinct and each edge retains its original sources.
 func mergeDraft(draft *Draft, batch Draft) {
 	draft.Partial = draft.Partial || batch.Partial
-	nodeKey := func(node Node) [2]string {
-		return [2]string{node.Kind, strings.Join(strings.Fields(node.Label), " ")}
+	nodeKey := func(node Node) [3]string {
+		if node.RequirementID != "" {
+			return [3]string{node.Kind, node.RequirementID, strconv.Itoa(node.Version)}
+		}
+		return [3]string{node.Kind, strings.Join(strings.Fields(node.Label), " ")}
 	}
-	nodeIDs := make(map[[2]string]string, len(draft.Nodes))
+	nodeIDs := make(map[[3]string]string, len(draft.Nodes))
 	usedIDs := make(map[string]bool, len(draft.Nodes))
 	for _, node := range draft.Nodes {
 		nodeIDs[nodeKey(node)] = node.ID
@@ -22,6 +25,7 @@ func mergeDraft(draft *Draft, batch Draft) {
 	nextID := len(draft.Nodes) + 1
 	batchIDs := make(map[string]string, len(batch.Nodes))
 	for _, node := range batch.Nodes {
+		batchID := node.ID
 		key := nodeKey(node)
 		id := nodeIDs[key]
 		if id == "" {
@@ -30,9 +34,10 @@ func mergeDraft(draft *Draft, batch Draft) {
 			}
 			nextID++
 			nodeIDs[key] = id
-			draft.Nodes = append(draft.Nodes, Node{ID: id, Kind: node.Kind, Label: node.Label})
+			node.ID = id
+			draft.Nodes = append(draft.Nodes, node)
 		}
-		batchIDs[node.ID] = id
+		batchIDs[batchID] = id
 	}
 	draft.Edges = mergeEdges(draft.Edges, batch.Edges, batchIDs)
 }

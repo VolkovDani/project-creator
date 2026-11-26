@@ -7,7 +7,7 @@ test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status === 'passed') await expectLayout(page);
 });
 
-test('business requirement details identify the selected record and preserve the list on return', async ({
+test('requirement details identify the selected record and preserve the list on return', async ({
   page,
 }, testInfo) => {
   await fixture(page, 0);
@@ -310,6 +310,30 @@ test('switch projects from the sidebar using the keyboard', async ({ page }, tes
     await menu.press('Enter');
   }
   await expect(switcher).toContainText(other.name);
+});
+
+test('requirements use the same name in the section, menu and tab in both languages', async ({
+  page,
+}) => {
+  await fixture(page, 1);
+  await page.goto('/projects/demo/requirements');
+  const heading = page.getByRole('main').getByRole('heading', { name: 'Требования', exact: true });
+  const description = page.locator('head meta[name="description"]');
+  await expect(heading).toBeVisible();
+  await expect(page).toHaveTitle('Требования — Project Creator');
+  await expect(description).toHaveAttribute('content', /редактируйте требования проекта/);
+
+  const toggle = page.locator('button[aria-controls="project-sidebar"]');
+  if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+  const sidebar = page.getByRole('complementary');
+  await expect(sidebar.getByRole('link', { name: 'Требования', exact: true })).toBeVisible();
+  await sidebar.getByRole('combobox', { name: 'Язык' }).selectOption('en');
+  await expect(sidebar.getByRole('link', { name: 'Requirements', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('main').getByRole('heading', { name: 'Requirements', exact: true }),
+  ).toBeVisible();
+  await expect(page).toHaveTitle('Requirements — Project Creator');
+  await expect(description).toHaveAttribute('content', /edit project requirements/);
 });
 
 test('section metadata follows navigation and the saved language', async ({ page }) => {
@@ -1032,7 +1056,7 @@ test('legacy list URLs open the first cursor batch without pagination controls',
 }) => {
   const api = await fixture(page, 45);
   await page.goto('/projects/demo/requirements?listMode=pages&page=2&source=bookmark');
-  await expect(page.getByRole('heading', { name: 'Бизнес-требования', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Требования', exact: true })).toBeVisible();
   await expect(page.getByLabel('Режим списка')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Назад', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Далее', exact: true })).toHaveCount(0);

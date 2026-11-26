@@ -605,6 +605,7 @@
   "processGraph.chooseTerm": "Choose a glossary term",
   "processGraph.selected": "Selected glossary term · {term}",
   "processGraph.build": "Build process graph",
+  "processGraph.planning": "Planning graph batches…",
   "processGraph.preparing": "Finding requirements for the graph…",
   "processGraph.topic": "Graph topic — {topic}",
   "processGraph.loadFailed": "Could not load the latest process graph. Retrying…",

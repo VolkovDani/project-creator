@@ -21,4 +21,10 @@ type BatchGenerator interface {
 	SplitProcessGraphBatch(Request) (Request, Request, bool)
 }
 
+// ContextBatchPlanner can count tokens or perform other provider work while
+// preparing a plan. Background runs invoke it with the service context.
+type ContextBatchPlanner interface {
+	PlanProcessGraphWithContext(context.Context, Request) (BatchPlan, error)
+}
+
 var ErrBatchTooLarge = errors.New("process graph batch exceeds the provider budget")

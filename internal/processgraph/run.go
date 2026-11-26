@@ -63,11 +63,13 @@ type RunStore struct {
 type runEngine struct {
 	generator Generator
 	batch     BatchGenerator
+	planner   ContextBatchPlanner
 }
 
 func newRunEngine(g Generator) runEngine {
 	batch, _ := g.(BatchGenerator)
-	return runEngine{generator: g, batch: batch}
+	planner, _ := g.(ContextBatchPlanner)
+	return runEngine{generator: g, batch: batch, planner: planner}
 }
 
 func NewRunStore(g Generator) *RunStore {
@@ -93,6 +95,22 @@ func (s *RunStore) Start(ctx context.Context, target Target, req Request, snapsh
 }
 
 func (e runEngine) prepare(ctx context.Context, target Target, req Request, snapshotKey string, partial bool) (*graphRun, error) {
+	run, err := e.newRun(target, req, snapshotKey, partial)
+	if err != nil || run.status != "planning" {
+		return run, err
+	}
+	plan, err := e.plan(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	run.applyPlan(plan)
+	return run, nil
+}
+
+func (e runEngine) newRun(target Target, req Request, snapshotKey string, partial bool) (*graphRun, error) {
 	if len(req.Sources) == 0 {
 		return &graphRun{status: "no_sources"}, nil
 	}
@@ -102,29 +120,34 @@ func (e runEngine) prepare(ctx context.Context, target Target, req Request, snap
 	if len(req.Sources) > MaxRunSources || snapshotKey == "" {
 		return nil, errors.New("invalid process graph run request")
 	}
-	plan, err := e.plan(req)
-	if err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	run := &graphRun{
-		target: target, snapshotKey: snapshotKey, gate: make(chan struct{}, 1), original: req, proof: buildConceptProof(req),
-		progress: Progress{ID: rand.Text(), Topic: req.Anchor.Name, Revision: 1, Total: len(plan.Batches)},
-		status:   "ready", draft: Draft{Partial: partial || plan.Partial},
-		inspected: make(map[string]bool), lastUsed: time.Now(),
-	}
-	for _, batch := range plan.Batches {
-		run.pending = append(run.pending, pendingBatch{request: batch})
-	}
-	if len(run.pending) == 0 {
-		run.finish()
-	}
-	return run, nil
+	return &graphRun{
+		target: target, snapshotKey: snapshotKey, gate: make(chan struct{}, 1), original: req,
+		progress: Progress{ID: rand.Text(), Topic: req.Anchor.Name, Revision: 1},
+		status:   "planning", draft: Draft{Partial: partial},
+	}, nil
 }
 
-func (e runEngine) plan(req Request) (BatchPlan, error) {
+func (r *graphRun) applyPlan(plan BatchPlan) {
+	r.proof = buildConceptProof(r.original)
+	r.inspected = make(map[string]bool)
+	r.status = "ready"
+	r.progress.Total = len(plan.Batches)
+	r.draft.Partial = r.draft.Partial || plan.Partial
+	for _, batch := range plan.Batches {
+		r.pending = append(r.pending, pendingBatch{request: batch})
+	}
+	if len(r.pending) == 0 {
+		r.finish()
+	}
+}
+
+func (e runEngine) plan(ctx context.Context, req Request) (BatchPlan, error) {
+	if err := ctx.Err(); err != nil {
+		return BatchPlan{}, err
+	}
+	if e.planner != nil {
+		return e.planner.PlanProcessGraphWithContext(ctx, req)
+	}
 	if e.batch != nil {
 		return e.batch.PlanProcessGraph(req)
 	}
@@ -309,6 +332,7 @@ func (s *RunStore) save(run *graphRun) bool {
 		}
 		delete(s.runs, oldest.progress.ID)
 	}
+	run.lastUsed = now
 	s.runs[run.progress.ID] = run
 	return true
 }

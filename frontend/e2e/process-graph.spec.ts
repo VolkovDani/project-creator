@@ -78,10 +78,11 @@ test('a graph continues in the background and restores progress and cited result
     total: number,
     failed: number,
   ): ProcessGraphRunFieldsFragment {
+    const status = total === 0 ? 'planning' : completed === total ? 'suggested' : 'ready';
     return {
-      status: completed === total ? 'suggested' : 'ready',
-      run: { id, topic, revision: completed + 1, completed, total, failed },
-      draft: completed === total ? draft : null,
+      status,
+      run: { id, topic, revision: total === 0 ? 1 : completed + 2, completed, total, failed },
+      draft: status === 'suggested' ? draft : null,
       fieldErrors: [],
     };
   }
@@ -129,7 +130,7 @@ test('a graph continues in the background and restores progress and cited result
         anchors.push(variables.input);
         if (anchors.length === 1) {
           await preparation.promise;
-          latest = snapshot('run-1', 'заявка', 0, 2, 0);
+          latest = snapshot('run-1', 'заявка', 0, 0, 0);
         } else {
           latest = snapshot('run-2', 'Заявка', 1, 1, 0);
         }
@@ -177,6 +178,18 @@ test('a graph continues in the background and restores progress and cited result
     await expect(status).toContainText('Подбираем требования для графа');
     await expect(keyword).toHaveValue('');
     preparation.resolve();
+    const planning = 'Планируем порции для графа';
+    await expect(status).toContainText(planning);
+    await expect(status).toContainText('Тема графа — заявка');
+    await expect(status).not.toContainText('Завершено');
+    await keyword.fill('другая тема');
+    await expect(build).toBeDisabled();
+
+    await openOverview();
+    await page.goBack();
+    await expect(status).toContainText(planning);
+    await expect(keyword).toHaveValue('');
+    latest = snapshot('run-1', 'заявка', 0, 2, 0);
     await expect(status).toContainText('Обрабатываем порцию 1 из 2');
     await expect(status).toContainText('Завершено 0 из 2');
     await expect(build).toBeDisabled();

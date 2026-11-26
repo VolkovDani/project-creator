@@ -109,8 +109,9 @@ func Build(ctx context.Context, g Generator, req Request) (Draft, error) {
 		return Draft{}, ctx.Err()
 	}
 	if augmentLiteralDraft(&draft, req, proof) {
-		return draft, nil
+		err = nil
 	}
+	proof.mergeActorCards(&draft)
 	return draft, err
 }
 

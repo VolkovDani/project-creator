@@ -34,27 +34,31 @@ func mergeDraft(draft *Draft, batch Draft) {
 		}
 		batchIDs[node.ID] = id
 	}
+	draft.Edges = mergeEdges(draft.Edges, batch.Edges, batchIDs)
+}
 
+func mergeEdges(edges, incoming []Edge, nodeIDs map[string]string) []Edge {
 	edgeKey := func(edge Edge) [4]string {
 		return [4]string{edge.From, edge.To, edge.Kind, edge.Label}
 	}
-	edgeIndices := make(map[[4]string]int, len(draft.Edges))
-	for i, edge := range draft.Edges {
+	edgeIndices := make(map[[4]string]int, len(edges))
+	for i, edge := range edges {
 		edgeIndices[edgeKey(edge)] = i
 	}
-	for _, edge := range batch.Edges {
-		edge.From, edge.To = batchIDs[edge.From], batchIDs[edge.To]
+	for _, edge := range incoming {
+		edge.From, edge.To = nodeIDs[edge.From], nodeIDs[edge.To]
 		key := edgeKey(edge)
 		i, exists := edgeIndices[key]
 		if !exists {
-			edgeIndices[key] = len(draft.Edges)
-			draft.Edges = append(draft.Edges, edge)
+			edgeIndices[key] = len(edges)
+			edges = append(edges, edge)
 			continue
 		}
 		for _, evidence := range edge.Evidence {
-			if !slices.Contains(draft.Edges[i].Evidence, evidence) {
-				draft.Edges[i].Evidence = append(draft.Edges[i].Evidence, evidence)
+			if !slices.Contains(edges[i].Evidence, evidence) {
+				edges[i].Evidence = append(edges[i].Evidence, evidence)
 			}
 		}
 	}
+	return edges
 }

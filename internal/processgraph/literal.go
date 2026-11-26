@@ -40,7 +40,7 @@ var literalPatterns = []literalPattern{
 }
 
 func literalRelations(sources []Source) Suggestion {
-	result := Suggestion{UsedSources: len(sources), Partial: true}
+	result := Suggestion{Partial: true}
 	nodeIDs := map[[2]string]string{}
 	node := func(kind, label string) string {
 		key := [2]string{kind, strings.ToLower(label)}
@@ -53,6 +53,7 @@ func literalRelations(sources []Source) Suggestion {
 		return id
 	}
 	for i, source := range sources {
+		result.UsedSources = i + 1
 		for _, pattern := range literalPatterns {
 			for _, match := range pattern.clause.FindAllStringSubmatchIndex(source.Text, -1) {
 				left := strings.TrimSpace(source.Text[match[4]:match[5]])

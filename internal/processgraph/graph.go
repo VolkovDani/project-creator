@@ -29,6 +29,7 @@ type Anchor struct {
 type Source struct {
 	ID, Text string
 	Version  int
+	Offset   int // Starting rune offset of this fragment in the original source.
 }
 
 type Request struct {
@@ -245,7 +246,7 @@ func groundedEvidence(citations []SuggestedEvidence, sources []Source, anchor st
 		}
 		item := Evidence{
 			RequirementID: source.ID, Version: source.Version, Quote: quote,
-			Start: start, End: start + length,
+			Start: source.Offset + start, End: source.Offset + start + length,
 		}
 		if !slices.Contains(evidence, item) {
 			evidence = append(evidence, item)

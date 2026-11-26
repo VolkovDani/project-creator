@@ -362,6 +362,19 @@ test('a graph continues in the background and restores progress and cited result
     await expect(heading).toHaveCount(0);
     await expect(status).toContainText('Тема графа — новая заявка');
     expect(latestReads).toHaveLength(replacementReads + 1);
+
+    latest = snapshot('run-3', 'новая заявка', 2, 2, 0);
+    await pushProgress(page, latest);
+    await expect(heading).toBeVisible();
+    const beforeClear = latestReads.length;
+    latest = null;
+    await page.evaluate(() =>
+      (window as unknown as StreamWindow).graphPush(
+        'id: 19\nevent: cache.invalidate\ndata: {"schemaVersion":1,"keys":["project:demo:process-graph"]}\n\n',
+      ),
+    );
+    await expect(heading).toHaveCount(0);
+    expect(latestReads).toHaveLength(beforeClear + 1);
   } finally {
     preparation.resolve();
     latestReadGate?.resolve();

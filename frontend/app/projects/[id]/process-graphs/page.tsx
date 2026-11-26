@@ -14,6 +14,7 @@ import {
   cacheProcessGraph,
   forgetProcessGraph,
   type ProcessGraphProgress,
+  processGraphTag,
   useInvalidation,
   useProcessGraphProgress,
 } from '../../../../lib/live';
@@ -85,7 +86,8 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
     () => [`project:${projectId}`, `project:${projectId}:requirements`, glossaryTag],
     [projectId, glossaryTag],
   );
-  const glossarySnapshot = useRef({
+  const readTags = useMemo(() => [...tags, processGraphTag(projectId)], [projectId, tags]);
+  const sourceSnapshot = useRef({
     generation: clientCache.generation,
     revision: clientCache.revision,
   });
@@ -113,7 +115,7 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
       const isCurrent = () =>
         !controller.signal.aborted &&
         generation === clientCache.generation &&
-        !clientCache.invalidatedSince(revision, tags);
+        !clientCache.invalidatedSince(revision, readTags);
       try {
         const { latestProcessGraphRun } = await query(
           LatestProcessGraphRunDocument,
@@ -158,21 +160,24 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
     } else {
       void load();
     }
-  }, [projectId, tags]);
+  }, [projectId, readTags, tags]);
 
   useInvalidation(
-    tags,
+    readTags,
     () => {
-      submission.current.invalidate();
       const next = { generation: clientCache.generation, revision: clientCache.revision };
-      if (
-        next.generation !== glossarySnapshot.current.generation ||
-        clientCache.invalidatedSince(glossarySnapshot.current.revision, [glossaryTag])
-      ) {
+      const previous = sourceSnapshot.current;
+      const reset = next.generation !== previous.generation;
+      if (reset || clientCache.invalidatedSince(previous.revision, [glossaryTag])) {
         setTerm(undefined);
       }
-      glossarySnapshot.current = next;
-      setResult((previous) => previous && { status: 'stale' });
+      sourceSnapshot.current = next;
+      if (reset || clientCache.invalidatedSince(previous.revision, tags)) {
+        submission.current.invalidate();
+        setResult((result) => result && { status: 'stale' });
+      } else {
+        setResult((result) => (result?.status === 'suggested' ? null : result));
+      }
       readLatest();
     },
     () => {

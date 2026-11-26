@@ -40,6 +40,13 @@ MESSAGES = {
         'history_counts': 'Project {project}: finished runs eligible for deletion: {eligible}. Skipped: {skipped}.',
         'history_preview': 'Preview only. Repeat with --yes to permanently delete the finished runs and their results.',
         'history_deleted': 'Confirmed deletions: {deleted} of {eligible}.',
+        'clear-process-graph-cache': 'Preview or clear saved process graph results for this installation.',
+        'graph_cache_project': 'Limit the operation to the project ID from /projects/<id>.',
+        'graph_cache_confirm': 'Delete the saved process graph results in the selected scope.',
+        'graph_cache_installation': 'Whole installation',
+        'graph_cache_scope': 'Project {project}',
+        'graph_cache_preview': '{scope}. Saved process graph results: {count}. Repeat with --yes to clear them.',
+        'graph_cache_deleted': '{scope}. Removed saved process graph results: {count}.',
         'down': 'Stop containers and the managed NPU runtime; preserve all data and weights.',
         'doctor': 'Check prerequisites and an existing installation; no downloads or changes.',
         'device': 'Select none (fresh-install default), a generator device or remote API mode (NPU uses CPU embeddings by default; --ollama-device can select Arc).',
@@ -80,6 +87,13 @@ MESSAGES = {
         'history_counts': 'Проект {project}. Завершённых запусков для удаления: {eligible}. Пропущено: {skipped}.',
         'history_preview': 'Предпросмотр. Для безвозвратного удаления запусков и их результатов повторите команду с --yes.',
         'history_deleted': 'Подтверждено удалений: {deleted} из {eligible}.',
+        'clear-process-graph-cache': 'Показать или удалить сохранённые результаты построения графа процессов в этой установке.',
+        'graph_cache_project': 'Ограничить операцию проектом по ID из адреса /projects/<id>.',
+        'graph_cache_confirm': 'Удалить сохранённые результаты построения графа процессов в выбранной области.',
+        'graph_cache_installation': 'Вся установка',
+        'graph_cache_scope': 'Проект {project}',
+        'graph_cache_preview': '{scope}. Сохранено результатов построения графа процессов: {count}. Для удаления повторите команду с --yes.',
+        'graph_cache_deleted': '{scope}. Удалено сохранённых результатов построения графа процессов: {count}.',
         'down': 'Остановить контейнеры и управляемый NPU runtime, сохранить данные и веса.',
         'doctor': 'Проверить окружение и текущую установку без скачивания и изменений.',
         'device': 'Выберите none (новая установка), устройство генератора или режим удалённых API (для NPU embeddings по умолчанию работают на CPU; --ollama-device может выбрать Arc).',
@@ -160,6 +174,8 @@ ERROR_MESSAGES = {
     'UI': ('Интерфейс приложения недоступен. Проверьте Compose-сервисы, APP_PORT и логи frontend/backend.', 'The application UI is unavailable. Check Compose services, APP_PORT and frontend/backend logs.'),
     'COMMAND': ('Внешняя команда завершилась ошибкой. Проверьте текущий шаг и техническую диагностику инструмента.', 'An external command failed. Check the current step and tool diagnostics.'),
     'COMPOSE': ('Команда Docker Compose завершилась ошибкой. Проверьте конфигурацию, доступ к Engine и логи сервисов.', 'Docker Compose failed. Check configuration, Engine access and service logs.'),
+    'PROCESS_GRAPH_CACHE': ('Операция с кешем графа процессов завершилась ошибкой. Проверьте, что backend-контейнер запущен и поддерживает эту команду.', 'The process graph cache operation failed. Check that the backend container is running and supports this command.'),
+    'PROCESS_GRAPH_CACHE_SCOPE': ('Для --project-id укажите непустой ID проекта.', 'Provide a non-empty project ID for --project-id.'),
     'MODEL_DOWNLOAD': ('Загрузка модели прервана или завершилась ошибкой. Проверьте сеть и повторите setup: готовые файлы кеша сохраняются.', 'The model download was interrupted or failed. Check the network and repeat setup; completed cache files are retained.'),
     'SOURCE_DOWNLOAD': ('Не удалось скачать или проверить исходные веса NPU. Проверьте сеть, source revision и контрольные суммы; повтор использует кеш.', 'Could not download or verify NPU source weights. Check the network, source revision and checksums; retry reuses the cache.'),
     'PYTHON_DOWNLOAD': ('Не удалось подготовить локальный Python 3.12. Проверьте uv, сеть и свободное место, затем повторите setup.', 'Could not prepare local Python 3.12. Check uv, network and free disk, then repeat setup.'),
@@ -1220,6 +1236,22 @@ class Installer:
         finally:
             self.say('history_deleted', deleted=deleted, eligible=len(eligible))
 
+    def clear_process_graph_cache(self, project, confirmed):
+        command = ['exec', '-T', 'backend', '/app/server', 'clear-process-graph-cache']
+        messages = MESSAGES[self.lang]
+        scope = messages['graph_cache_installation']
+        if project is not None:
+            if not project.strip():
+                raise Failure('PROCESS_GRAPH_CACHE_SCOPE', 'Empty --project-id.')
+            command += ['--project-id', project]
+            scope = messages['graph_cache_scope'].format(project=project)
+        if confirmed:
+            command.append('--yes')
+        count = self.compose(*command, capture=True, code='PROCESS_GRAPH_CACHE').strip()
+        if not re.fullmatch(r'[0-9]+', count):
+            raise Failure('PROCESS_GRAPH_CACHE', 'The backend did not return a cache entry count.')
+        self.say('graph_cache_deleted' if confirmed else 'graph_cache_preview', scope=scope, count=count)
+
     def fixture(self, name, texts):
         records = self.config.state.setdefault('fixtures', {})
         record = records.setdefault(name, {})
@@ -1473,6 +1505,10 @@ def main(root=None, argv=None):
                              description=messages['clear-analysis-history'], allow_abbrev=False)
     history.add_argument('--project-id', required=True, help=messages['history_project'])
     history.add_argument('--yes', action='store_true', help=messages['history_confirm'])
+    graph_cache = sub.add_parser('clear-process-graph-cache', help=messages['clear-process-graph-cache'],
+                                 description=messages['clear-process-graph-cache'], allow_abbrev=False)
+    graph_cache.add_argument('--project-id', help=messages['graph_cache_project'])
+    graph_cache.add_argument('--yes', action='store_true', help=messages['graph_cache_confirm'])
     args = parser.parse_args(argv)
     try:
         app = Installer(root, lang=args.lang)
@@ -1480,6 +1516,8 @@ def main(root=None, argv=None):
             app.doctor(args.device)
         elif args.command == 'clear-analysis-history':
             app.clear_analysis_history(args.project_id, args.yes)
+        elif args.command == 'clear-process-graph-cache':
+            app.clear_process_graph_cache(args.project_id, args.yes)
         else:
             with locked(root):
                 if args.command == 'setup':

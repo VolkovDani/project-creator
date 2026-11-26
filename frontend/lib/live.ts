@@ -16,7 +16,7 @@ export type ProcessGraphProgress = {
 };
 
 const processGraphConnectionTag = 'process-graph:connection';
-const processGraphTag = (projectId: string) => `project:${projectId}:process-graph`;
+export const processGraphTag = (projectId: string) => `project:${projectId}:process-graph`;
 let processGraphSession: number | undefined;
 
 export function cachedProcessGraph(projectId: string) {

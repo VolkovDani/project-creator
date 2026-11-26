@@ -264,6 +264,41 @@ type ExternalProposalPage struct {
 	Items    []*ExternalProposal
 	PageInfo *PageInfo
 }
+type BuildProcessGraphInput struct {
+	ProjectId graphql.ID
+	TermId    *graphql.ID
+	Keyword   *string
+}
+type ProcessGraphNode struct {
+	ID    graphql.ID
+	Kind  string
+	Label string
+}
+type ProcessGraphEvidence struct {
+	RequirementId graphql.ID
+	Version       int32
+	Start         int32
+	End           int32
+	Quote         string
+}
+type ProcessGraphEdge struct {
+	From     graphql.ID
+	To       graphql.ID
+	Kind     string
+	Label    string
+	Evidence []*ProcessGraphEvidence
+}
+type ProcessGraphDraft struct {
+	Nodes       []*ProcessGraphNode
+	Edges       []*ProcessGraphEdge
+	SourceCount int32
+	Partial     bool
+}
+type ProcessGraphPayload struct {
+	Status      string
+	Draft       *ProcessGraphDraft
+	FieldErrors []*FieldError
+}
 type PairGlossaryHint struct {
 	TermId     *graphql.ID
 	Version    *int32
@@ -464,6 +499,9 @@ type ProjectsArgs struct {
 type ProjectsConnectionArgs struct {
 	First *int32
 	After *string
+}
+type BuildProcessGraphArgs struct {
+	Input BuildProcessGraphInput
 }
 type SaveExternalProposalArgs struct {
 	Input SaveExternalProposalInput

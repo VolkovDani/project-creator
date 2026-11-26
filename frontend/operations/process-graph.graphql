@@ -1,0 +1,36 @@
+mutation BuildProcessGraph($input: BuildProcessGraphInput!) {
+  buildProcessGraph(input: $input) {
+    status
+    draft {
+      nodes {
+        id
+        kind
+        label
+      }
+      edges {
+        from
+        to
+        kind
+        label
+        evidence {
+          requirementId
+          version
+          start
+          end
+          quote
+        }
+      }
+      sourceCount
+      partial
+    }
+    fieldErrors {
+      path
+      code
+      messageKey
+      params {
+        key
+        value
+      }
+    }
+  }
+}

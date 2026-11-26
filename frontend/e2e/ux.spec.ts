@@ -217,6 +217,7 @@ test('project menu groups sections and keeps diagnostics accessible on a direct 
     'Требования',
     'Классификация',
     'Словарь',
+    'Графы процессов',
     'Анализ',
     'Технический раздел',
     'Индексация',
@@ -247,6 +248,7 @@ test('project menu groups sections and keeps diagnostics accessible on a direct 
     'Требования',
     'Классификация',
     'Словарь',
+    'Графы процессов',
     'Анализ',
   ]);
   for (const link of await page.locator('.overview-links a').all()) {

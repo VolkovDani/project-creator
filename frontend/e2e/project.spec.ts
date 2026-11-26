@@ -83,7 +83,14 @@ test('project section help is shown on hover and keyboard focus without a click'
   await expect(tooltip).toHaveCount(0);
   await expect(requirements).toBeFocused();
   await expect(nav.getByRole('link', { name: 'Поиск', exact: true })).toHaveCount(0);
-  await expect(nav.getByRole('button', { name: /Справка о разделе/ })).toHaveCount(6);
+  await expect(nav.getByRole('button', { name: /Справка о разделе/ })).toHaveCount(7);
+  await nav.getByRole('link', { name: 'Графы процессов', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(
+    nav.getByRole('button', { name: 'Справка о разделе «Графы процессов»' }),
+  ).toBeFocused();
+  await expect(tooltip).toContainText(/ключев/);
+  await page.keyboard.press('Escape');
 
   await nav.getByRole('link', { name: 'Технический раздел' }).click();
   const indexing = nav.getByRole('link', { name: 'Индексация', exact: true });

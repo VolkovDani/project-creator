@@ -485,7 +485,7 @@ without separate authentication and access control.
 
 The workspace opens in dark mode on the first visit and restores an explicitly selected theme on later visits. Both themes use the same semantic tokens from `frontend/app/tokens.css`. Text passages have a reading measure, while tables and analysis panels use the available workspace width.
 
-The project menu follows the working order Overview, Requirements, Classification, Glossary and Analysis. Hover over a help icon or focus it with Tab to see what the section does. Press Escape to dismiss the tooltip. Open the **Technical section** to review analysis history, manage scheduled deletions, check automatic indexing or retry a failed record. The existing indexing URL still opens directly. The menu can be collapsed on desktop and opened when needed on mobile.
+The project menu follows the working order Overview, Requirements, Classification, Glossary, Process graphs and Analysis. Hover over a help icon or focus it with Tab to see what the section does. Press Escape to dismiss the tooltip. Open the **Technical section** to review analysis history, manage scheduled deletions, check automatic indexing or retry a failed record. The existing indexing URL still opens directly. The menu can be collapsed on desktop and opened when needed on mobile.
 
 To switch projects, choose another project you have access to directly from the desktop sidebar. On mobile, open the project menu to make the same choice. The selected project opens in the current section. With a keyboard, press Tab to reach the project switcher.
 
@@ -522,6 +522,14 @@ export E2E_DATABASE_URL='postgresql://project_creator:your-password@127.0.0.1:54
 cd frontend
 bun run e2e
 ```
+
+### Process graphs
+
+Open **Process graphs** in the project menu. Enter a word or phrase for a case-insensitive match at whole-word boundaries, or select a confirmed glossary term to search by its name and variants. Ambiguous glossary matches are skipped. The search reads active requirements in the project and does not require classification or embeddings.
+
+Select **Build process graph** to send the matching originals to the configured generation adapter. The draft can combine actions, rules, conditions and outcomes from user stories, statements, tables, scenarios and acceptance criteria. Each connection links to a quote in an exact requirement version. Review the quote to check what it supports. The graph stays on the page as a draft. If its sources change, build it again. When generation yields no usable connections, the application can still show literal conditions, outcomes, and prohibitions such as “If …, …” or “The customer cannot create an inspection”. It marks that draft as partial.
+
+The draft uses up to 12 matches in requirement ID order, within the adapter's input budget, and shows up to eight suggested connections around the selected concept. Some local profiles use a smaller limit. The page indicates partial coverage when these bounds are reached. Choose a more specific term or phrase to inspect another part of the process. Generation uses the same configuration as [requirement summaries](requirement-analysis.md).
 
 ### Controls, links and text
 

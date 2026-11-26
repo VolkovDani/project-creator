@@ -15,7 +15,10 @@ import (
 	graphql "github.com/graph-gophers/graphql-go"
 )
 
-var errProcessGraphSources = errors.New("process graph sources unavailable")
+var (
+	errProcessGraphSources = errors.New("process graph sources unavailable")
+	errProcessGraphRun     = errors.New("process graph run unavailable")
+)
 
 func (r *Resolver) BuildProcessGraph(ctx context.Context, args BuildProcessGraphArgs) (*ProcessGraphPayload, error) {
 	if err := consume(ctx); err != nil {
@@ -71,11 +74,26 @@ func (r *Resolver) BuildProcessGraph(ctx context.Context, args BuildProcessGraph
 }
 
 func (r *Resolver) StartProcessGraph(ctx context.Context, args StartProcessGraphArgs) (*ProcessGraphRunPayload, error) {
+	return r.startProcessGraphRun(ctx, args.Input, r.ProcessGraphRuns.Start)
+}
+
+func (r *Resolver) StartBackgroundProcessGraph(ctx context.Context, args StartBackgroundProcessGraphArgs) (*ProcessGraphRunPayload, error) {
+	return r.startProcessGraphRun(ctx, args.Input, func(ctx context.Context, target processgraph.Target, request processgraph.Request, key string, partial bool) (processgraph.RunResult, error) {
+		if r.BackgroundGraphs == nil {
+			return processgraph.RunResult{Status: "unavailable"}, nil
+		}
+		return r.BackgroundGraphs.Start(ctx, target, request, key, partial, r.currentProcessGraphRunKey)
+	})
+}
+
+func (r *Resolver) startProcessGraphRun(ctx context.Context, input BuildProcessGraphInput,
+	start func(context.Context, processgraph.Target, processgraph.Request, string, bool) (processgraph.RunResult, error),
+) (*ProcessGraphRunPayload, error) {
 	if err := consume(ctx); err != nil {
 		return nil, err
 	}
 	out := &ProcessGraphRunPayload{FieldErrors: []*FieldError{}}
-	target, field := processGraphTarget(ctx, args.Input)
+	target, field := processGraphTarget(ctx, input)
 	if field != nil {
 		out.Status = "invalid"
 		out.FieldErrors = append(out.FieldErrors, field)
@@ -91,26 +109,48 @@ func (r *Resolver) StartProcessGraph(ctx context.Context, args StartProcessGraph
 	case len(snapshot.request.Sources) == 0:
 		out.Status = "no_sources"
 		return out, nil
-	case r.ProcessGraphRuns == nil:
-		out.Status = "unavailable"
-		return out, nil
 	}
 	key, err := snapshot.key(target)
 	if err != nil {
 		return nil, errProcessGraphSources
 	}
-	result, err := r.ProcessGraphRuns.Start(ctx, target, snapshot.request, key, snapshot.partial)
+	result, err := start(ctx, target, snapshot.request, key, snapshot.partial)
 	if err != nil {
-		return nil, errors.New("process graph run unavailable")
+		return nil, errProcessGraphRun
 	}
 	if result.Draft != nil {
-		current, err := r.currentProcessGraphKey(ctx, target, processgraph.MaxRunSources)
+		current, err := r.currentProcessGraphRunKey(ctx, target)
 		if err != nil {
 			return nil, errProcessGraphSources
 		}
 		if current != key {
 			return processGraphRunPayload(processgraph.RunResult{Status: "stale"}), nil
 		}
+	}
+	return processGraphRunPayload(result), nil
+}
+
+func (r *Resolver) LatestProcessGraphRun(ctx context.Context, args LatestProcessGraphRunArgs) (*ProcessGraphRunPayload, error) {
+	if err := consume(ctx); err != nil {
+		return nil, err
+	}
+	ws, projectID := workspace(ctx), string(args.ProjectId)
+	var authorized bool
+	if err := r.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM projects WHERE workspace=$1 AND id=$2)`, ws, projectID).Scan(&authorized); err != nil {
+		return nil, errProcessGraphSources
+	}
+	if !authorized || r.BackgroundGraphs == nil {
+		return nil, nil
+	}
+	addCacheDependency(ctx, "project:"+projectID)
+	addCacheDependency(ctx, "project:"+projectID+":requirements")
+	addCacheDependency(ctx, "project:"+projectID+":glossary")
+	result, err := r.BackgroundGraphs.Latest(ctx, ws, projectID, r.currentProcessGraphRunKey)
+	if err != nil {
+		return nil, errProcessGraphRun
+	}
+	if result.Status == "" {
+		return nil, nil
 	}
 	return processGraphRunPayload(result), nil
 }
@@ -124,13 +164,15 @@ func (r *Resolver) ProcessGraphBatch(ctx context.Context, args ProcessGraphBatch
 	}
 	input := args.Input
 	result, err := r.ProcessGraphRuns.Advance(ctx, workspace(ctx), string(input.ProjectId), string(input.RunId), int(input.Revision),
-		func(ctx context.Context, target processgraph.Target) (string, error) {
-			return r.currentProcessGraphKey(ctx, target, processgraph.MaxRunSources)
-		})
+		r.currentProcessGraphRunKey)
 	if err != nil {
-		return nil, errors.New("process graph run unavailable")
+		return nil, errProcessGraphRun
 	}
 	return processGraphRunPayload(result), nil
+}
+
+func (r *Resolver) currentProcessGraphRunKey(ctx context.Context, target processgraph.Target) (string, error) {
+	return r.currentProcessGraphKey(ctx, target, processgraph.MaxRunSources)
 }
 
 func (r *Resolver) currentProcessGraphKey(ctx context.Context, target processgraph.Target, maxSources int) (string, error) {
@@ -265,7 +307,7 @@ func processGraphRunPayload(result processgraph.RunResult) *ProcessGraphRunPaylo
 	out := &ProcessGraphRunPayload{Status: result.Status, FieldErrors: []*FieldError{}}
 	if run := result.Run; run != nil {
 		out.Run = &ProcessGraphRun{
-			ID: graphql.ID(run.ID), Revision: int32(run.Revision), Completed: int32(run.Completed),
+			ID: graphql.ID(run.ID), Topic: run.Topic, Revision: int32(run.Revision), Completed: int32(run.Completed),
 			Total: int32(run.Total), Failed: int32(run.Failed),
 		}
 	}

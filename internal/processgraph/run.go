@@ -20,7 +20,7 @@ type Target struct {
 }
 
 type Progress struct {
-	ID                                 string
+	ID, Topic                          string
 	Revision, Completed, Total, Failed int
 }
 
@@ -55,37 +55,63 @@ type graphRun struct {
 // RunStore keeps short-lived runs driven by scoped client requests. Each
 // Advance invokes at most one generation batch and retains no worker goroutine.
 type RunStore struct {
-	mu        sync.Mutex
+	mu     sync.Mutex
+	engine runEngine
+	runs   map[string]*graphRun
+}
+
+type runEngine struct {
 	generator Generator
 	batch     BatchGenerator
-	runs      map[string]*graphRun
+}
+
+func newRunEngine(g Generator) runEngine {
+	batch, _ := g.(BatchGenerator)
+	return runEngine{generator: g, batch: batch}
 }
 
 func NewRunStore(g Generator) *RunStore {
-	batch, _ := g.(BatchGenerator)
-	return &RunStore{generator: g, batch: batch, runs: make(map[string]*graphRun)}
+	return &RunStore{engine: newRunEngine(g), runs: make(map[string]*graphRun)}
 }
 
 func (s *RunStore) Start(ctx context.Context, target Target, req Request, snapshotKey string, partial bool) (RunResult, error) {
-	if len(req.Sources) == 0 {
-		return RunResult{Status: "no_sources"}, nil
-	}
-	if s == nil || s.generator == nil {
+	if s == nil {
+		if len(req.Sources) == 0 {
+			return RunResult{Status: "no_sources"}, nil
+		}
 		return RunResult{Status: "unavailable"}, nil
 	}
-	if len(req.Sources) > MaxRunSources || snapshotKey == "" {
-		return RunResult{}, errors.New("invalid process graph run request")
-	}
-	plan, err := s.plan(req)
+	run, err := s.engine.prepare(ctx, target, req, snapshotKey, partial)
 	if err != nil {
 		return RunResult{}, err
 	}
+	result := run.result()
+	if run.status == "ready" && !s.save(run) {
+		return RunResult{Status: "unavailable"}, nil
+	}
+	return result, nil
+}
+
+func (e runEngine) prepare(ctx context.Context, target Target, req Request, snapshotKey string, partial bool) (*graphRun, error) {
+	if len(req.Sources) == 0 {
+		return &graphRun{status: "no_sources"}, nil
+	}
+	if e.generator == nil {
+		return &graphRun{status: "unavailable"}, nil
+	}
+	if len(req.Sources) > MaxRunSources || snapshotKey == "" {
+		return nil, errors.New("invalid process graph run request")
+	}
+	plan, err := e.plan(req)
+	if err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
-		return RunResult{}, err
+		return nil, err
 	}
 	run := &graphRun{
 		target: target, snapshotKey: snapshotKey, gate: make(chan struct{}, 1), original: req, proof: buildConceptProof(req),
-		progress: Progress{ID: rand.Text(), Revision: 1, Total: len(plan.Batches)},
+		progress: Progress{ID: rand.Text(), Topic: req.Anchor.Name, Revision: 1, Total: len(plan.Batches)},
 		status:   "ready", draft: Draft{Partial: partial || plan.Partial},
 		inspected: make(map[string]bool), lastUsed: time.Now(),
 	}
@@ -94,17 +120,13 @@ func (s *RunStore) Start(ctx context.Context, target Target, req Request, snapsh
 	}
 	if len(run.pending) == 0 {
 		run.finish()
-		return run.result(), nil
 	}
-	if !s.save(run) {
-		return RunResult{Status: "unavailable"}, nil
-	}
-	return run.result(), nil
+	return run, nil
 }
 
-func (s *RunStore) plan(req Request) (BatchPlan, error) {
-	if s.batch != nil {
-		return s.batch.PlanProcessGraph(req)
+func (e runEngine) plan(req Request) (BatchPlan, error) {
+	if e.batch != nil {
+		return e.batch.PlanProcessGraph(req)
 	}
 	var plan BatchPlan
 	for offset := 0; offset < len(req.Sources); offset += MaxSources {
@@ -147,23 +169,30 @@ func (s *RunStore) Advance(ctx context.Context, workspace, project, id string, r
 		return RunResult{Status: "stale"}, nil
 	}
 
+	if err := s.engine.advance(ctx, run, check); err != nil {
+		return RunResult{}, err
+	}
+	return run.result(), nil
+}
+
+func (e runEngine) advance(ctx context.Context, run *graphRun, check func(context.Context, Target) (string, error)) error {
 	current := run.pending[0]
-	generate := s.generator.GenerateProcessGraph
-	if s.batch != nil {
-		generate = s.batch.GenerateProcessGraphBatch
+	generate := e.generator.GenerateProcessGraph
+	if e.batch != nil {
+		generate = e.batch.GenerateProcessGraphBatch
 	}
 	suggestion, err := generate(ctx, current.request)
 	if ctx.Err() != nil {
-		return RunResult{}, ctx.Err()
+		return ctx.Err()
 	}
 	if snapshotErr := run.check(ctx, check); snapshotErr != nil {
-		return RunResult{}, snapshotErr
+		return snapshotErr
 	}
 	if run.status == "stale" {
-		return run.result(), nil
+		return nil
 	}
-	if errors.Is(err, ErrBatchTooLarge) && s.batch != nil && current.depth < maxSplitDepth {
-		left, right, ok := s.batch.SplitProcessGraphBatch(current.request)
+	if errors.Is(err, ErrBatchTooLarge) && e.batch != nil && current.depth < maxSplitDepth {
+		left, right, ok := e.batch.SplitProcessGraphBatch(current.request)
 		if ok {
 			run.pending = append([]pendingBatch{
 				{request: left, depth: current.depth + 1},
@@ -171,11 +200,11 @@ func (s *RunStore) Advance(ctx context.Context, workspace, project, id string, r
 			}, run.pending[1:]...)
 			run.progress.Total++
 			run.progress.Revision++
-			return run.result(), nil
+			return nil
 		}
 	}
 	run.settle(current.request, suggestion, err)
-	return run.result(), nil
+	return nil
 }
 
 func (r *graphRun) check(ctx context.Context, check func(context.Context, Target) (string, error)) error {
@@ -247,8 +276,11 @@ func (r *graphRun) clearWork() {
 }
 
 func (r *graphRun) result() RunResult {
-	progress := r.progress
-	result := RunResult{Status: r.status, Run: &progress}
+	result := RunResult{Status: r.status}
+	if r.progress.ID != "" {
+		progress := r.progress
+		result.Run = &progress
+	}
 	if r.status == "suggested" {
 		draft := r.draft
 		result.Draft = &draft

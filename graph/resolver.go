@@ -40,6 +40,7 @@ func WithWorkspace(ctx context.Context, workspace string) context.Context {
 func workspace(ctx context.Context) string { v, _ := ctx.Value(workspaceKey{}).(string); return v }
 
 type Resolver struct {
+	BackgroundGraphs *processgraph.BackgroundRuns
 	ProcessGraphRuns *processgraph.RunStore
 	ProcessGraphs    processgraph.Generator
 	Proposals        *proposal.Service

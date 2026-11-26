@@ -36,7 +36,7 @@ func TestProcessGraphRequiresProjectAccess(t *testing.T) {
 		{"no sources", "token-a", `projectId:"q",keyword:"ГП"`, "no_sources"},
 		{"conflicting anchors", "token-a", `projectId:"p",termId:"t",keyword:"ГП"`, "invalid"},
 	} {
-		for _, mutation := range []string{"buildProcessGraph", "startProcessGraph"} {
+		for _, mutation := range []string{"buildProcessGraph", "startProcessGraph", "startBackgroundProcessGraph"} {
 			t.Run(mutation+"/"+tc.name, func(t *testing.T) {
 				out := summaryRequest(t, server, tc.token, `mutation { `+mutation+`(input:{`+tc.input+`}){ status draft { sourceCount } fieldErrors { path code messageKey params { key value } } } }`)
 				if out["errors"] != nil {

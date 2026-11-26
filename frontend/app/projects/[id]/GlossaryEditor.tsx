@@ -12,6 +12,7 @@ import { fieldErrorMessage, type Locale, t } from '../../../lib/i18n';
 import { useResource } from '../../../lib/useResource';
 import CandidateDefinition, { type Candidate } from './CandidateDefinition';
 import CandidateExcerpt from './glossary/CandidateExcerpt';
+import styles from './glossary/glossary.module.css';
 export type GlossaryDraft = {
   name: string;
   variant?: string;
@@ -92,6 +93,7 @@ export default function GlossaryEditor({
   return (
     <dialog
       ref={dialog}
+      className={styles.editor}
       aria-label={t(locale, 'glossary.editor')}
       onCancel={(e) => {
         e.preventDefault();
@@ -188,42 +190,80 @@ export default function GlossaryEditor({
             {t(locale, 'glossary.context')}
             <textarea value={context} onChange={(e) => setContext(e.target.value)} />
           </label>
-          {variants.map((v, i) => (
-            <div key={v.key}>
-              <label>
-                {t(locale, 'glossary.variant')}
-                <input
-                  required
-                  value={v.text}
-                  onChange={(e) =>
-                    setVariants(
-                      variants.map((a, n) => (n === i ? { ...a, text: e.target.value } : a)),
-                    )
-                  }
-                />
-              </label>
-              <label>
-                {t(locale, 'glossary.kind')}
-                <select
-                  value={v.kind}
-                  onChange={(e) =>
-                    setVariants(
-                      variants.map((a, n) => (n === i ? { ...a, kind: e.target.value } : a)),
-                    )
-                  }
-                >
-                  {limits.kinds.map((kind) => (
-                    <option key={kind} value={kind}>
-                      {t(locale, `glossary.${kind}`)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button type="button" onClick={() => setVariants(variants.filter((_, n) => i !== n))}>
-                {t(locale, 'glossary.removeVariant')}
-              </button>
-            </div>
-          ))}
+          {variants.length > 0 && (
+            <table
+              className={`${styles.variants} ${styles.editableVariants}`}
+              aria-label={t(locale, 'glossary.variants')}
+            >
+              <thead>
+                <tr>
+                  <th scope="col">{t(locale, 'glossary.variant')}</th>
+                  <th scope="col">{t(locale, 'glossary.kind')}</th>
+                  <th scope="col" aria-label={t(locale, 'glossary.removeVariant')} />
+                </tr>
+              </thead>
+              <tbody>
+                {variants.map((variant, index) => {
+                  const label = (key: string) =>
+                    t(locale, 'glossary.variantControl', { label: t(locale, key), row: index + 1 });
+                  return (
+                    <tr key={variant.key}>
+                      <td>
+                        <input
+                          aria-label={label('glossary.variant')}
+                          required
+                          value={variant.text}
+                          onChange={(event) =>
+                            setVariants(
+                              variants.map((item) =>
+                                item.key === variant.key
+                                  ? { ...item, text: event.target.value }
+                                  : item,
+                              ),
+                            )
+                          }
+                        />
+                      </td>
+                      <td>
+                        <select
+                          aria-label={label('glossary.kind')}
+                          title={t(locale, `glossary.${variant.kind}`)}
+                          value={variant.kind}
+                          onChange={(event) =>
+                            setVariants(
+                              variants.map((item) =>
+                                item.key === variant.key
+                                  ? { ...item, kind: event.target.value }
+                                  : item,
+                              ),
+                            )
+                          }
+                        >
+                          {limits.kinds.map((kind) => (
+                            <option key={kind} value={kind}>
+                              {t(locale, `glossary.${kind}`)}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          aria-label={label('glossary.removeVariant')}
+                          title={t(locale, 'glossary.removeVariant')}
+                          onClick={() =>
+                            setVariants(variants.filter((item) => item.key !== variant.key))
+                          }
+                        >
+                          <span aria-hidden="true">×</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
           <button
             type="button"
             disabled={variants.length >= limits.variantLimit}

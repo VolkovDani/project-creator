@@ -1,33 +1,41 @@
 'use client';
 import Link from 'next/link';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { query } from '../../../../lib/client';
 import {
-  DeleteTermDocument,
   GlossaryCandidatePagesDocument,
   GlossaryTermPagesDocument,
-  type GlossaryFieldsFragment as Term,
 } from '../../../../lib/generated';
 import { t } from '../../../../lib/i18n';
 import { requirementURL } from '../../../../lib/rag';
 import { DesignIcon } from '../../../components/DesignIcon';
+import Group from '../../../components/Group';
 import rowStyles from '../../../components/RecordIcons.module.css';
 import GlossaryEditor, { type GlossaryDraft } from '../GlossaryEditor';
 import { useProject } from '../ProjectShell';
+import layout from '../requirements/requirements.module.css';
+import { useNarrowWorkspace } from '../useNarrowWorkspace';
 import CandidateExcerpt from './CandidateExcerpt';
-import { GlossaryListView } from './GlossaryListView';
-import GlossaryMentions from './GlossaryMentions';
+import { GlossaryDetails } from './GlossaryDetails';
+import { GlossaryListRows, GlossaryListView, useGlossaryList } from './GlossaryListView';
+import styles from './glossary.module.css';
+
 export default function GlossaryPage() {
-  const [mentions, setMentions] = useState<Term>();
+  const { project } = useProject();
+  return <Glossary key={project.id} />;
+}
+
+function Glossary() {
   const { project, locale } = useProject();
   const projectId = project.id;
-  const tag = `project:${projectId}:glossary`,
-    reqTag = `project:${projectId}:requirements`;
+  const tag = `project:${projectId}:glossary`;
+  const reqTag = `project:${projectId}:requirements`;
+  const narrow = useNarrowWorkspace();
   const [search, setSearch] = useState('');
-  const [draft, setDraft] = useState<GlossaryDraft>(),
-    [remove, setRemove] = useState<Term>(),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState(false);
+  const [draft, setDraft] = useState<GlossaryDraft>();
+  const [selectedId, setSelectedId] = useState<string>();
+  const rowTrigger = useRef<HTMLButtonElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const load = useCallback(
     async (after: string | null) =>
       (await query(GlossaryTermPagesDocument, { projectId, search, after }, { tags: [tag] }))
@@ -49,135 +57,130 @@ export default function GlossaryPage() {
     },
     [projectId, tag, reqTag],
   );
+  const identity = JSON.stringify(['glossary', projectId, search]);
+  const terms = useGlossaryList({ identity, tags: [tag], load });
+  const selected = terms.rows.find((term) => term.id === selectedId);
+
   return (
-    <section>
-      <h2>{t(locale, 'nav.glossary')}</h2>
-      {mentions && (
-        <GlossaryMentions
-          projectId={projectId}
-          locale={locale}
-          term={mentions}
-          onClose={() => setMentions(undefined)}
-        />
-      )}
-      <label>
-        {t(locale, 'glossary.search')}
-        <span className={rowStyles.searchField}>
-          <DesignIcon name="search" className={rowStyles.searchIcon} />
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-            }}
-          />
-        </span>
-      </label>
-      <button type="button" onClick={() => setDraft({ name: '' })}>
-        {t(locale, 'glossary.new')}
-      </button>
-      {draft && (
-        <GlossaryEditor
-          key={JSON.stringify(draft)}
-          draft={draft}
-          projectId={projectId}
-          locale={locale}
-          onClose={() => setDraft(undefined)}
-        />
-      )}
-      <GlossaryListView
-        key={search}
-        locale={locale}
-        load={load}
-        identity={JSON.stringify(['glossary', projectId, search])}
-        tags={[tag]}
-        empty={t(locale, 'glossary.empty')}
-        render={(term) => (
-          <article className="card" key={term.id}>
-            <h3>
-              <button type="button" onClick={() => setDraft({ name: term.name, term })}>
-                <DesignIcon name="glossary" className={rowStyles.desktopIcon} />
-                {term.name}
-              </button>
-            </h3>
-            <button type="button" onClick={() => setMentions(term)}>
-              {t(locale, 'glossary.mentions')}
-            </button>
-            <p>{term.definition}</p>
-            <p>{term.context}</p>
-            {term.variants.map((v) => (
-              <div key={v.text}>
-                {v.text} · {t(locale, `glossary.${v.kind}`)}
-              </div>
-            ))}
-            <button
-              className="destructive-action"
-              type="button"
-              onClick={() => {
-                setRemove(term);
-                setError(false);
+    <div className={layout.layout}>
+      <nav className={layout.contents} aria-label={t(locale, 'ui.onThisPage')}>
+        <details open>
+          <summary>{t(locale, 'ui.onThisPage')}</summary>
+          <a href="#glossary-search">{t(locale, 'glossary.search')}</a>
+          <a href="#glossary-concepts">{t(locale, 'glossary.concepts')}</a>
+          <a href="#glossary-candidates">{t(locale, 'glossary.candidates')}</a>
+        </details>
+      </nav>
+      <section aria-labelledby="glossary-heading">
+        <div className={layout.heading}>
+          <h2 id="glossary-heading">{t(locale, 'nav.glossary')}</h2>
+          <button type="button" className="primary-action" onClick={() => setDraft({ name: '' })}>
+            {t(locale, 'glossary.new')}
+          </button>
+        </div>
+        <label className={styles.search}>
+          {t(locale, 'glossary.search')}
+          <span className={rowStyles.searchField}>
+            <DesignIcon name="search" className={rowStyles.searchIcon} />
+            <input
+              id="glossary-search"
+              ref={searchInput}
+              type="search"
+              value={search}
+              onChange={(event) => {
+                setSelectedId(undefined);
+                setSearch(event.target.value);
               }}
+            />
+          </span>
+        </label>
+        <div className={layout.workspace}>
+          <div className={layout.listPane}>
+            <Group
+              id={`${projectId}:glossary:concepts`}
+              anchorId="glossary-concepts"
+              title={t(locale, 'glossary.concepts')}
             >
-              {t(locale, 'requirements.delete')}
-            </button>
-            {remove?.id === term.id && (
-              <div>
+              <GlossaryListRows
+                key={identity}
+                locale={locale}
+                list={terms}
+                empty={t(locale, 'glossary.empty')}
+                focusedId={selected?.id}
+                estimatedRowHeight={60}
+                render={(term) => (
+                  <button
+                    type="button"
+                    className={layout.row}
+                    aria-pressed={selected?.id === term.id}
+                    onClick={(event) => {
+                      rowTrigger.current = event.currentTarget;
+                      setSelectedId(term.id);
+                    }}
+                  >
+                    <DesignIcon name="glossary" className={rowStyles.desktopIcon} />
+                    {term.name}
+                  </button>
+                )}
+              />
+            </Group>
+          </div>
+          {selected && (
+            <GlossaryDetails
+              key={selected.id}
+              projectId={projectId}
+              locale={locale}
+              term={selected}
+              narrow={narrow}
+              onClose={() => {
+                setSelectedId(undefined);
+                rowTrigger.current?.focus({ preventScroll: true });
+              }}
+              onDeleted={() => {
+                setSelectedId(undefined);
+                requestAnimationFrame(() => searchInput.current?.focus({ preventScroll: true }));
+              }}
+            />
+          )}
+        </div>
+        <Group
+          id={`${projectId}:glossary:candidates`}
+          anchorId="glossary-candidates"
+          title={t(locale, 'glossary.candidates')}
+        >
+          <GlossaryListView
+            locale={locale}
+            identity={JSON.stringify(['glossaryCandidates', projectId])}
+            tags={[reqTag, tag]}
+            load={scan}
+            empty={t(locale, 'glossary.noCandidates')}
+            render={(c) => (
+              <article className="card" key={c.id}>
                 <button
-                  className="destructive-action"
                   type="button"
-                  disabled={busy}
-                  onClick={async () => {
-                    setBusy(true);
-                    try {
-                      const r = await query(
-                        DeleteTermDocument,
-                        { projectId, id: term.id, version: remove.version },
-                        { tags: [tag] },
-                      );
-                      if (!r.deleteGlossaryTerm.deleted) setError(true);
-                      else setRemove(undefined);
-                    } catch {
-                      setError(true);
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
+                  onClick={() => setDraft({ name: c.name, variant: c.abbreviation, candidate: c })}
                 >
-                  {t(locale, 'glossary.confirmDelete')}
+                  {c.name ? `${c.name} (${c.abbreviation})` : c.abbreviation}
                 </button>
-                <button type="button" onClick={() => setRemove(undefined)}>
-                  {t(locale, 'requirements.cancel')}
-                </button>
-                {error && <p role="alert">{t(locale, 'validation.conflict')}</p>}
-              </div>
+                <p className="user-content">
+                  <CandidateExcerpt candidate={c} />
+                </p>
+                <Link href={requirementURL(projectId, c.sourceId, c)}>
+                  {t(locale, 'glossary.openMention')}
+                </Link>
+              </article>
             )}
-          </article>
+          />
+        </Group>
+        {draft && (
+          <GlossaryEditor
+            draft={draft}
+            projectId={projectId}
+            locale={locale}
+            onClose={() => setDraft(undefined)}
+          />
         )}
-      />
-      <h3>{t(locale, 'glossary.candidates')}</h3>
-      <GlossaryListView
-        locale={locale}
-        load={scan}
-        identity={JSON.stringify(['glossaryCandidates', projectId])}
-        tags={[reqTag, tag]}
-        empty={t(locale, 'glossary.noCandidates')}
-        render={(c) => (
-          <article className="card" key={c.id}>
-            <button
-              type="button"
-              onClick={() => setDraft({ name: c.name, variant: c.abbreviation, candidate: c })}
-            >
-              {c.name ? `${c.name} (${c.abbreviation})` : c.abbreviation}
-            </button>
-            <p className="user-content">
-              <CandidateExcerpt candidate={c} />
-            </p>
-            <Link href={requirementURL(projectId, c.sourceId, c)}>
-              {t(locale, 'glossary.openMention')}
-            </Link>
-          </article>
-        )}
-      />
-    </section>
+      </section>
+    </div>
   );
 }

@@ -6,24 +6,26 @@ import { LoadMore } from '../../../components/ListControls';
 import ResourceState from '../../../components/ResourceState';
 import { VirtualList } from '../../../components/VirtualList';
 
-type ListProps<T> = {
+type ListOptions<T> = {
   identity: string;
   tags: string[];
-  locale: Locale;
-  empty: string;
-  render: (item: T) => ReactNode;
   load: (
     after: string | null,
   ) => Promise<{ items: T[]; pageInfo: { endCursor?: string | null; hasNextPage: boolean } }>;
 };
-export function GlossaryListView<T extends { id: string }>({
+type ViewProps<T> = {
+  locale: Locale;
+  empty: string;
+  render: (item: T) => ReactNode;
+  focusedId?: string;
+  estimatedRowHeight?: number;
+};
+
+export function useGlossaryList<T extends { id: string }>({
   load,
-  render,
   tags,
   identity,
-  locale,
-  empty,
-}: ListProps<T>) {
+}: ListOptions<T>) {
   const read = useCallback(
     async (after: string | null) => {
       const { items, pageInfo } = await load(after);
@@ -31,7 +33,29 @@ export function GlossaryListView<T extends { id: string }>({
     },
     [load],
   );
-  const list = useInfinite({ identity, tags, load: read });
+  return { ...useInfinite({ identity, tags, load: read }), identity };
+}
+
+export function GlossaryListView<T extends { id: string }>({
+  load,
+  tags,
+  identity,
+  ...view
+}: ListOptions<T> & ViewProps<T>) {
+  const list = useGlossaryList({ load, tags, identity });
+  return <GlossaryListRows list={list} {...view} />;
+}
+
+export function GlossaryListRows<T extends { id: string }>({
+  list,
+  locale,
+  empty,
+  render,
+  focusedId,
+  estimatedRowHeight,
+}: ViewProps<T> & {
+  list: ReturnType<typeof useGlossaryList<T>>;
+}) {
   const more = useCallback(() => {
     if (!list.loading && !list.error && list.hasNextPage) void list.loadMore().catch(() => {});
   }, [list.loading, list.error, list.hasNextPage, list.loadMore]);
@@ -46,11 +70,13 @@ export function GlossaryListView<T extends { id: string }>({
       />
       {list.loaded && !list.rows.length && <p>{empty}</p>}
       <VirtualList
-        identity={identity}
+        identity={list.identity}
         items={list.rows}
         keyOf={(item) => item.id}
         renderItem={render}
         onEndReached={more}
+        focusedId={focusedId}
+        estimatedRowHeight={estimatedRowHeight}
         restoreScroll={false}
       />
       <LoadMore locale={locale} {...list} loadMore={more} />

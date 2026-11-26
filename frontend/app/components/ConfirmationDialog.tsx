@@ -7,6 +7,7 @@ export default function ConfirmationDialog({
   children,
   confirmLabel,
   destructive,
+  busy = false,
   locale,
   onCancel,
   onConfirm,
@@ -15,6 +16,7 @@ export default function ConfirmationDialog({
   children: ReactNode;
   confirmLabel: string;
   destructive: boolean;
+  busy?: boolean;
   locale: Locale;
   onCancel: () => void;
   onConfirm: () => void;
@@ -38,17 +40,18 @@ export default function ConfirmationDialog({
       aria-labelledby={heading}
       onCancel={(event) => {
         event.preventDefault();
-        dismiss();
+        if (!busy) dismiss();
       }}
     >
       <h3 id={heading}>{title}</h3>
       {children}
-      <button type="button" ref={cancel} onClick={dismiss}>
+      <button type="button" ref={cancel} disabled={busy} onClick={dismiss}>
         {t(locale, 'requirements.cancel')}
       </button>
       <button
         type="button"
         className={destructive ? 'destructive-action' : undefined}
+        disabled={busy}
         onClick={onConfirm}
       >
         {confirmLabel}

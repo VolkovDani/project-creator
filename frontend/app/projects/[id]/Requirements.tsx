@@ -1,6 +1,6 @@
 'use client';
 import { useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import contract from '../../../../contracts/requirement.json';
 import { query } from '../../../lib/client';
 import {
@@ -27,6 +27,7 @@ import RequirementDetails from './RequirementDetails';
 import { useRequirementSummaries } from './RequirementSummary';
 import RetryFailedSummaries from './RetryFailedSummaries';
 import styles from './requirements/requirements.module.css';
+import { useNarrowWorkspace } from './useNarrowWorkspace';
 
 type Archived = ArchivedRequirementsQuery['requirementsConnection']['edges'][number]['node'];
 type Selection = { id: string; archived: boolean };
@@ -37,15 +38,6 @@ type Confirmation = {
   archivedAt?: string | null;
   action: 'archive' | 'delete';
 };
-
-const narrowQuery = '(max-width: 60rem)';
-function subscribeToNarrow(change: () => void) {
-  const media = window.matchMedia(narrowQuery);
-  media.addEventListener('change', change);
-  return () => media.removeEventListener('change', change);
-}
-const isNarrow = () => window.matchMedia(narrowQuery).matches;
-const isWideOnServer = () => false;
 
 export default function Requirements({
   projectId,
@@ -69,7 +61,7 @@ export default function Requirements({
   const [selection, setSelection] = useState<Selection | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const narrow = useSyncExternalStore(subscribeToNarrow, isNarrow, isWideOnServer);
+  const narrow = useNarrowWorkspace();
   const addTrigger = useRef<HTMLButtonElement>(null);
   const createDialog = useRef<HTMLDialogElement>(null);
   const editTrigger = useRef<HTMLButtonElement>(null);

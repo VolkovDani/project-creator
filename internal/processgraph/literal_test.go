@@ -206,3 +206,59 @@ func literalTestNodes(draft Draft) map[string]Node {
 	}
 	return nodes
 }
+
+func TestBuildConnectsAcceptanceTransitionToTheStoryRole(t *testing.T) {
+	const story = "Я, как оператор, должен иметь возможность указать регистрационный номер записи, чтобы найти запись"
+	const criterion = "После направления записи регистрационный номер становится недоступен для редактирования"
+	source := Source{ID: "story", Version: 4, Text: story + ".\n\n" + criterion + "."}
+	req := Request{Anchor: Anchor{Name: "оператор"}, Sources: []Source{source}}
+	draft, err := Build(t.Context(), stubGenerator(func(context.Context, Request) (Suggestion, error) {
+		return Suggestion{UsedSources: 1}, nil
+	}), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := literalTestNodes(draft)
+	var triggerID string
+	for _, edge := range draft.Edges {
+		if edge.Kind == "leads_to" && nodes[edge.From].Label == "направления записи" {
+			triggerID = edge.From
+		}
+	}
+	for _, edge := range draft.Edges {
+		if edge.To != triggerID || edge.Kind != "needs" || nodes[edge.From].Label != "оператор" {
+			continue
+		}
+		if len(edge.Evidence) != 2 || edge.Evidence[0].Quote != story || edge.Evidence[1].Quote != criterion {
+			t.Fatalf("expected the story and the separate acceptance criterion: %+v", edge)
+		}
+		for _, item := range edge.Evidence {
+			if item.RequirementID != source.ID || item.Version != source.Version ||
+				string([]rune(source.Text)[item.Start:item.End]) != item.Quote {
+				t.Fatalf("expected evidence in the exact requirement version: %+v", item)
+			}
+		}
+		return
+	}
+	t.Fatalf("the acceptance transition should be connected to the story role: %+v", draft)
+}
+
+func TestBuildKeepsAcceptanceTransitionSeparateWhenStoryContextIsAmbiguous(t *testing.T) {
+	for _, text := range []string{
+		"Я, как оператор, хочу редактировать список участников инспекции.\nПосле направления заявки список участников проверки фиксируется.",
+		"Я, как оператор, хочу редактировать список участников.\nЯ, как контролёр, хочу видеть список участников.\nПосле направления заявки список участников фиксируется.",
+	} {
+		draft, err := Build(t.Context(), stubGenerator(func(context.Context, Request) (Suggestion, error) {
+			return Suggestion{UsedSources: 1}, nil
+		}), Request{Anchor: Anchor{Name: "участники"}, Sources: []Source{{ID: "story", Version: 1, Text: text}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodes := literalTestNodes(draft)
+		for _, edge := range draft.Edges {
+			if edge.Kind == "needs" && nodes[edge.To].Label == "направления заявки" {
+				t.Fatalf("an ambiguous acceptance criterion was attributed to a role: %+v", draft)
+			}
+		}
+	}
+}

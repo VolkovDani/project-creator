@@ -429,7 +429,15 @@ function ProcessGraphBuilder({ projectId, locale }: { projectId: string; locale:
           </output>
         </form>
       </section>
-      {draft && <ProcessGraph draft={draft} mode={runMode} projectId={projectId} locale={locale} />}
+      {draft && (
+        <ProcessGraph
+          draft={draft}
+          diagramId={progress?.id ?? projectId}
+          mode={runMode}
+          projectId={projectId}
+          locale={locale}
+        />
+      )}
     </>
   );
 }

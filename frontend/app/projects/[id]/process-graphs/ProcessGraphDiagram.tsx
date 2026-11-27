@@ -1,9 +1,8 @@
 import { useId } from 'react';
 import type { ProcessGraphMode } from '../../../../lib/generated';
 import { type Locale, t } from '../../../../lib/i18n';
-import { requirementURL } from '../../../../lib/rag';
 import styles from './process-graphs.module.css';
-import { type GraphDraft, layoutProcessGraph } from './processGraphView';
+import { type GraphDraft, layoutProcessGraph, requirementNodeURL } from './processGraphView';
 
 const nodeWidth = 196;
 const nodeHeight = 74;
@@ -159,22 +158,13 @@ export function ProcessGraphDiagram({
             </g>
           );
           if (!requirements || !requirementId || !version) return card;
-          const source = evidence.find(
-            (item) => item.requirementId === requirementId && item.version === version,
-          );
           const ref = t(locale, 'processGraph.requirement', { id: requirementId, version });
           return (
             <a
               key={node.id}
               className={styles.diagramNodeLink}
               aria-label={`${node.label} · ${ref}`}
-              href={requirementURL(
-                projectId,
-                requirementId,
-                source
-                  ? { sourceVersion: version, start: source.start, end: source.end }
-                  : { sourceVersion: version },
-              )}
+              href={requirementNodeURL(projectId, requirementId, version, evidence)}
             >
               {card}
             </a>

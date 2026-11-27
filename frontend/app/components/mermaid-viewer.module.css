@@ -1,0 +1,116 @@
+.viewer {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-block-start: var(--space-3);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.toolbar button {
+  margin: 0;
+}
+
+.copy {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+}
+
+.copy summary {
+  padding: var(--space-2) var(--space-3);
+  border: var(--line) solid var(--control-border);
+  min-height: var(--control-height);
+}
+
+.copyActions {
+  display: grid;
+  gap: var(--space-2);
+  position: absolute;
+  inset: calc(100% + var(--space-1)) auto auto 0;
+  width: max-content;
+  max-width: min(16rem, calc(100vw - 3rem));
+  padding: var(--space-2);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.viewport {
+  display: grid;
+  place-items: center;
+  position: relative;
+  isolation: isolate;
+  height: clamp(16rem, 50dvh, 32rem);
+  min-width: 0;
+  overflow: clip;
+  padding: var(--space-3);
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+
+.viewport[data-ready="true"] {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.viewport[data-ready="true"]:active {
+  cursor: grabbing;
+}
+
+.viewport:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.drawing {
+  position: absolute;
+  inset: var(--space-3);
+}
+
+.viewport p {
+  text-align: center;
+}
+
+.status {
+  min-height: 1.5rem;
+  color: var(--text-muted);
+  font-size: var(--text-small);
+}
+
+.fullscreen:modal {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  position: fixed;
+  inset: 0;
+  translate: none;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: var(--space-3);
+  border: 0;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.fullscreen .viewport {
+  height: 100%;
+}
+
+@media (max-width: 40rem) {
+  .copyActions {
+    position: static;
+    margin-block-start: var(--space-1);
+  }
+}

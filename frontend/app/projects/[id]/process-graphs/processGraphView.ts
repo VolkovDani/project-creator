@@ -1,4 +1,5 @@
 import type { ProcessGraphRunFieldsFragment } from '../../../../lib/generated';
+import { requirementURL } from '../../../../lib/rag.ts';
 
 export type GraphDraft = NonNullable<ProcessGraphRunFieldsFragment['draft']>;
 export type GraphNode = GraphDraft['nodes'][number];
@@ -6,6 +7,24 @@ type GraphEdge = GraphDraft['edges'][number];
 
 type Branch = { edge: GraphEdge; to: GraphNode };
 type Group = { from: GraphNode; branches: Branch[] };
+
+export function requirementNodeURL(
+  projectId: string,
+  requirementId: string,
+  version: number,
+  evidence: GraphEdge['evidence'],
+) {
+  const source = evidence.find(
+    (item) => item.requirementId === requirementId && item.version === version,
+  );
+  return requirementURL(
+    projectId,
+    requirementId,
+    source
+      ? { sourceVersion: version, start: source.start, end: source.end }
+      : { sourceVersion: version },
+  );
+}
 
 export function groupProcessGraph(nodes: GraphNode[], edges: GraphEdge[]) {
   const byId = new Map(nodes.map((node) => [node.id, node]));

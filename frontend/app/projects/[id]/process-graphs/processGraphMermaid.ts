@@ -1,5 +1,5 @@
 import { requirementURL } from '../../../../lib/rag.ts';
-import type { GraphDraft } from './processGraphView.ts';
+import { type GraphDraft, requirementNodeURL } from './processGraphView.ts';
 
 type Evidence = GraphDraft['edges'][number]['evidence'][number];
 const requirementRelations = new Set([
@@ -17,7 +17,7 @@ function mermaidEntity(character: string) {
 }
 
 function mermaidLabel(label: string) {
-  return label.replace(/[[\]"#&;<>|%\\\x60\r\n\u2028\u2029]/g, mermaidEntity);
+  return label.replace(/[[\]"#&;<>|%\\\x60\p{Cc}\u2028\u2029]/gu, mermaidEntity);
 }
 
 function normalizedWords(text: string) {
@@ -122,6 +122,8 @@ function requirementGraphExport(draft: GraphDraft, projectId: string, origin: st
           {
             alias: `r${index + 1}`,
             label,
+            requirementId,
+            version,
             reference: `${requirementId} · v${version}`,
             href: absolute(requirementURL(projectId, requirementId, { sourceVersion: version })),
           },
@@ -151,7 +153,7 @@ function requirementGraphExport(draft: GraphDraft, projectId: string, origin: st
 function requirementField(text: string) {
   return (
     text
-      .replace(/[\r\n\u2028\u2029]+/g, ' ')
+      .replace(/[\p{Cc}\u2028\u2029]+/gu, ' ')
       .replace(/["#%&<>\\[\]*_~`!]/g, mermaidEntity)
       // This grammar recognizes direction directives even inside a quoted field.
       .replace(
@@ -162,7 +164,8 @@ function requirementField(text: string) {
 }
 
 function requirementDiagramText(graph: ReturnType<typeof requirementGraphExport>, heading: string) {
-  const lines = ['requirementDiagram', `%% ${heading}`];
+  const lines = ['requirementDiagram'];
+  if (heading) lines.push(`%% ${heading}`);
   for (const { alias, label, reference, href } of graph.nodes.values()) {
     lines.push(
       `  requirement ${alias} {`,
@@ -179,6 +182,21 @@ function requirementDiagramText(graph: ReturnType<typeof requirementGraphExport>
     }
   }
   return `${lines.join('\n')}\n`;
+}
+
+export function requirementGraphPreview(draft: GraphDraft, projectId: string) {
+  const graph = requirementGraphExport(draft, projectId, '');
+  const evidence = draft.edges.flatMap((edge) => edge.evidence.filter(validEvidence));
+  return {
+    source: requirementDiagramText(graph, ''),
+    nodes: Array.from(graph.nodes.values(), ({ alias, label, requirementId, version }) => ({
+      alias,
+      label,
+      requirementId,
+      version,
+      href: requirementNodeURL(projectId, requirementId, version, evidence),
+    })),
+  };
 }
 
 export function requirementGraphMermaid(

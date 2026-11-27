@@ -199,6 +199,12 @@
 
 ## GitHub
 
+- Push a working branch to GitHub only after the user confirms they have
+  verified it or explicitly delegates the publication decision. When publication
+  is delegated, review the full branch diff against the task, verify the result
+  from its normal entry points, and run the required checks before pushing. Apply
+  the pull request and merge workflow only after this publication condition is met.
+
 - Write GitHub Issue and Pull Request titles, descriptions, review text, and
   comments in English only. Keep Russian text in documentation, including its
   required Russian translations; do not duplicate GitHub discussions in Russian.

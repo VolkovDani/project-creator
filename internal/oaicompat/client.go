@@ -59,6 +59,11 @@ func (c Client) WithErrorCodes(mapCode func(status int, code string) error) *Cli
 	return &c
 }
 
+// HTTPStatusError is a sanitized status returned by a provider without a recognized error code.
+type HTTPStatusError int
+
+func (e HTTPStatusError) Error() string { return fmt.Sprintf("model endpoint returned HTTP %d", e) }
+
 func (c *Client) Post(ctx context.Context, path string, body, out any) error {
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -95,7 +100,7 @@ func (c *Client) Post(ctx context.Context, path string, body, out any) error {
 				}
 			}
 		}
-		return fmt.Errorf("model endpoint returned HTTP %d", resp.StatusCode)
+		return HTTPStatusError(resp.StatusCode)
 	}
 	const maxResponse = 8 << 20
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))

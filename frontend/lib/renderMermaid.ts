@@ -9,6 +9,50 @@ export type RenderedDiagram = {
 let renderQueue = Promise.resolve();
 let renderId = 0;
 
+function xmlCharacter(code: number) {
+  // Label text is also serialized as XML when creating a PNG.
+  if (
+    (code < 32 && code !== 9 && code !== 10 && code !== 13) ||
+    (code >= 0xd800 && code <= 0xdfff) ||
+    code === 0xfffe ||
+    code === 0xffff
+  ) {
+    return '\uFFFD';
+  }
+  return String.fromCodePoint(code);
+}
+
+function restoreLabelCharacters(svg: SVGSVGElement) {
+  for (const label of svg.querySelectorAll('text')) {
+    // Mermaid can wrap a decimal entity across several tspans. Replace it once
+    // across the original text nodes, without parsing any of it as markup.
+    const entities = (label.textContent ?? '').matchAll(/&#([0-9]{1,5});/g);
+    let entity = entities.next();
+    if (entity.done) continue;
+
+    const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
+    let offset = 0;
+    let consumed = 0;
+    for (let node = walker.nextNode(); node instanceof Text; node = walker.nextNode()) {
+      const value = node.data;
+      const end = offset + value.length;
+      let start = Math.max(offset, consumed);
+      let text = '';
+      while (!entity.done && entity.value.index < end) {
+        const match = entity.value;
+        text += value.slice(start - offset, match.index - offset);
+        text += xmlCharacter(Number(match[1]));
+        consumed = match.index + match[0].length;
+        start = consumed;
+        entity = entities.next();
+      }
+      node.data = text + value.slice(start - offset);
+      offset = end;
+      if (entity.done && consumed <= offset) break;
+    }
+  }
+}
+
 export function renderMermaid(source: string, dark: boolean, signal: AbortSignal) {
   const result = renderQueue.then(async (): Promise<RenderedDiagram | null> => {
     signal.throwIfAborted();
@@ -62,6 +106,7 @@ export function renderMermaid(source: string, dark: boolean, signal: AbortSignal
       if (!(width > 0 && height > 0 && Number.isFinite(width) && Number.isFinite(height))) {
         throw new Error('Invalid Mermaid dimensions');
       }
+      restoreLabelCharacters(element);
       element.removeAttribute('style');
       element.setAttribute('width', '100%');
       element.setAttribute('height', '100%');

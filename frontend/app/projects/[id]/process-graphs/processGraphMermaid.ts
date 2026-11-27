@@ -16,8 +16,16 @@ function mermaidEntity(character: string) {
   return `#${character.charCodeAt(0)};`;
 }
 
+function escapeDirection(label: string) {
+  // Mermaid recognizes direction directives even within a quoted label.
+  return label.replace(
+    /direction(?=\s+(?:tb|td|bt|rl|lr))/gi,
+    (word) => mermaidEntity(word[0]) + word.slice(1),
+  );
+}
+
 function mermaidLabel(label: string) {
-  return label.replace(/[[\]"#&;<>|%\\\x60\p{Cc}\u2028\u2029]/gu, mermaidEntity);
+  return escapeDirection(label.replace(/[[\]"#&;<>|%\\\x60\p{Cc}\u2028\u2029]/gu, mermaidEntity));
 }
 
 function normalizedWords(text: string) {
@@ -151,15 +159,8 @@ function requirementGraphExport(draft: GraphDraft, projectId: string, origin: st
 }
 
 function requirementField(text: string) {
-  return (
-    text
-      .replace(/[\p{Cc}\u2028\u2029]+/gu, ' ')
-      .replace(/["#%&<>\\[\]*_~`!]/g, mermaidEntity)
-      // This grammar recognizes direction directives even inside a quoted field.
-      .replace(
-        /direction(?=\s+(?:tb|bt|rl|lr))/gi,
-        (word) => mermaidEntity(word[0]) + word.slice(1),
-      )
+  return escapeDirection(
+    text.replace(/[\p{Cc}\u2028\u2029]+/gu, ' ').replace(/["#%&<>\\[\]*_~`!]/g, mermaidEntity),
   );
 }
 

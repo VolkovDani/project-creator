@@ -515,7 +515,7 @@ test('a requirement diagram restores its mode, cites versions, and exports its t
         {
           id: 'specific',
           kind: 'requirement',
-          label: 'Принятие заявки',
+          label: 'Принятие заявки "Создано"',
           requirementId: 'req-1',
           version: 2,
         },
@@ -595,18 +595,19 @@ test('a requirement diagram restores its mode, cites versions, and exports its t
   const diagramNode = page
     .getByRole('region', { name: 'Схема связей требований' })
     .getByRole('link', {
-      name: 'Принятие заявки · Требование req-1 · Версия 2',
+      name: 'Принятие заявки "Создано" · Требование req-1 · Версия 2',
     });
   await expect(diagramNode).toHaveAttribute('href', evidencePath);
 
   await page.getByText('Просмотр Mermaid', { exact: true }).click();
   const viewer = page.getByRole('region', { name: 'Диаграмма Mermaid' });
   const mermaidNode = viewer.getByRole('button', {
-    name: 'Принятие заявки · Требование req-1 · Версия 2',
+    name: 'Принятие заявки "Создано" · Требование req-1 · Версия 2',
   });
   await expect(mermaidNode).toBeVisible();
   await viewer.getByRole('button', { name: 'Увеличить' }).click();
   const svg = viewer.locator('svg');
+  await expect(svg.locator('text').filter({ hasText: /"Создано"/ })).toBeVisible();
   const darkRenderId = await svg.getAttribute('id');
   await page.getByRole('button', { name: 'Тёмная тема' }).click();
   await expect(svg).not.toHaveAttribute('id', darkRenderId ?? '');
@@ -699,6 +700,59 @@ test('the preview reports an empty or oversized diagram without blocking the pro
   await toggle.press('Enter');
   await expect(viewer.getByText('В диаграмме нет узлов.')).toBeVisible();
   await expect(viewer.getByRole('button', { name: 'Увеличить' })).toBeDisabled();
+});
+
+test('Mermaid renders punctuation literally in cards and copies the diagram as PNG', async ({
+  page,
+}) => {
+  const label = 'видеть статус инспекции "Создано"';
+  const punctuation = 'поле [A] & <B> &#34; \\ C';
+  const wrapped = `${'Ж'.repeat(12)}"Готово"`;
+  await mockSavedGraph(page, () => ({
+    ...draft,
+    nodes: [
+      { ...draft.nodes[0], label },
+      { ...draft.nodes[1], label: punctuation },
+      { ...draft.nodes[2], label: wrapped },
+    ],
+    edges: [draft.edges[0]],
+  }));
+  await page.goto('/projects/demo/process-graphs');
+  await page.getByText('Просмотр Mermaid', { exact: true }).click();
+  const viewer = page.getByRole('region', { name: 'Диаграмма Mermaid' });
+  const svg = viewer.locator('svg');
+  await expect(svg).toBeVisible();
+  await expect(svg.locator('text').filter({ hasText: /"Создано"/ })).toBeVisible();
+  await expect(svg.locator('text').filter({ hasText: /<B>/ })).toBeVisible();
+  await expect(svg.locator('text').filter({ hasText: /&#34;/ })).toBeVisible();
+  const wrappedCard = svg.locator('text').filter({ hasText: wrapped });
+  await expect(wrappedCard).toBeVisible();
+  expect(await wrappedCard.locator('.text-outer-tspan').count()).toBeGreaterThan(1);
+  await expect(svg.locator('a, b, foreignObject')).toHaveCount(0);
+
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.evaluate(() => {
+    const createObjectURL = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (object) => {
+      if (object instanceof Blob && object.type.startsWith('image/svg+xml')) {
+        void object.text().then((source) => {
+          const xml = new DOMParser().parseFromString(source, 'image/svg+xml');
+          document.documentElement.dataset.pngLabels = Array.from(
+            xml.querySelectorAll('text'),
+            (text) => text.textContent,
+          ).join(' ');
+        });
+      }
+      return createObjectURL(object);
+    };
+  });
+  await viewer.getByText('Копировать', { exact: true }).click();
+  await viewer.getByRole('button', { name: 'Скопировать диаграмму' }).click();
+  await expect(viewer.getByText('Изображение скопировано.')).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-png-labels', /"Создано"/);
+  expect(await page.evaluate(async () => (await navigator.clipboard.read())[0]?.types)).toContain(
+    'image/png',
+  );
 });
 
 test.describe('Mermaid on a touch screen', () => {

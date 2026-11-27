@@ -14,20 +14,23 @@ import (
 )
 
 type generatorStub struct {
-	calls   int
-	profile string
-	source  Source
-	after   func()
-	err     error
+	calls    int
+	profile  string
+	source   Source
+	after    func()
+	err      error
+	deadline time.Time
 }
 
 func (g *generatorStub) ExplanationProfile() string { return g.profile }
 func (g *generatorStub) ExplainClassification(ctx context.Context, source Source, target Target) (Result, error) {
 	g.calls++
 	g.source = source
-	if _, ok := ctx.Deadline(); !ok {
+	deadline, ok := ctx.Deadline()
+	if !ok {
 		panic("missing inference deadline")
 	}
+	g.deadline = deadline
 	if g.after != nil {
 		g.after()
 	}
@@ -247,6 +250,20 @@ func TestExpiredExplanationRequest(t *testing.T) {
 	result, status, fields, err := New(db, gen).Explain(ctx, "a", req)
 	if err != nil || len(fields) != 0 || result != nil || status != "timeout" || gen.calls != 0 {
 		t.Fatalf("expired request: result=%+v status=%q fields=%+v err=%v calls=%d", result, status, fields, err, gen.calls)
+	}
+}
+
+func TestExplanationBudgetCoversBothSequentialModelCalls(t *testing.T) {
+	db, req := classifiedRequirement(t)
+	gen := &generatorStub{profile: "m"}
+	start := time.Now()
+	result, status, _, err := New(db, gen).Explain(context.Background(), "a", req)
+	if err != nil || status != "ready" || result == nil {
+		t.Fatalf("assessment failed: %q %v", status, err)
+	}
+	const budget = 180 * time.Second
+	if gen.deadline.Before(start.Add(budget)) || gen.deadline.After(time.Now().Add(budget)) {
+		t.Fatalf("assessment deadline %s after start must cover both model calls", gen.deadline.Sub(start))
 	}
 }
 

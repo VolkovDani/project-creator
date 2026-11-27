@@ -19,7 +19,7 @@ const (
 	explanationReasonMax             = 800
 	explanationWordingMax            = 1200
 	explanationQuestionMax           = 300
-	explanationQuestionsMax          = 4
+	explanationQuestionsPerAxis      = 2
 	explanationNarrativeLimit        = 180
 	managedExplanationNarrativeLimit = 64
 )
@@ -35,11 +35,7 @@ const explanationRestrictedProseCharacters = "[ !#-\\[\\]-~" +
 	"\u00a0-\u036f\u0400-\u052f\u1e00-\u1eff" +
 	"\u2010-\u203f\u20a0-\u20bf№−]"
 
-func classificationExplanationSchema(meaning, form []string, locale string, lastPassage int) map[string]any {
-	return explanationSchemaForProvider(meaning, form, locale, lastPassage, false, explanationProseCharacters)
-}
-
-func explanationSchemaForProvider(meaning, form []string, locale string, lastPassage int, managed bool, proseCharacters string) map[string]any {
+func explanationSchema(keys []string, locale string, lastPassage int, managed bool, proseCharacters string) map[string]any {
 	narrativeLimit := explanationNarrativeLimit
 	if managed {
 		narrativeLimit = managedExplanationNarrativeLimit
@@ -87,24 +83,18 @@ func explanationSchemaForProvider(meaning, form []string, locale string, lastPas
 			"note":     note,
 		})
 	}
-	axis := func(keys []string) map[string]any {
-		checklist := make(map[string]any, len(keys))
-		for _, key := range keys {
-			statuses := explanationStatuses
-			if key != "acceptance" {
-				statuses = []string{"present", "missing", "uncertain"}
-			}
-			checklist[key] = criterion(statuses)
+	checklist := make(map[string]any, len(keys))
+	for _, key := range keys {
+		statuses := explanationStatuses
+		if key != "acceptance" {
+			statuses = []string{"present", "missing", "uncertain"}
 		}
-		return object(map[string]any{"verdict": map[string]any{"type": "string", "enum": explanationVerdicts},
-			"reason": narrative(1, explanationReasonMax), "criteria": object(checklist)})
+		checklist[key] = criterion(statuses)
 	}
-	questionsMax := explanationQuestionsMax
-	if managed {
-		questionsMax = 2
-	}
-	return object(map[string]any{"content": axis(meaning), "form": axis(form), "limitations": narrative(1, explanationReasonMax),
-		"wording": narrative(0, explanationWordingMax), "questions": map[string]any{"type": "array", "maxItems": questionsMax, "items": narrative(1, explanationQuestionMax)}})
+	assessment := object(map[string]any{"verdict": map[string]any{"type": "string", "enum": explanationVerdicts},
+		"reason": narrative(1, explanationReasonMax), "criteria": object(checklist)})
+	return object(map[string]any{"assessment": assessment, "limitations": narrative(1, explanationReasonMax),
+		"wording": narrative(0, explanationWordingMax), "questions": map[string]any{"type": "array", "maxItems": explanationQuestionsPerAxis, "items": narrative(1, explanationQuestionMax)}})
 }
 
 // Each nonzero index identifies one contiguous source passage. Keep separators
@@ -187,42 +177,66 @@ func (axis explanationOutputAxis) assessment(passages []string, category, locale
 	return result, nil
 }
 
-func decodeClassificationExplanation(content, source string, target explanation.Target, passages []string) (explanation.Result, error) {
-	return decodeExplanationForProvider(content, source, target, passages, false)
+type explanationAxisResult struct {
+	assessment           explanation.Assessment
+	questions            []string
+	wording, limitations string
 }
 
-func decodeExplanationForProvider(content, source string, target explanation.Target, passages []string, managed bool) (explanation.Result, error) {
-	empty := explanation.Result{}
+func decodeExplanationAxis(content, source, category, locale string, passages []string, managed bool) (explanationAxisResult, error) {
+	empty := explanationAxisResult{}
 	var raw struct {
-		Meaning     explanationOutputAxis `json:"content"`
-		Form        explanationOutputAxis `json:"form"`
+		Assessment  explanationOutputAxis `json:"assessment"`
 		Questions   []string              `json:"questions"`
 		Wording     *string               `json:"wording"`
 		Limitations string                `json:"limitations"`
 	}
 	d := json.NewDecoder(strings.NewReader(content))
 	d.DisallowUnknownFields()
-	if !utf8.ValidString(content) || d.Decode(&raw) != nil || d.Decode(new(any)) != io.EOF || raw.Wording == nil || !explanationNarrative(*raw.Wording, target.Locale, 0, explanationWordingMax) ||
-		!explanationNarrative(raw.Limitations, target.Locale, 1, explanationReasonMax) || raw.Questions == nil || len(raw.Questions) > explanationQuestionsMax {
+	if !utf8.ValidString(content) || d.Decode(&raw) != nil || d.Decode(new(any)) != io.EOF || raw.Wording == nil || !explanationNarrative(*raw.Wording, locale, 0, explanationWordingMax) ||
+		!explanationNarrative(raw.Limitations, locale, 1, explanationReasonMax) || raw.Questions == nil || len(raw.Questions) > explanationQuestionsPerAxis {
 		return empty, errClassificationOutput
 	}
 	for _, q := range raw.Questions {
-		if !explanationNarrative(q, target.Locale, 1, explanationQuestionMax) {
+		if !explanationNarrative(q, locale, 1, explanationQuestionMax) {
 			return empty, errClassificationOutput
 		}
 	}
-	meaning, err := raw.Meaning.assessment(passages, target.Semantic, target.Locale, managed)
+	assessment, err := raw.Assessment.assessment(passages, category, locale, managed)
 	if err != nil {
 		return empty, err
 	}
-	form, err := raw.Form.assessment(passages, target.Representation, target.Locale, managed)
-	if err != nil {
-		return empty, err
+	return explanationAxisResult{
+		assessment: assessment, questions: raw.Questions,
+		wording: groundedExplanationWording(*raw.Wording, source), limitations: strings.TrimSpace(raw.Limitations),
+	}, nil
+}
+
+func combineExplanationAxes(meaning, form explanationAxisResult, locale string) explanation.Result {
+	result := explanation.Result{Meaning: meaning.assessment, Form: form.assessment, Questions: []string{}}
+	var limitations []string
+	for _, axis := range [2]explanationAxisResult{meaning, form} {
+		if axis.assessment.Verdict == "fits" {
+			continue
+		}
+		for _, question := range axis.questions {
+			if !slices.Contains(result.Questions, question) {
+				result.Questions = append(result.Questions, question)
+			}
+		}
+		if !slices.Contains(limitations, axis.limitations) {
+			limitations = append(limitations, axis.limitations)
+		}
+		// Prefer a grounded wording suggestion from the assessment of form.
+		if axis.wording != "" {
+			result.Wording = axis.wording
+		}
 	}
-	if meaning.Verdict == "fits" && form.Verdict == "fits" {
-		return explanation.Result{Meaning: meaning, Form: form, Questions: []string{}, Limitations: explanationFitTexts()[target.Locale].Limit}, nil
+	result.Limitations = strings.Join(limitations, " ")
+	if result.Limitations == "" {
+		result.Limitations = explanationFitTexts()[locale].Limit
 	}
-	return explanation.Result{Meaning: meaning, Form: form, Questions: raw.Questions, Wording: groundedExplanationWording(*raw.Wording, source), Limitations: raw.Limitations}, nil
+	return result
 }
 
 // Verify each narrative field independently. Latin technical identifiers may

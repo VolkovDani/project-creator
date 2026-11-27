@@ -41,10 +41,15 @@ func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
 	t.Helper()
 	database := testDatabase(t)
 	const firstPassage = "Система печатает квитанции по завершённым продажам."
-	const text = firstPassage + " Кассир выбирает операцию за текущую смену. " +
+	const secondPassage = "Кассир выбирает операцию за текущую смену."
+	const text = firstPassage + " " + secondPassage + " " +
 		"На бумаге указываются дата продажи, номер операции, итоговая сумма, валюта и способ оплаты. " +
 		"Если принтер занят, система показывает состояние задания и держит его в очереди. " +
 		"Кассир использует квитанцию для сверки операции с отчётом по смене."
+	const meaningReason = "Печать квитанции описывает работу системы."
+	const formReason = "Требование сформулировано как утверждение."
+	const meaningCriterion = "system_behavior"
+	const formCriterion = "declarative_assertion_or_directive"
 	digest := strings.Repeat("a", 64)
 	model := "openvino-npu.assessment." + digest
 	var calls atomic.Int32
@@ -53,30 +58,83 @@ func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
 			json.NewEncoder(w).Encode(map[string]string{"profile": digest, "device": "NPU"})
 			return
 		}
-		calls.Add(1)
+		call := calls.Add(1)
+		if call > 2 {
+			t.Errorf("unexpected extra assessment request %d", call)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		var request struct {
-			Model    string
-			Profile  string
-			Messages []struct{ Content string }
+			Model          string
+			Profile        string
+			Messages       []struct{ Role, Content string }
+			Schema         json.RawMessage
+			ResponseFormat struct {
+				JSONSchema struct{ Schema json.RawMessage } `json:"json_schema"`
+			} `json:"response_format"`
 		}
 		err := json.NewDecoder(r.Body).Decode(&request)
+		schema := request.Schema
 		var bound bool
 		if managerBinary != "" {
 			bound = r.URL.Path == "/v1/generate" && request.Profile == digest
 		} else {
 			bound = r.URL.Path == "/v1/chat/completions" && request.Model == model
+			schema = request.ResponseFormat.JSONSchema.Schema
 		}
-		if err != nil || !bound || len(request.Messages) != 2 || !strings.Contains(request.Messages[1].Content, firstPassage) ||
-			!strings.Contains(request.Messages[1].Content, `"savedDecision":null`) || strings.Contains(request.Messages[1].Content, `"alternatives"`) {
+		if err != nil || !bound || len(request.Messages) != 2 || request.Messages[0].Role != "system" || request.Messages[1].Role != "user" {
 			t.Error("unexpected model request", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		const content = `{
-			"content":{"verdict":"fits","reason":"Печать квитанции описывает работу системы.","criteria":{"system_behavior":{"status":"present","evidence":1,"note":"Действие системы явно указано."}}},
-			"form":{"verdict":"fits","reason":"Требование сформулировано как утверждение.","criteria":{"declarative_assertion_or_directive":{"status":"present","evidence":1,"note":"Утверждение описывает действие."}}},
+		axis, ownCriterion, otherCriterion := "content", meaningCriterion, formCriterion
+		reason, otherReason := meaningReason, formReason
+		if call == 2 {
+			axis, ownCriterion, otherCriterion = "form", formCriterion, meaningCriterion
+			reason, otherReason = formReason, meaningReason
+		}
+		system, user := request.Messages[0].Content, request.Messages[1].Content
+		var output struct{ Properties map[string]json.RawMessage }
+		if !strings.Contains(system, `"axis":"`+axis+`"`) || !strings.Contains(system, ownCriterion) ||
+			strings.Contains(system, otherCriterion) || strings.Contains(user, otherCriterion) ||
+			strings.Contains(system, otherReason) || strings.Contains(user, otherReason) ||
+			json.Unmarshal(schema, &output) != nil || len(output.Properties) != 4 || output.Properties["assessment"] == nil ||
+			output.Properties["questions"] == nil || output.Properties["wording"] == nil || output.Properties["limitations"] == nil ||
+			!strings.Contains(string(output.Properties["assessment"]), ownCriterion) || strings.Contains(string(schema), otherCriterion) {
+			t.Errorf("model request %d did not isolate %s", call, axis)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var input struct {
+			SourcePassages []struct {
+				ID   int
+				Text string
+			}
+			SavedDecision json.RawMessage
+			SavedProposal string
+		}
+		if err := json.Unmarshal([]byte(user), &input); err != nil || input.SavedProposal != "unknown" ||
+			(len(input.SavedDecision) > 0 && string(input.SavedDecision) != "null") || strings.Contains(user, `"alternatives"`) {
+			t.Errorf("model request %d included unexpected classification context: %v", call, err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var source strings.Builder
+		for i, passage := range input.SourcePassages {
+			if passage.ID != i+1 {
+				t.Errorf("model request %d renumbered its source passages", call)
+			}
+			source.WriteString(passage.Text)
+		}
+		if source.String() != text {
+			t.Errorf("model request %d changed the source text", call)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		content := fmt.Sprintf(`{
+			"assessment":{"verdict":"fits","reason":%q,"criteria":{%q:{"status":"present","evidence":%d,"note":"Признак явно указан."}}},
 			"questions":[],"wording":"","limitations":"Оценено одно требование."
-		}`
+		}`, reason, ownCriterion, call)
 		if managerBinary != "" {
 			json.NewEncoder(w).Encode(map[string]string{"profile": digest, "device": "NPU", "content": content})
 			return
@@ -145,7 +203,7 @@ VALUES('a','p','r',1,1,'unknown','unknown','needs_review','model','2','test-mode
 	}
 	const mutation = `mutation {
 		explainRequirementClassification(input:{projectId:"p", requirementId:"r", textVersion:1, revision:1, suggestionRevision:1, semanticType:"functional_requirement", representationType:"statement", locale:"ru"}) {
-			status result { meaning { verdict criteria { evidence } } form { verdict } }
+			status result { meaning { verdict criteria { evidence } } form { verdict criteria { evidence } } }
 		}
 	}`
 	for _, token := range []string{"token-b", "token-a", "token-a"} {
@@ -158,8 +216,14 @@ VALUES('a','p','r',1,1,'unknown','unknown','needs_review','model','2','test-mode
 			}
 			continue
 		}
-		encoded, _ := json.Marshal(got)
-		if got["status"] != "ready" || !strings.Contains(string(encoded), `"evidence":"`+firstPassage+`"`) || calls.Load() != 1 {
+		result, _ := got["result"].(map[string]any)
+		meaning, _ := result["meaning"].(map[string]any)
+		form, _ := result["form"].(map[string]any)
+		meaningCriteria, _ := json.Marshal(meaning["criteria"])
+		formCriteria, _ := json.Marshal(form["criteria"])
+		if got["status"] != "ready" || meaning["verdict"] != "fits" || form["verdict"] != "fits" ||
+			!strings.Contains(string(meaningCriteria), `"evidence":"`+firstPassage+`"`) ||
+			!strings.Contains(string(formCriteria), `"evidence":"`+secondPassage+`"`) || calls.Load() != 2 {
 			t.Fatal("expected a grounded and cached assessment", res, calls.Load())
 		}
 	}

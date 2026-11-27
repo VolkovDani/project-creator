@@ -35,10 +35,25 @@ const explanationRestrictedProseCharacters = "[ !#-\\[\\]-~" +
 	"\u00a0-\u036f\u0400-\u052f\u1e00-\u1eff" +
 	"\u2010-\u203f\u20a0-\u20bf№−]"
 
-func explanationSchema(keys []string, locale string, lastPassage int, managed bool, proseCharacters string) map[string]any {
+type explanationSchemaMode int
+
+const (
+	explanationStandard explanationSchemaMode = iota
+	explanationRestricted
+	explanationBrief
+)
+
+func explanationSchema(keys []string, locale string, lastPassage int, managed bool, mode explanationSchemaMode) map[string]any {
 	narrativeLimit := explanationNarrativeLimit
 	if managed {
 		narrativeLimit = managedExplanationNarrativeLimit
+	}
+	proseCharacters := explanationProseCharacters
+	if mode != explanationStandard {
+		proseCharacters = explanationRestrictedProseCharacters
+	}
+	if mode == explanationBrief {
+		narrativeLimit = 40
 	}
 	object := func(props map[string]any) map[string]any {
 		return map[string]any{"type": "object", "properties": props, "required": slices.Sorted(maps.Keys(props)), "additionalProperties": false}
@@ -93,8 +108,14 @@ func explanationSchema(keys []string, locale string, lastPassage int, managed bo
 	}
 	assessment := object(map[string]any{"verdict": map[string]any{"type": "string", "enum": explanationVerdicts},
 		"reason": narrative(1, explanationReasonMax), "criteria": object(checklist)})
+	questionLimit := explanationQuestionsPerAxis
+	wording := narrative(0, explanationWordingMax)
+	if mode == explanationBrief {
+		questionLimit = 0
+		wording = map[string]any{"type": "string", "enum": []string{""}}
+	}
 	return object(map[string]any{"assessment": assessment, "limitations": narrative(1, explanationReasonMax),
-		"wording": narrative(0, explanationWordingMax), "questions": map[string]any{"type": "array", "maxItems": explanationQuestionsPerAxis, "items": narrative(1, explanationQuestionMax)}})
+		"wording": wording, "questions": map[string]any{"type": "array", "maxItems": questionLimit, "items": narrative(1, explanationQuestionMax)}})
 }
 
 // Each nonzero index identifies one contiguous source passage. Keep separators

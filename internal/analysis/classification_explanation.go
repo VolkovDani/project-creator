@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ Use fits when every required criterion is present, partial for incomplete suppor
 const functionalExplanationInstruction = "An observable system operation or requested capability suffices. Implementation details are unnecessary."
 const userStoryExplanationInstruction = "Find the actor, desired action and benefit anywhere in the source. A noun can name the action. The role, action and benefit may share an excerpt or appear in different sentences."
 const optionalAcceptanceInstruction = "Acceptance evidence is optional. Its absence must never lower the verdict or trigger a question."
+const briefExplanationInstruction = "Return compact JSON. Use a few words per note. Give the verdict and evidence; leave questions and wording empty."
 
 var explanationLanguageInstructions = map[string]string{
 	"ru": "Пишите все пояснения по-русски. Начинайте каждое поле русским словом.",
@@ -101,7 +103,7 @@ var explanationContractDigest = sync.OnceValue(func() string {
 		"adapter": "ollama-classification-explanation-v8", "prompt": classificationExplanationPrompt,
 		"categoryInstructions": []string{functionalExplanationInstruction, userStoryExplanationInstruction, optionalAcceptanceInstruction},
 		"fitText":              explanationFitTexts(), "languages": explanationLanguageInstructions, "criteriaOrder": explanationCriteria, "taxonomy": contracts.ClassificationRules(), "guides": explanationGuides(),
-		"schemas": []any{explanationSchema([]string{"criterion"}, "en", 1, false, explanationProseCharacters), explanationSchema([]string{"acceptance"}, "ru", 1, false, explanationProseCharacters)}, "parameters": ollamaParameters(),
+		"schemas": []any{explanationSchema([]string{"criterion"}, "en", 1, false, explanationStandard), explanationSchema([]string{"acceptance"}, "ru", 1, false, explanationStandard)}, "parameters": ollamaParameters(),
 	})
 })
 
@@ -130,8 +132,8 @@ func (g *OpenAICompatible) ExplanationProfile() string {
 	if !g.localManagedNPU {
 		return ""
 	}
-	return explanationHash([]any{"managed-npu-classification-explanation-v4", explanationContractDigest(), g.client.Identity(),
-		explanationRestrictedProseCharacters, managedExplanationBytes, managedExplanationNarrativeLimit, chatCompletionTokens})
+	return explanationHash([]any{"managed-npu-classification-explanation-v5", explanationContractDigest(), g.client.Identity(),
+		explanationRestrictedProseCharacters, briefExplanationInstruction, managedExplanationBytes, managedExplanationNarrativeLimit, chatCompletionTokens})
 }
 
 // The NPU runtime appends the schema to the prompt and uses the profile's
@@ -168,26 +170,42 @@ func (g *OpenAICompatible) ExplainClassification(ctx context.Context, src explan
 }
 
 func (g *OpenAICompatible) explainClassificationAxis(ctx context.Context, request explanationRequest, source string, passages []string) (explanationAxisResult, error) {
+	client := g.client.WithErrorCodes(func(status int, code string) error {
+		if status == http.StatusBadGateway && code == "OUTPUT_TOKEN_LIMIT" {
+			return errChatOutputLimit
+		}
+		if npuFailureStatus(code) == status {
+			return npuFailure(code)
+		}
+		return nil
+	})
+	messages := request.messages
 	schema := request.schema
 	for attempt := 0; ; attempt++ {
-		content, err := compatibleChat(ctx, g.client, request.messages, "classification_explanation", schema)
+		content, err := compatibleChat(ctx, client, messages, "classification_explanation", schema)
 		if errors.Is(err, npuFailure("INVALID_OUTPUT")) {
 			return explanationAxisResult{}, explanation.ErrInvalidOutput
 		}
 		if errors.Is(err, npuFailure("TIMEOUT")) {
 			return explanationAxisResult{}, context.DeadlineExceeded
 		}
+		short := errors.Is(err, errChatOutputLimit)
 		result, err := validateExplanationAxis(content, err, source, request, passages, true)
-		if attempt > 0 || !errors.Is(err, explanation.ErrInvalidOutput) || !explanationResponseHasUnsupportedLetter(content) {
+		if attempt > 0 || (!short && (!errors.Is(err, explanation.ErrInvalidOutput) || !explanationResponseHasUnsupportedLetter(content))) {
 			return result, err
 		}
 
-		// The runtime includes the schema in its prompt. Preserve the ordinary
-		// prompt and constrain the alphabet only if a response needs a retry.
+		mode := explanationRestricted
+		if short {
+			mode = explanationBrief
+			system := maps.Clone(messages[0])
+			system["content"] += "\n" + briefExplanationInstruction
+			messages = []map[string]string{system, messages[1]}
+		}
 		schema = explanationSchema(explanationCriterionKeys(request.category, true),
-			request.locale, len(passages)-1, true, explanationRestrictedProseCharacters)
+			request.locale, len(passages)-1, true, mode)
 		rawSchema, _ := json.Marshal(schema)
-		if !managedExplanationFits(request.messages, len(rawSchema)) {
+		if !managedExplanationFits(messages, len(rawSchema)) {
 			return result, err
 		}
 	}
@@ -266,7 +284,7 @@ func prepareClassificationExplanation(src explanation.Source, target explanation
 		system := explanationAxisPrompt(selected.axis, selected.category, target.Locale, managed)
 		messages := []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": string(data)}}
 		schema := explanationSchema(explanationCriterionKeys(selected.category, managed),
-			target.Locale, len(passages)-1, managed, explanationProseCharacters)
+			target.Locale, len(passages)-1, managed, explanationStandard)
 		rawSchema, _ := json.Marshal(schema)
 		if !fits(messages, len(rawSchema)) {
 			return requests, nil, explanation.ErrInputTooLong

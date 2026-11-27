@@ -76,12 +76,14 @@ func TestManagedNPUClassificationExplanation(t *testing.T) {
 		providerStatus int
 		wantError      error
 		retry          bool
+		limitOnForm    bool
 	}{
-		{"grounded", sample, http.StatusOK, nil, false},
-		{"bad evidence", strings.Replace(sample, `"evidence":1`, `"evidence":9`, 1), http.StatusOK, explanation.ErrInvalidOutput, false},
-		{"provider rejected output", `{"error":{"code":"INVALID_OUTPUT"}}`, http.StatusBadGateway, explanation.ErrInvalidOutput, false},
-		{"provider timed out", `{"error":{"code":"TIMEOUT"}}`, http.StatusGatewayTimeout, context.DeadlineExceeded, false},
-		{"foreign letter retried", strings.Replace(sample, "operation is explicit.", `operation is explicit\u63a7.`, 1), http.StatusOK, nil, true},
+		{"grounded", sample, http.StatusOK, nil, false, false},
+		{"bad evidence", strings.Replace(sample, `"evidence":1`, `"evidence":9`, 1), http.StatusOK, explanation.ErrInvalidOutput, false, false},
+		{"provider rejected output", `{"error":{"code":"INVALID_OUTPUT"}}`, http.StatusBadGateway, explanation.ErrInvalidOutput, false, false},
+		{"provider timed out", `{"error":{"code":"TIMEOUT"}}`, http.StatusGatewayTimeout, context.DeadlineExceeded, false, false},
+		{"foreign letter retried", strings.Replace(sample, "operation is explicit.", `operation is explicit\u63a7.`, 1), http.StatusOK, nil, true, false},
+		{"output limit on form retried", sample, http.StatusOK, nil, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls atomic.Int32
@@ -115,7 +117,7 @@ func TestManagedNPUClassificationExplanation(t *testing.T) {
 					t.Error("expected only task instructions and scoped source context")
 				}
 				axis, ownCriterion, otherCriterion := "content", "system_behavior", `"role"`
-				if attempt > 1 && (!tc.retry || attempt == 3) {
+				if attempt > 1 && (!tc.retry || attempt == 3 || tc.limitOnForm) {
 					axis, ownCriterion, otherCriterion = "form", `"role"`, "system_behavior"
 				}
 				wireSchema, _ := json.Marshal(format.JSONSchema.Schema)
@@ -124,18 +126,30 @@ func TestManagedNPUClassificationExplanation(t *testing.T) {
 					t.Error("request included criteria from the other axis")
 				}
 				w.Header().Set("Content-Type", "application/json")
+				if tc.limitOnForm && attempt == 2 {
+					w.WriteHeader(http.StatusBadGateway)
+					_, _ = w.Write([]byte(`{"error":{"code":"OUTPUT_TOKEN_LIMIT"}}`))
+					return
+				}
 				if tc.providerStatus != http.StatusOK {
 					w.WriteHeader(tc.providerStatus)
 					_, _ = w.Write([]byte(tc.output))
 					return
 				}
 				output := tc.output
-				if attempt == 2 && tc.retry {
+				if attempt == 2 && tc.retry && !tc.limitOnForm {
 					limitations := format.JSONSchema.Schema["properties"].(map[string]any)["limitations"].(map[string]any)
 					if regexp.MustCompile(limitations["pattern"].(string)).MatchString("Evidence from this excerpt控.") {
 						t.Error("retry schema still permits the unsupported letter")
 					}
 					output = sample
+				}
+				if tc.limitOnForm && attempt == 3 {
+					properties := format.JSONSchema.Schema["properties"].(map[string]any)
+					if properties["questions"].(map[string]any)["maxItems"] != float64(0) {
+						t.Error("output limit retry must reserve the budget for the assessment")
+					}
+					output = strings.ReplaceAll(sample, `["Who needs the export?"]`, `[]`)
 				}
 				json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
 					"finish_reason": "stop", "message": map[string]string{"role": "assistant", "content": explanationAxisResponse(t, output, axis)},
@@ -739,7 +753,7 @@ func TestClassificationExplanationPassagesPreserveSourceAndBoundDisplayedQuotes(
 
 func TestClassificationExplanationGenerationBoundsNarrativePattern(t *testing.T) {
 	for _, managed := range []bool{false, true} {
-		schema := explanationSchema([]string{"role"}, "ru", 2, managed, explanationRestrictedProseCharacters)
+		schema := explanationSchema([]string{"role"}, "ru", 2, managed, explanationRestricted)
 		fields := schema["properties"].(map[string]any)
 		limitations := fields["limitations"].(map[string]any)
 		pattern := regexp.MustCompile(limitations["pattern"].(string))

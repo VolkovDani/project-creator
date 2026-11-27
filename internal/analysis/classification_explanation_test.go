@@ -153,6 +153,79 @@ func TestManagedNPUClassificationExplanationRejectsOversizeWithoutSendingSource(
 	}
 }
 
+func TestManagedNPUClassificationExplanationFitsShortRussianRequirementWithRankedAlternatives(t *testing.T) {
+	rules := contracts.ClassificationRules()
+	score := 0.0839123456721
+	proposal := classification.Entry{
+		Revision: 6, Source: "model", Status: "needs_review", Semantic: "unknown", Representation: "unknown", Reason: "review_only",
+	}
+	for _, label := range rules.Semantic {
+		proposal.Alternatives = append(proposal.Alternatives, classification.Alternative{SemanticType: label, Score: &score})
+	}
+	for _, label := range rules.Representation {
+		proposal.Alternatives = append(proposal.Alternatives, classification.Alternative{RepresentationType: label, Score: &score})
+	}
+	const text = "Бухгалтер выгружает журнал операций за выбранный период. " +
+		"Система формирует отдельную строку для каждой подтверждённой операции и показывает итоговую сумму внизу отчёта. " +
+		"В файл входят дата операции, её номер, состояние, сумма и валюта. " +
+		"Если операций за выбранный период нет, пользователь видит сообщение об этом. " +
+		"Выгрузка нужна для сверки с бухгалтерским учётом."
+	duplicate := proposal
+	manual := classification.Entry{
+		Revision: 7, Source: "user", Status: "confirmed", Semantic: "functional_requirement", Representation: "statement",
+	}
+	for _, tc := range []struct {
+		name         string
+		decision     *classification.Entry
+		wantDecision bool
+	}{
+		{"current proposal", &duplicate, false},
+		{"distinct manual decision", &manual, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := explanation.Source{Text: text, Decision: tc.decision, Suggestion: &proposal}
+			for _, semantic := range rules.Semantic {
+				for _, form := range rules.Representation {
+					target := explanation.Target{Semantic: semantic, Representation: form, Locale: "ru"}
+					messages, _, _, err := prepareClassificationExplanation(source, target, true)
+					if err != nil {
+						t.Errorf("%s/%s: valid short requirement rejected: %v", semantic, form, err)
+						continue
+					}
+					var payload struct {
+						SourcePassages []struct {
+							ID   int
+							Text string
+						}
+						SavedDecision, SavedProposal map[string]json.RawMessage
+					}
+					if err := json.Unmarshal([]byte(messages[1]["content"]), &payload); err != nil {
+						t.Fatal(err)
+					}
+					var reconstructed strings.Builder
+					for i, passage := range payload.SourcePassages {
+						if passage.ID != i+1 {
+							t.Fatalf("passage %d has id %d", i+1, passage.ID)
+						}
+						reconstructed.WriteString(passage.Text)
+					}
+					if reconstructed.String() != text {
+						t.Fatal("evaluation must receive the entire original text")
+					}
+					if (payload.SavedDecision != nil) != tc.wantDecision || string(payload.SavedProposal["semantic"]) != `"unknown"` ||
+						payload.SavedProposal["alternatives"] != nil || payload.SavedProposal["reason"] != nil {
+						t.Fatalf("unexpected saved contexts: %s", messages[1]["content"])
+					}
+					if tc.wantDecision && (string(payload.SavedDecision["semantic"]) != `"functional_requirement"` ||
+						string(payload.SavedDecision["representation"]) != `"statement"`) {
+						t.Fatal("the distinct human decision labels were lost")
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestClassificationExplanationUsesGroundedCriteriaAndVerifiedLocalModel(t *testing.T) {
 	for _, locale := range []string{"en", "ru"} {
 		t.Run(locale, func(t *testing.T) {

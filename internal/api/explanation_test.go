@@ -14,7 +14,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/VolkovDani/project-creator/contracts"
 	"github.com/VolkovDani/project-creator/internal/analysis"
+	"github.com/VolkovDani/project-creator/internal/classification"
 	"github.com/VolkovDani/project-creator/internal/explanation"
 )
 
@@ -38,6 +40,11 @@ func TestModelManagerAssessmentIntegration(t *testing.T) {
 func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
 	t.Helper()
 	database := testDatabase(t)
+	const firstPassage = "Система печатает квитанции по завершённым продажам."
+	const text = firstPassage + " Кассир выбирает операцию за текущую смену. " +
+		"На бумаге указываются дата продажи, номер операции, итоговая сумма, валюта и способ оплаты. " +
+		"Если принтер занят, система показывает состояние задания и держит его в очереди. " +
+		"Кассир использует квитанцию для сверки операции с отчётом по смене."
 	digest := strings.Repeat("a", 64)
 	model := "openvino-npu.assessment." + digest
 	var calls atomic.Int32
@@ -59,15 +66,16 @@ func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
 		} else {
 			bound = r.URL.Path == "/v1/chat/completions" && request.Model == model
 		}
-		if err != nil || !bound || len(request.Messages) != 2 || !strings.Contains(request.Messages[1].Content, "The system prints receipts.") {
+		if err != nil || !bound || len(request.Messages) != 2 || !strings.Contains(request.Messages[1].Content, firstPassage) ||
+			!strings.Contains(request.Messages[1].Content, `"savedDecision":null`) || strings.Contains(request.Messages[1].Content, `"alternatives"`) {
 			t.Error("unexpected model request", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		const content = `{
-			"content":{"verdict":"fits","reason":"Printing receipts is a system operation.","criteria":{"system_behavior":{"status":"present","evidence":1,"note":"The action is explicit."}}},
-			"form":{"verdict":"fits","reason":"The requirement is a direct statement.","criteria":{"declarative_assertion_or_directive":{"status":"present","evidence":1,"note":"The statement is declarative."}}},
-			"questions":[],"wording":"","limitations":"Only this statement was assessed."
+			"content":{"verdict":"fits","reason":"Печать квитанции описывает работу системы.","criteria":{"system_behavior":{"status":"present","evidence":1,"note":"Действие системы явно указано."}}},
+			"form":{"verdict":"fits","reason":"Требование сформулировано как утверждение.","criteria":{"declarative_assertion_or_directive":{"status":"present","evidence":1,"note":"Утверждение описывает действие."}}},
+			"questions":[],"wording":"","limitations":"Оценено одно требование."
 		}`
 		if managerBinary != "" {
 			json.NewEncoder(w).Encode(map[string]string{"profile": digest, "device": "NPU", "content": content})
@@ -109,14 +117,34 @@ func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	_, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now');
-INSERT INTO requirements VALUES('r','a','p','The system prints receipts.',1,'now','now');
-INSERT INTO requirement_classifications(workspace,project_id,requirement_id,revision,text_version,semantic_type,representation_type,status,source,rules_version,model) VALUES('a','p','r',1,1,'functional_requirement','statement','suggested','model','2','test-model')`)
+	_, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.db.Exec(`INSERT INTO requirements VALUES('r','a','p',$1,1,'now','now')`, text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := contracts.ClassificationRules()
+	score := 0.0839123456721
+	var ranked []classification.Alternative
+	for _, meaning := range rules.Semantic {
+		ranked = append(ranked, classification.Alternative{SemanticType: meaning, Score: &score})
+	}
+	for _, form := range rules.Representation {
+		ranked = append(ranked, classification.Alternative{RepresentationType: form, Score: &score})
+	}
+	alternatives, err := json.Marshal(ranked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.db.Exec(`INSERT INTO requirement_classifications(workspace,project_id,requirement_id,revision,text_version,semantic_type,representation_type,status,source,rules_version,model,alternatives)
+VALUES('a','p','r',1,1,'unknown','unknown','needs_review','model','2','test-model',$1)`, alternatives)
 	if err != nil {
 		t.Fatal(err)
 	}
 	const mutation = `mutation {
-		explainRequirementClassification(input:{projectId:"p", requirementId:"r", textVersion:1, revision:1, suggestionRevision:1, semanticType:"functional_requirement", representationType:"statement", locale:"en"}) {
+		explainRequirementClassification(input:{projectId:"p", requirementId:"r", textVersion:1, revision:1, suggestionRevision:1, semanticType:"functional_requirement", representationType:"statement", locale:"ru"}) {
 			status result { meaning { verdict criteria { evidence } } form { verdict } }
 		}
 	}`
@@ -131,7 +159,7 @@ INSERT INTO requirement_classifications(workspace,project_id,requirement_id,revi
 			continue
 		}
 		encoded, _ := json.Marshal(got)
-		if got["status"] != "ready" || !strings.Contains(string(encoded), `"evidence":"The system prints receipts."`) || calls.Load() != 1 {
+		if got["status"] != "ready" || !strings.Contains(string(encoded), `"evidence":"`+firstPassage+`"`) || calls.Load() != 1 {
 			t.Fatal("expected a grounded and cached assessment", res, calls.Load())
 		}
 	}

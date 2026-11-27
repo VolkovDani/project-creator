@@ -290,7 +290,10 @@ function DiagramPreview({ source, locale, nodeActions }: Omit<ViewerProps, 'diag
         onPointerMove={movePan}
         onPointerUp={endPan}
         onPointerCancel={endPan}
-        onLostPointerCapture={endPan}
+        onLostPointerCapture={(event) => {
+          // Touch transfers implicit capture from the touched child to this viewport.
+          if (event.target === event.currentTarget) endPan(event);
+        }}
         onClickCapture={(event) => {
           if (dragged.current && event.detail > 0) event.stopPropagation();
         }}

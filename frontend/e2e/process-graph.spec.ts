@@ -642,36 +642,48 @@ test('a requirement diagram restores its mode, cites versions, and exports its t
   await expect(page).toHaveURL(evidencePath);
 });
 
+async function mockSavedGraph(page: Page, readDraft: () => ProcessGraphRunFieldsFragment['draft']) {
+  await mockStream(page);
+  await page.route('**/api/graphql', async (route) => {
+    const { operationName } = route.request().postDataJSON();
+    const data: Record<string, unknown> = {
+      ProjectDetail: { project: { id: 'demo', name: 'Заявки', goal: '', description: '' } },
+      LatestProcessGraphRun: {
+        latestProcessGraphRun: {
+          status: 'suggested',
+          run: {
+            id: 'saved-graph',
+            topic: 'заявка',
+            mode: 'PROCESS',
+            revision: 2,
+            completed: 1,
+            total: 1,
+            failed: 0,
+          },
+          draft: readDraft(),
+          fieldErrors: [],
+        } satisfies ProcessGraphRunFieldsFragment,
+      },
+    };
+    await route.fulfill({
+      json: {
+        data: data[operationName] ?? {
+          projectsConnection: { items: [], pageInfo: { hasNextPage: false, endCursor: null } },
+        },
+      },
+    });
+  });
+}
+
 test('the preview reports an empty or oversized diagram without blocking the project page', async ({
   page,
 }) => {
-  await mockStream(page);
-  const nodes = [{ ...draft.nodes[0], label: 'Строка '.repeat(12_000) }];
-  let latest: ProcessGraphRunFieldsFragment = {
-    status: 'suggested',
-    run: {
-      id: 'run-size',
-      topic: 'заявка',
-      mode: 'PROCESS',
-      revision: 2,
-      completed: 1,
-      total: 1,
-      failed: 0,
-    },
-    draft: { ...draft, nodes, edges: [] },
-    fieldErrors: [],
+  let savedDraft: ProcessGraphRunFieldsFragment['draft'] = {
+    ...draft,
+    nodes: [{ ...draft.nodes[0], label: 'Строка '.repeat(12_000) }],
+    edges: [],
   };
-  await page.route('**/api/graphql', async (route) => {
-    const { operationName } = route.request().postDataJSON();
-    const data = {
-      ProjectDetail: { project: { id: 'demo', name: 'Заявки', goal: '', description: '' } },
-      LatestProcessGraphRun: { latestProcessGraphRun: latest },
-    }[operationName as string] ?? {
-      projectsConnection: { items: [], pageInfo: { hasNextPage: false, endCursor: null } },
-    };
-    await route.fulfill({ json: { data } });
-  });
-
+  await mockSavedGraph(page, () => savedDraft);
   await page.goto('/projects/demo/process-graphs');
   const toggle = page.getByText('Просмотр Mermaid', { exact: true });
   const viewer = page.getByRole('region', { name: 'Диаграмма Mermaid' });
@@ -682,9 +694,50 @@ test('the preview reports an empty or oversized diagram without blocking the pro
   await expect(viewer.locator('svg')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Скачать Mermaid' })).toBeEnabled();
 
-  latest = { ...latest, draft: { ...draft, nodes: [], edges: [], sourceCount: 0 } };
+  savedDraft = { ...draft, nodes: [], edges: [], sourceCount: 0 };
   await page.reload();
   await toggle.press('Enter');
   await expect(viewer.getByText('В диаграмме нет узлов.')).toBeVisible();
   await expect(viewer.getByRole('button', { name: 'Увеличить' })).toBeDisabled();
+});
+
+test.describe('Mermaid on a touch screen', () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+
+  test('touch pan follows successive movements and fit restores the initial view', async ({
+    page,
+  }) => {
+    await mockSavedGraph(page, () => draft);
+    await page.goto('/projects/demo/process-graphs');
+    await page.getByText('Просмотр Mermaid', { exact: true }).tap();
+    const viewport = page.getByRole('region', { name: 'Область диаграммы' });
+    const svg = viewport.locator('svg');
+    await expect(svg).toBeVisible();
+    await viewport.scrollIntoViewIfNeeded();
+    const frame = await viewport.boundingBox();
+    const initial = await svg.boundingBox();
+    if (!frame || !initial) throw new Error('Diagram bounds are missing');
+    const x = Math.round(frame.x + frame.width / 4);
+    const y = Math.round(frame.y + frame.height / 2);
+    const client = await page.context().newCDPSession(page);
+
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: x + 30, y }],
+    });
+    await expect.poll(async () => (await svg.boundingBox())?.x).toBeCloseTo(initial.x + 30, 0);
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: x + 60, y }],
+    });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect.poll(async () => (await svg.boundingBox())?.x).toBeCloseTo(initial.x + 60, 0);
+
+    await page.getByRole('button', { name: 'Вписать в экран' }).tap();
+    await expect.poll(async () => (await svg.boundingBox())?.x).toBeCloseTo(initial.x, 0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      390,
+    );
+  });
 });

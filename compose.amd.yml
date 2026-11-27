@@ -2,7 +2,7 @@
 services:
   ollama:
     profiles: !reset []
-    image: ollama/ollama:0.40.16-rocm
+    image: ollama/ollama:0.40.18-rocm
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri

@@ -188,6 +188,28 @@ The preview shows how many finished runs are eligible and how many running analy
 
 An interruption can leave a run scheduled for deletion. Repeat the preview to see what remains, then repeat the command with `--yes` to finish.
 
+## Clear the AI cache
+
+With the backend container running, choose one scope for `clear-ai-cache`.
+
+| Selector | Cached results |
+| --- | --- |
+| `--section classification-meaning` | Classification assessments of meaning |
+| `--section classification-form` | Classification assessments of form |
+| `--section process-graphs` | Process graph drafts |
+| `--group classification` | Both classification assessments |
+| `--group diagrams` | Process graph drafts |
+| `--all` | All sections listed above |
+
+The command previews the number of entries across the installation by default. Use `--project-id` with the ID from `/projects/<id>` to limit the scope. Add `--yes` to delete the selected entries.
+
+```bash
+./project-creator clear-ai-cache --group classification --project-id PROJECT_ID
+./project-creator clear-ai-cache --group classification --project-id PROJECT_ID --yes
+```
+
+Cached results have no expiry by default. Set `PROJECT_CREATOR_AI_CACHE_TTL` to a duration such as `24h` to limit reuse by age, or set it to `0` to allow reuse indefinitely. Recreate the backend to apply the setting. The CLI can remove expired records too. Active generation can save a fresh result after a clear.
+
 ## GPUs and adapter selection
 
 `arc` means a GPU, including integrated Intel Arc; `npu` is a separate OpenVINO generator. NVIDIA uses CUDA, `amd` uses ROCm, and `amd-vulkan` uses Mesa RADV/Vulkan for AMD dGPU/iGPU without ROCm. Each CLI profile attaches exactly one override; do not combine different GPU overrides.

@@ -128,6 +128,10 @@ func (s *SummaryOllama) ExplainClassification(ctx context.Context, src explanati
 	return s.runtime.ExplainClassification(ctx, src, target)
 }
 
+func (s *SummaryOllama) ExplainClassificationAxes(ctx context.Context, src explanation.Source, target explanation.Target, axes []explanation.Axis) (map[explanation.Axis]explanation.AxisResult, error) {
+	return s.runtime.ExplainClassificationAxes(ctx, src, target, axes)
+}
+
 func (g *OpenAICompatible) ExplanationProfile() string {
 	if !g.localManagedNPU {
 		return ""
@@ -146,30 +150,46 @@ func managedExplanationFits(messages []map[string]string, schemaBytes int) bool 
 }
 
 type explanationRequest struct {
+	axis             explanation.Axis
 	category, locale string
 	messages         []map[string]string
 	schema           map[string]any
 }
 
-func (g *OpenAICompatible) ExplainClassification(ctx context.Context, src explanation.Source, target explanation.Target) (explanation.Result, error) {
-	if !g.localManagedNPU {
-		return explanation.Result{}, errors.New("classification explanation requires a local managed NPU profile")
-	}
-	requests, passages, err := prepareClassificationExplanation(src, target, true)
+var bothExplanationAxes = []explanation.Axis{explanation.MeaningAxis, explanation.FormAxis}
+
+func explainBothAxes(ctx context.Context, generator explanation.Generator, src explanation.Source, target explanation.Target) (explanation.Result, error) {
+	results, err := generator.ExplainClassificationAxes(ctx, src, target, bothExplanationAxes)
 	if err != nil {
 		return explanation.Result{}, err
 	}
-	var results [2]explanationAxisResult
-	for i, request := range requests {
-		results[i], err = g.explainClassificationAxis(ctx, request, src.Text, passages)
-		if err != nil {
-			return explanation.Result{}, err
-		}
-	}
-	return combineExplanationAxes(results[0], results[1], target.Locale), nil
+	return explanation.CombineAxes(results[explanation.MeaningAxis], results[explanation.FormAxis], target.Locale), nil
 }
 
-func (g *OpenAICompatible) explainClassificationAxis(ctx context.Context, request explanationRequest, source string, passages []string) (explanationAxisResult, error) {
+func (g *OpenAICompatible) ExplainClassification(ctx context.Context, src explanation.Source, target explanation.Target) (explanation.Result, error) {
+	return explainBothAxes(ctx, g, src, target)
+}
+
+func (g *OpenAICompatible) ExplainClassificationAxes(ctx context.Context, src explanation.Source, target explanation.Target, axes []explanation.Axis) (map[explanation.Axis]explanation.AxisResult, error) {
+	if !g.localManagedNPU {
+		return nil, errors.New("classification explanation requires a local managed NPU profile")
+	}
+	requests, passages, err := prepareClassificationExplanation(src, target, true, axes)
+	if err != nil {
+		return nil, err
+	}
+	results := make(map[explanation.Axis]explanation.AxisResult, len(requests))
+	for _, request := range requests {
+		result, err := g.explainClassificationAxis(ctx, request, src.Text, passages)
+		if err != nil {
+			return results, err
+		}
+		results[request.axis] = result
+	}
+	return results, nil
+}
+
+func (g *OpenAICompatible) explainClassificationAxis(ctx context.Context, request explanationRequest, source string, passages []string) (explanation.AxisResult, error) {
 	client := g.client.WithErrorCodes(func(status int, code string) error {
 		if status == http.StatusBadGateway && code == "OUTPUT_TOKEN_LIMIT" {
 			return errChatOutputLimit
@@ -184,10 +204,10 @@ func (g *OpenAICompatible) explainClassificationAxis(ctx context.Context, reques
 	for attempt := 0; ; attempt++ {
 		content, err := compatibleChat(ctx, client, messages, "classification_explanation", schema)
 		if errors.Is(err, npuFailure("INVALID_OUTPUT")) {
-			return explanationAxisResult{}, explanation.ErrInvalidOutput
+			return explanation.AxisResult{}, explanation.ErrInvalidOutput
 		}
 		if errors.Is(err, npuFailure("TIMEOUT")) {
-			return explanationAxisResult{}, context.DeadlineExceeded
+			return explanation.AxisResult{}, context.DeadlineExceeded
 		}
 		short := errors.Is(err, errChatOutputLimit)
 		result, err := validateExplanationAxis(content, err, source, request, passages, true)
@@ -222,34 +242,37 @@ func savedExplanationLabel(entry *classification.Entry, axis string) *string {
 }
 
 func (o *Ollama) ExplainClassification(ctx context.Context, src explanation.Source, target explanation.Target) (explanation.Result, error) {
-	empty := explanation.Result{}
-	requests, passages, err := prepareClassificationExplanation(src, target, false)
-	if err != nil {
-		return empty, err
-	}
-	var results [2]explanationAxisResult
-	for i, request := range requests {
-		if err := o.verify(ctx); err != nil {
-			return empty, err
-		}
-		content, err := o.chat(ctx, request.messages, request.schema)
-		results[i], err = validateExplanationAxis(content, err, src.Text, request, passages, false)
-		if err != nil {
-			return empty, err
-		}
-	}
-	if err := o.verify(ctx); err != nil {
-		return empty, err
-	}
-	return combineExplanationAxes(results[0], results[1], target.Locale), nil
+	return explainBothAxes(ctx, o, src, target)
 }
 
-func prepareClassificationExplanation(src explanation.Source, target explanation.Target, managed bool) ([2]explanationRequest, []string, error) {
-	var requests [2]explanationRequest
+func (o *Ollama) ExplainClassificationAxes(ctx context.Context, src explanation.Source, target explanation.Target, axes []explanation.Axis) (map[explanation.Axis]explanation.AxisResult, error) {
+	requests, passages, err := prepareClassificationExplanation(src, target, false, axes)
+	if err != nil {
+		return nil, err
+	}
+	if err := o.verify(ctx); err != nil {
+		return nil, err
+	}
+	results := make(map[explanation.Axis]explanation.AxisResult, len(requests))
+	for _, request := range requests {
+		content, err := o.chat(ctx, request.messages, request.schema)
+		result, err := validateExplanationAxis(content, err, src.Text, request, passages, false)
+		if err != nil {
+			return results, err
+		}
+		if err := o.verify(ctx); err != nil {
+			return results, err
+		}
+		results[request.axis] = result
+	}
+	return results, nil
+}
+
+func prepareClassificationExplanation(src explanation.Source, target explanation.Target, managed bool, axes []explanation.Axis) ([]explanationRequest, []string, error) {
 	rules := contracts.ClassificationRules()
 	if !slices.Contains(rules.Semantic, target.Semantic) || !slices.Contains(rules.Representation, target.Representation) || explanationGuides()[target.Locale] == nil ||
 		src.Suggestion == nil || !explanationString(src.Text, 1, contracts.RequirementRules()["text"].MaxLength) {
-		return requests, nil, errors.New("invalid classification explanation input")
+		return nil, nil, errors.New("invalid classification explanation input")
 	}
 	passages := explanationPassages(src.Text)
 	var sourcePassages any = passages
@@ -272,24 +295,34 @@ func prepareClassificationExplanation(src explanation.Source, target explanation
 	if managed {
 		fits = managedExplanationFits
 	}
-	for i, selected := range [2]struct{ axis, category string }{{"content", target.Semantic}, {"form", target.Representation}} {
+	requests := make([]explanationRequest, 0, len(axes))
+	for _, axis := range axes {
+		var name, category string
+		switch axis {
+		case explanation.MeaningAxis:
+			name, category = "content", target.Semantic
+		case explanation.FormAxis:
+			name, category = "form", target.Representation
+		default:
+			return nil, nil, errors.New("invalid classification explanation axis")
+		}
 		data, err := json.Marshal(map[string]any{
 			"sourcePassages": sourcePassages,
-			"savedDecision":  savedExplanationLabel(decision, selected.axis),
-			"savedProposal":  savedExplanationLabel(src.Suggestion, selected.axis),
+			"savedDecision":  savedExplanationLabel(decision, name),
+			"savedProposal":  savedExplanationLabel(src.Suggestion, name),
 		})
 		if err != nil {
-			return requests, nil, errors.New("invalid classification context")
+			return nil, nil, errors.New("invalid classification context")
 		}
-		system := explanationAxisPrompt(selected.axis, selected.category, target.Locale, managed)
+		system := explanationAxisPrompt(name, category, target.Locale, managed)
 		messages := []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": string(data)}}
-		schema := explanationSchema(explanationCriterionKeys(selected.category, managed),
+		schema := explanationSchema(explanationCriterionKeys(category, managed),
 			target.Locale, len(passages)-1, managed, explanationStandard)
 		rawSchema, _ := json.Marshal(schema)
 		if !fits(messages, len(rawSchema)) {
-			return requests, nil, explanation.ErrInputTooLong
+			return nil, nil, explanation.ErrInputTooLong
 		}
-		requests[i] = explanationRequest{category: selected.category, locale: target.Locale, messages: messages, schema: schema}
+		requests = append(requests, explanationRequest{axis: axis, category: category, locale: target.Locale, messages: messages, schema: schema})
 	}
 	return requests, passages, nil
 }
@@ -314,17 +347,17 @@ func explanationAxisPrompt(axis, category, locale string, managed bool) string {
 	return strings.Join(parts, "\n")
 }
 
-func validateExplanationAxis(content string, err error, source string, request explanationRequest, passages []string, managed bool) (explanationAxisResult, error) {
+func validateExplanationAxis(content string, err error, source string, request explanationRequest, passages []string, managed bool) (explanation.AxisResult, error) {
 	if err != nil {
 		var rejected invalidModelOutput
 		if errors.As(err, &rejected) {
-			return explanationAxisResult{}, explanation.ErrInvalidOutput
+			return explanation.AxisResult{}, explanation.ErrInvalidOutput
 		}
-		return explanationAxisResult{}, err
+		return explanation.AxisResult{}, err
 	}
 	result, err := decodeExplanationAxis(content, source, request.category, request.locale, passages, managed)
 	if err != nil {
-		return explanationAxisResult{}, explanation.ErrInvalidOutput
+		return explanation.AxisResult{}, explanation.ErrInvalidOutput
 	}
 	return result, nil
 }

@@ -4,7 +4,10 @@ package explanation
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 
+	"github.com/VolkovDani/project-creator/contracts"
 	"github.com/VolkovDani/project-creator/internal/classification"
 )
 
@@ -42,6 +45,47 @@ type Result struct {
 	Limitations string     `json:"limitations"`
 }
 
+type Axis string
+
+const (
+	MeaningAxis Axis = "meaning"
+	FormAxis    Axis = "form"
+)
+
+type AxisResult struct {
+	Assessment  Assessment `json:"assessment"`
+	Questions   []string   `json:"questions"`
+	Wording     string     `json:"wording"`
+	Limitations string     `json:"limitations"`
+}
+
+func CombineAxes(meaning, form AxisResult, locale string) Result {
+	result := Result{Meaning: meaning.Assessment, Form: form.Assessment, Questions: []string{}}
+	var limitations []string
+	for _, axis := range [2]AxisResult{meaning, form} {
+		if axis.Assessment.Verdict == "fits" {
+			continue
+		}
+		for _, question := range axis.Questions {
+			if !slices.Contains(result.Questions, question) {
+				result.Questions = append(result.Questions, question)
+			}
+		}
+		if !slices.Contains(limitations, axis.Limitations) {
+			limitations = append(limitations, axis.Limitations)
+		}
+		// Prefer a grounded wording suggestion from the assessment of form.
+		if axis.Wording != "" {
+			result.Wording = axis.Wording
+		}
+	}
+	result.Limitations = strings.Join(limitations, " ")
+	if result.Limitations == "" {
+		result.Limitations = contracts.Dictionary(locale)["explanation.sourceOnlyLimit"]
+	}
+	return result
+}
+
 // Generators return these errors when a request exceeds the model context or
 // when the generated assessment fails validation.
 var (
@@ -51,5 +95,7 @@ var (
 
 type Generator interface {
 	ExplanationProfile() string
-	ExplainClassification(context.Context, Source, Target) (Result, error)
+	// ExplainClassificationAxes returns validated results for the requested axes.
+	// Results completed before an error may be included.
+	ExplainClassificationAxes(context.Context, Source, Target, []Axis) (map[Axis]AxisResult, error)
 }

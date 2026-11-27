@@ -81,6 +81,61 @@ func TestGraphCachePersistenceAndReuse(t *testing.T) {
 	expectCount(t, reopened, "p", 4)
 }
 
+func TestGraphCacheTTL(t *testing.T) {
+	ctx := t.Context()
+	_, db := testDatabase(t)
+	store := NewWithTTL(db, "profile-1", time.Hour)
+	forever := New(db, "profile-1")
+	fresh := cachedRun("a", "p", "topic-1", "snapshot-1", "run-1", 0)
+	expired := cachedRun("a", "p", "topic-2", "snapshot-2", "run-2", 0)
+	for _, run := range []processgraph.CachedRun{fresh, expired} {
+		if err := store.Save(ctx, run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE process_graph_cache SET created_at=statement_timestamp()-interval '2 hours' WHERE snapshot_key=$1`, expired.SnapshotKey); err != nil {
+		t.Fatal(err)
+	}
+	expectLatest(t, store, fresh)
+	expectLatest(t, forever, expired)
+	expectReuseMiss(t, store, expired.Target, expired.SnapshotKey)
+	expectCount(t, db, "p", 2)
+
+	var before, after time.Time
+	createdAt := `SELECT created_at FROM process_graph_cache WHERE snapshot_key=$1`
+	if err := db.QueryRowContext(ctx, createdAt, fresh.SnapshotKey).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Reuse(ctx, fresh.Target, fresh.SnapshotKey, "promoted")
+	fresh.Result.Run.ID = "promoted"
+	if err != nil || !reflect.DeepEqual(got, fresh.Result) {
+		t.Fatalf("fresh reuse = %+v, %v, want %+v", got, err, fresh.Result)
+	}
+	if err := db.QueryRowContext(ctx, createdAt, fresh.SnapshotKey).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if !after.Equal(before) {
+		t.Fatalf("reuse changed cache age from %s to %s", before, after)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE process_graph_cache SET created_at=statement_timestamp()-interval '2 hours'`); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.Latest(ctx, fresh.Target.Workspace, fresh.Target.Project)
+	if err != nil || latest.Result.Status != "" {
+		t.Fatalf("latest after expiry = %+v, %v", latest, err)
+	}
+	expectLatest(t, forever, fresh)
+	got, err = forever.Reuse(ctx, fresh.Target, fresh.SnapshotKey, "indefinite")
+	if err != nil || got.Run == nil || got.Run.ID != "indefinite" {
+		t.Fatalf("indefinite reuse = %+v, %v", got, err)
+	}
+	if err := store.Save(ctx, expired); err != nil {
+		t.Fatal(err)
+	}
+	expectLatest(t, store, expired)
+	expectCount(t, db, "p", 2)
+}
+
 func TestGraphCacheClear(t *testing.T) {
 	ctx := t.Context()
 	_, db := testDatabase(t)

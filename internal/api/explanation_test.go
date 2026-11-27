@@ -42,14 +42,20 @@ func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
 	database := testDatabase(t)
 	const firstPassage = "Система печатает квитанции по завершённым продажам."
 	const secondPassage = "Кассир выбирает операцию за текущую смену."
+	const thirdPassage = "На бумаге указываются дата продажи, номер операции, итоговая сумма, валюта и способ оплаты."
+	const fourthPassage = "Если принтер занят, система показывает состояние задания и держит его в очереди."
 	const text = firstPassage + " " + secondPassage + " " +
-		"На бумаге указываются дата продажи, номер операции, итоговая сумма, валюта и способ оплаты. " +
-		"Если принтер занят, система показывает состояние задания и держит его в очереди. " +
+		thirdPassage + " " + fourthPassage + " " +
 		"Кассир использует квитанцию для сверки операции с отчётом по смене."
-	const meaningReason = "Печать квитанции описывает работу системы."
-	const formReason = "Требование сформулировано как утверждение."
-	const meaningCriterion = "system_behavior"
-	const formCriterion = "declarative_assertion_or_directive"
+	expectedCalls := [...]struct {
+		axis, category, reason string
+		criteria               []string
+	}{
+		{"content", "functional_requirement", "Печать квитанции описывает работу системы.", []string{"system_behavior"}},
+		{"form", "statement", "Требование сформулировано как утверждение.", []string{"declarative_assertion_or_directive"}},
+		{"form", "acceptance_criterion", "Поля квитанции можно проверить.", []string{"acceptance_condition", "verifiable_outcome"}},
+		{"content", "business_rule", "Правило определяет обработку очереди.", []string{"domain_policy"}},
+	}
 	digest := strings.Repeat("a", 64)
 	model := "openvino-npu.assessment." + digest
 	var calls atomic.Int32
@@ -59,7 +65,7 @@ func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
 			return
 		}
 		call := calls.Add(1)
-		if call > 2 {
+		if call > int32(len(expectedCalls)) {
 			t.Errorf("unexpected extra assessment request %d", call)
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -87,23 +93,33 @@ func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		axis, ownCriterion, otherCriterion := "content", meaningCriterion, formCriterion
-		reason, otherReason := meaningReason, formReason
-		if call == 2 {
-			axis, ownCriterion, otherCriterion = "form", formCriterion, meaningCriterion
-			reason, otherReason = formReason, meaningReason
-		}
+		expected := expectedCalls[call-1]
 		system, user := request.Messages[0].Content, request.Messages[1].Content
 		var output struct{ Properties map[string]json.RawMessage }
-		if !strings.Contains(system, `"axis":"`+axis+`"`) || !strings.Contains(system, ownCriterion) ||
-			strings.Contains(system, otherCriterion) || strings.Contains(user, otherCriterion) ||
-			strings.Contains(system, otherReason) || strings.Contains(user, otherReason) ||
+		if !strings.Contains(system, `"axis":"`+expected.axis+`"`) || !strings.Contains(system, `"category":"`+expected.category+`"`) ||
 			json.Unmarshal(schema, &output) != nil || len(output.Properties) != 4 || output.Properties["assessment"] == nil ||
-			output.Properties["questions"] == nil || output.Properties["wording"] == nil || output.Properties["limitations"] == nil ||
-			!strings.Contains(string(output.Properties["assessment"]), ownCriterion) || strings.Contains(string(schema), otherCriterion) {
-			t.Errorf("model request %d did not isolate %s", call, axis)
+			output.Properties["questions"] == nil || output.Properties["wording"] == nil || output.Properties["limitations"] == nil {
+			t.Errorf("model request %d should assess %s category %s", call, expected.axis, expected.category)
 			w.WriteHeader(http.StatusBadRequest)
 			return
+		}
+		for _, criterion := range expected.criteria {
+			if !strings.Contains(system, criterion) || !strings.Contains(string(output.Properties["assessment"]), criterion) {
+				t.Errorf("model request %d omitted %s", call, criterion)
+			}
+		}
+		for _, other := range expectedCalls {
+			if other.category == expected.category {
+				continue
+			}
+			for _, criterion := range other.criteria {
+				if strings.Contains(system, criterion) || strings.Contains(user, criterion) || strings.Contains(string(schema), criterion) {
+					t.Errorf("model request %d included %s from category %s", call, criterion, other.category)
+				}
+			}
+			if strings.Contains(system, other.reason) || strings.Contains(user, other.reason) {
+				t.Errorf("model request %d included a previous assessment", call)
+			}
 		}
 		var input struct {
 			SourcePassages []struct {
@@ -131,10 +147,14 @@ func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+		criteria := make([]string, 0, len(expected.criteria))
+		for _, criterion := range expected.criteria {
+			criteria = append(criteria, fmt.Sprintf(`%q:{"status":"present","evidence":%d,"note":"Признак явно указан."}`, criterion, call))
+		}
 		content := fmt.Sprintf(`{
-			"assessment":{"verdict":"fits","reason":%q,"criteria":{%q:{"status":"present","evidence":%d,"note":"Признак явно указан."}}},
+			"assessment":{"verdict":"fits","reason":%q,"criteria":{%s}},
 			"questions":[],"wording":"","limitations":"Оценено одно требование."
-		}`, reason, ownCriterion, call)
+		}`, expected.reason, strings.Join(criteria, ","))
 		if managerBinary != "" {
 			json.NewEncoder(w).Encode(map[string]string{"profile": digest, "device": "NPU", "content": content})
 			return
@@ -166,16 +186,23 @@ func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
 		}
 		model = models[0].ID
 	}
-	g, err := analysis.NewOpenAICompatible(base, model, "")
-	if err != nil {
-		t.Fatal(err)
+	openServer := func() *Server {
+		t.Helper()
+		generator, err := analysis.NewOpenAICompatible(base, model, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		server, err := NewConfigured(database, map[string]string{"token-a": "a", "token-b": "b"}, Config{
+			Generator: generator, DefaultAnalysisThreshold: contracts.AnalysisConstraints().DefaultThreshold,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return server
 	}
-	s, err := NewWithProviders(database, map[string]string{"token-a": "a", "token-b": "b"}, nil, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	_, err = s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now')`)
+	s := openServer()
+	defer func() { s.Close() }()
+	_, err := s.db.Exec(`INSERT INTO projects VALUES('p','a','P','G','','now','now')`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,19 +229,26 @@ VALUES('a','p','r',1,1,'unknown','unknown','needs_review','model','2','test-mode
 		t.Fatal(err)
 	}
 	const mutation = `mutation {
-		explainRequirementClassification(input:{projectId:"p", requirementId:"r", textVersion:1, revision:1, suggestionRevision:1, semanticType:"functional_requirement", representationType:"statement", locale:"ru"}) {
+		explainRequirementClassification(input:{projectId:"p", requirementId:"r", textVersion:1, revision:1, suggestionRevision:1, semanticType:%q, representationType:%q, locale:"ru"}) {
 			status result { meaning { verdict criteria { evidence } } form { verdict criteria { evidence } } }
 		}
 	}`
-	for _, token := range []string{"token-b", "token-a", "token-a"} {
-		res := summaryRequest(t, s, token, mutation)
+	check := func(token, semantic, representation, meaningEvidence, formEvidence string, totalCalls int32) {
+		t.Helper()
+		res := summaryRequest(t, s, token, fmt.Sprintf(mutation, semantic, representation))
+		if res["errors"] != nil {
+			t.Fatal(res)
+		}
 		data, _ := res["data"].(map[string]any)
 		got, _ := data["explainRequirementClassification"].(map[string]any)
+		if calls.Load() != totalCalls {
+			t.Fatalf("%s / %s with %s: expected %d inference requests, got %d (%v)", semantic, representation, token, totalCalls, calls.Load(), res)
+		}
 		if token == "token-b" {
-			if got["result"] != nil || calls.Load() != 0 {
-				t.Fatal("foreign workspace reached the inference adapter", res)
+			if got["status"] != "stale" || got["result"] != nil {
+				t.Fatal("foreign workspace received an assessment", res)
 			}
-			continue
+			return
 		}
 		result, _ := got["result"].(map[string]any)
 		meaning, _ := result["meaning"].(map[string]any)
@@ -222,17 +256,38 @@ VALUES('a','p','r',1,1,'unknown','unknown','needs_review','model','2','test-mode
 		meaningCriteria, _ := json.Marshal(meaning["criteria"])
 		formCriteria, _ := json.Marshal(form["criteria"])
 		if got["status"] != "ready" || meaning["verdict"] != "fits" || form["verdict"] != "fits" ||
-			!strings.Contains(string(meaningCriteria), `"evidence":"`+firstPassage+`"`) ||
-			!strings.Contains(string(formCriteria), `"evidence":"`+secondPassage+`"`) || calls.Load() != 2 {
-			t.Fatal("expected a grounded and cached assessment", res, calls.Load())
+			!strings.Contains(string(meaningCriteria), `"evidence":"`+meaningEvidence+`"`) ||
+			!strings.Contains(string(formCriteria), `"evidence":"`+formEvidence+`"`) {
+			t.Fatalf("expected a grounded assessment for %s / %s: %v", semantic, representation, res)
 		}
 	}
+	check("token-b", "functional_requirement", "statement", "", "", 0)
+	check("token-a", "functional_requirement", "statement", firstPassage, secondPassage, 2)
+	check("token-a", "functional_requirement", "statement", firstPassage, secondPassage, 2)
+	check("token-a", "functional_requirement", "acceptance_criterion", firstPassage, thirdPassage, 3)
+	check("token-a", "business_rule", "statement", fourthPassage, secondPassage, 4)
+	check("token-b", "functional_requirement", "statement", "", "", 4)
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s = openServer()
+	check("token-b", "functional_requirement", "statement", "", "", 4)
+	check("token-a", "business_rule", "acceptance_criterion", fourthPassage, thirdPassage, 4)
+	check("token-a", "functional_requirement", "statement", firstPassage, secondPassage, 4)
 }
 
 func (*explanationStub) ExplanationProfile() string { return "test-profile" }
-func (g *explanationStub) ExplainClassification(_ context.Context, source explanation.Source, target explanation.Target) (explanation.Result, error) {
+func (g *explanationStub) ExplainClassificationAxes(_ context.Context, _ explanation.Source, target explanation.Target, axes []explanation.Axis) (map[explanation.Axis]explanation.AxisResult, error) {
 	g.calls++
-	return explanation.Result{Meaning: explanation.Assessment{Verdict: "fits", Reason: target.Semantic}, Form: explanation.Assessment{Verdict: "partial", Reason: target.Representation}, Limitations: "One record."}, nil
+	results := make(map[explanation.Axis]explanation.AxisResult, len(axes))
+	for _, axis := range axes {
+		assessment := explanation.Assessment{Verdict: "partial", Reason: target.Representation}
+		if axis == explanation.MeaningAxis {
+			assessment = explanation.Assessment{Verdict: "fits", Reason: target.Semantic}
+		}
+		results[axis] = explanation.AxisResult{Assessment: assessment, Limitations: "One record."}
+	}
+	return results, nil
 }
 
 func TestExplanationRequiresSavedModelEvidenceForCurrentSource(t *testing.T) {

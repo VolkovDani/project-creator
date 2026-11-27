@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	cacheSize      = 64
 	callsPerMinute = 6
 	// Cover both sequential model calls within the frontend's 190-second deadline.
 	inferenceTimeout = 180 * time.Second
@@ -28,21 +27,21 @@ type cacheKey struct {
 	request                      Request
 	source                       [sha256.Size]byte
 }
-type cacheEntry struct {
-	key    cacheKey
-	result Result
-}
 type Service struct {
 	db        *sql.DB
 	generator Generator
+	cacheTTL  time.Duration
 	mu        sync.Mutex
-	cache     []cacheEntry
 	recent    map[string][]time.Time
 	running   bool
 }
 
 func New(db *sql.DB, g Generator) *Service {
-	return &Service{db: db, generator: g, recent: make(map[string][]time.Time)}
+	return NewWithCacheTTL(db, g, 0)
+}
+
+func NewWithCacheTTL(db *sql.DB, g Generator, ttl time.Duration) *Service {
+	return &Service{db: db, generator: g, cacheTTL: ttl, recent: make(map[string][]time.Time)}
 }
 
 func validate(target Target) []project.FieldError {
@@ -82,34 +81,23 @@ func (s *Service) Explain(ctx context.Context, workspace string, req Request) (*
 		return nil, "", nil, err
 	}
 	key := cacheKey{workspace: workspace, taxonomy: rules.Version, profile: profile, request: req, source: sha256.Sum256(data)}
-	if cached, status := s.acquire(key, time.Now()); status != "" {
-		return cached, status, nil, nil
-	}
-	defer s.release()
-	call, cancel := context.WithTimeout(ctx, inferenceTimeout)
-	defer cancel()
-	result, err := s.generator.ExplainClassification(call, source, req.Target)
-	if call.Err() != nil {
-		return nil, failureStatus(call.Err()), nil, nil
-	}
-	if err != nil {
-		return nil, failureStatus(err), nil, nil
-	}
+	return s.explainCachedAxes(ctx, key, source)
+}
 
-	// The model can outlive an edit, archive or same-version reclassification.
-	current, status, err := s.source(call, workspace, req)
+// The model can outlive an edit, archive or same-version reclassification.
+func (s *Service) checkCurrent(ctx context.Context, key cacheKey) (string, error) {
+	current, status, err := s.source(ctx, key.workspace, key.request)
 	if err != nil || status != "ready" {
-		return nil, status, nil, err
+		return status, err
 	}
 	currentData, err := json.Marshal(current)
 	if err != nil {
-		return nil, "", nil, err
+		return "", err
 	}
-	if sha256.Sum256(currentData) != key.source || s.generator.ExplanationProfile() != profile {
-		return nil, "stale", nil, nil
+	if sha256.Sum256(currentData) != key.source || s.generator.ExplanationProfile() != key.profile {
+		return "stale", nil
 	}
-	s.store(key, result)
-	return &result, "ready", nil, nil
+	return "ready", nil
 }
 
 func failureStatus(err error) string {
@@ -127,25 +115,11 @@ func failureStatus(err error) string {
 	}
 }
 
-func cloneResult(result Result) *Result {
-	result.Meaning.Criteria = slices.Clone(result.Meaning.Criteria)
-	result.Form.Criteria = slices.Clone(result.Form.Criteria)
-	result.Questions = slices.Clone(result.Questions)
-	return &result
-}
-
 // Only one interactive call can occupy the local generator. Cache hits need
 // neither a slot nor a rate-limit allowance. Expired workspace windows are removed.
-func (s *Service) acquire(key cacheKey, now time.Time) (*Result, string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, entry := range s.cache {
-		if entry.key == key {
-			return cloneResult(entry.result), "ready"
-		}
-	}
+func (s *Service) admitLocked(workspace string, now time.Time) string {
 	if s.running {
-		return nil, "busy"
+		return "busy"
 	}
 	cutoff := now.Add(-time.Minute)
 	for w, times := range s.recent {
@@ -158,24 +132,15 @@ func (s *Service) acquire(key cacheKey, now time.Time) (*Result, string) {
 			s.recent[w] = times
 		}
 	}
-	if len(s.recent[key.workspace]) >= callsPerMinute {
-		return nil, "busy"
+	if len(s.recent[workspace]) >= callsPerMinute {
+		return "busy"
 	}
-	s.recent[key.workspace] = append(s.recent[key.workspace], now)
+	s.recent[workspace] = append(s.recent[workspace], now)
 	s.running = true
-	return nil, ""
+	return ""
 }
 func (s *Service) release() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.running = false
-}
-func (s *Service) store(key cacheKey, result Result) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.cache) == cacheSize {
-		copy(s.cache, s.cache[1:])
-		s.cache = s.cache[:cacheSize-1]
-	}
-	s.cache = append(s.cache, cacheEntry{key, *cloneResult(result)})
 }

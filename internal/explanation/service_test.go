@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -14,18 +15,21 @@ import (
 )
 
 type generatorStub struct {
-	calls    int
-	profile  string
-	source   Source
-	after    func()
-	err      error
-	deadline time.Time
+	calls     int
+	profile   string
+	source    Source
+	after     func()
+	err       error
+	failAxis  Axis
+	requested []Axis
+	deadline  time.Time
 }
 
 func (g *generatorStub) ExplanationProfile() string { return g.profile }
-func (g *generatorStub) ExplainClassification(ctx context.Context, source Source, target Target) (Result, error) {
+func (g *generatorStub) ExplainClassificationAxes(ctx context.Context, source Source, target Target, axes []Axis) (map[Axis]AxisResult, error) {
 	g.calls++
 	g.source = source
+	g.requested = slices.Clone(axes)
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		panic("missing inference deadline")
@@ -34,7 +38,14 @@ func (g *generatorStub) ExplainClassification(ctx context.Context, source Source
 	if g.after != nil {
 		g.after()
 	}
-	return Result{Limitations: target.Locale}, g.err
+	results := make(map[Axis]AxisResult, len(axes))
+	for _, axis := range axes {
+		if g.err != nil && (g.failAxis == "" || g.failAxis == axis) {
+			return results, g.err
+		}
+		results[axis] = AxisResult{Assessment: Assessment{Verdict: "partial"}, Questions: []string{"Original question."}, Limitations: target.Locale}
+	}
+	return results, nil
 }
 
 func database(t *testing.T) *sql.DB {
@@ -144,48 +155,75 @@ func TestExplainRequiresScopedCurrentModelEvidence(t *testing.T) {
 	expect("a", req, "unclassified", 5)
 }
 
-func TestAdmissionCacheAndWorkspaceWindows(t *testing.T) {
+func TestAdmissionAndWorkspaceWindows(t *testing.T) {
 	service := New(nil, nil)
 	now := time.Unix(100, 0)
-	key := cacheKey{workspace: "a"}
-	check := func(key cacheKey, at time.Time, want string) {
+	check := func(workspace string, at time.Time, want string) {
 		t.Helper()
-		_, status := service.acquire(key, at)
-		if status != want {
+		if status := service.admitLocked(workspace, at); status != want {
 			t.Fatalf("status %q, want %q", status, want)
 		}
 	}
-	check(key, now, "")
-	check(key, now, "busy")
+	check("a", now, "")
+	check("a", now, "busy")
 	service.release()
 	for i := 1; i < callsPerMinute; i++ {
-		check(key, now, "")
+		check("a", now, "")
 		service.release()
 	}
-	check(key, now, "busy")
-	other := cacheKey{workspace: "b"}
-	check(other, now, "")
+	check("a", now, "busy")
+	check("b", now, "")
 	service.release()
-	service.store(key, Result{Questions: []string{"original"}})
-	cached, status := service.acquire(key, now)
-	if status != "ready" {
-		t.Fatalf("rate limited cache hit: %s", status)
-	}
-	cached.Questions[0] = "modified"
-	cached, _ = service.acquire(key, now)
-	if cached.Questions[0] != "original" {
-		t.Fatal("cached result was modified")
-	}
-	for i := range cacheSize {
-		other.profile = fmt.Sprint(i)
-		service.store(other, Result{})
-	}
-	// The oldest result was evicted; it must pass through the workspace limit again.
-	check(key, now, "busy")
-	check(key, now.Add(time.Minute), "")
+	check("a", now.Add(time.Minute), "")
 	service.release()
 	if _, exists := service.recent["b"]; exists {
 		t.Fatal("expired workspace retained")
+	}
+}
+
+func TestCachedAxesExpireOnlyWithAConfiguredLifetime(t *testing.T) {
+	db, req := classifiedRequirement(t)
+	gen := &generatorStub{profile: "m"}
+	service := New(db, gen)
+	check := func(s *Service, wantCalls int) *Result {
+		t.Helper()
+		result, status, _, err := s.Explain(t.Context(), "a", req)
+		if err != nil || status != "ready" || result == nil || gen.calls != wantCalls {
+			t.Fatalf("result=%+v status=%q calls=%d error=%v", result, status, gen.calls, err)
+		}
+		return result
+	}
+	check(service, 1).Questions[0] = "modified"
+	if _, err := db.Exec("UPDATE classification_explanation_cache SET created_at='2000-01-01' WHERE axis='meaning'"); err != nil {
+		t.Fatal(err)
+	}
+	// Full hits remain available while the inference slot is occupied.
+	if status := service.admitLocked("other", time.Now()); status != "" {
+		t.Fatal(status)
+	}
+	if check(service, 1).Questions[0] != "Original question." {
+		t.Fatal("mutating a returned result changed the cache")
+	}
+	service.release()
+	expiring := NewWithCacheTTL(db, gen, 24*time.Hour)
+	check(expiring, 2)
+	if !slices.Equal(gen.requested, []Axis{MeaningAxis}) {
+		t.Fatalf("only the expired meaning should regenerate, got %v", gen.requested)
+	}
+	check(expiring, 2)
+}
+
+func TestSuccessfulAxisRemainsCachedAfterOtherAxisFails(t *testing.T) {
+	db, req := classifiedRequirement(t)
+	gen := &generatorStub{profile: "m", err: ErrInvalidOutput, failAxis: FormAxis}
+	result, status, _, err := New(db, gen).Explain(t.Context(), "a", req)
+	if err != nil || result != nil || status != "invalid_output" {
+		t.Fatalf("failed form: %+v %s %v", result, status, err)
+	}
+	gen.err = nil
+	result, status, _, err = New(db, gen).Explain(t.Context(), "a", req)
+	if err != nil || result == nil || status != "ready" || !slices.Equal(gen.requested, []Axis{FormAxis}) {
+		t.Fatalf("retry: %+v %s %v (axes %v)", result, status, err, gen.requested)
 	}
 }
 
@@ -227,7 +265,7 @@ func TestGenerationFailureStatusAndRetry(t *testing.T) {
 		{"deadline exceeded", "timeout", context.DeadlineExceeded},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			gen := &generatorStub{profile: "m", err: fmt.Errorf("private inference details: %w", tc.err)}
+			gen := &generatorStub{profile: tc.name, err: fmt.Errorf("private inference details: %w", tc.err)}
 			service := New(db, gen)
 			result, status, fields, err := service.Explain(context.Background(), "a", req)
 			if err != nil || len(fields) != 0 || result != nil || status != tc.status || gen.calls != 1 {

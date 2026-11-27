@@ -202,6 +202,54 @@ class ClearProcessGraphCacheTests(InstallerTestCase):
         self.assertNotIn('private data', errors)
 
 
+class ClearAICacheTests(InstallerTestCase):
+    def invoke(self, *options, lang='en'):
+        output, errors = io.StringIO(), io.StringIO()
+        with patch.object(cli, 'Runner', return_value=self.runner), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            code = cli.main(self.root, ['--lang', lang, 'clear-ai-cache', *options])
+        return code, output.getvalue(), errors.getvalue()
+
+    def test_preview_reports_selected_section(self):
+        self.runner.responses['/app/server clear-ai-cache'] = '12\n'
+        code, output, errors = self.invoke('--section', 'classification-meaning')
+        self.assertEqual((code, errors), (0, ''))
+        self.assertIn('12', output)
+        self.assertIn('meaning', output)
+        self.assertIn('--yes', output)
+        command, = self.runner.calls
+        self.assertEqual(command[command.index('exec'):],
+                         ['exec', '-T', 'backend', '/app/server', 'clear-ai-cache',
+                          '--section', 'classification-meaning'])
+
+    def test_confirmed_group_uses_project_and_localized_output(self):
+        self.runner.responses['/app/server clear-ai-cache'] = '3\n'
+        code, output, errors = self.invoke('--group', 'diagrams', '--project-id', 'project-123', '--yes', lang='ru')
+        self.assertEqual((code, errors), (0, ''))
+        self.assertIn('Удалено', output)
+        self.assertIn('project-123', output)
+        self.assertIn('3', output)
+        command, = self.runner.calls
+        self.assertEqual(command[command.index('exec'):],
+                         ['exec', '-T', 'backend', '/app/server', 'clear-ai-cache',
+                          '--group', 'diagrams', '--project-id', 'project-123', '--yes'])
+
+    def test_invalid_selection_does_not_reach_the_backend(self):
+        for options in ((), ('--all', '--group', 'classification'),
+                        ('--section', 'classification-form', '--section', 'process-graphs'),
+                        ('--section', 'unknown')):
+            with self.subTest(options=options), self.assertRaises(SystemExit) as error:
+                self.invoke(*options, '--yes')
+            self.assertEqual(error.exception.code, 2)
+        self.assertEqual(self.runner.calls, [])
+
+    def test_empty_project_does_not_clear_the_installation(self):
+        code, output, errors = self.invoke('--all', '--project-id', ' ', '--yes')
+        self.assertEqual((code, output), (1, ''))
+        self.assertIn('project ID', errors)
+        self.assertEqual(self.runner.calls, [])
+
+
 class InstallTests(InstallerTestCase):
     @unittest.skipUnless(cli.shutil.which('docker'), 'Docker Compose is required')
     def test_compose_passes_analysis_threshold_from_dotenv_to_backend(self):

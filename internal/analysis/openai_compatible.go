@@ -188,8 +188,34 @@ func compatibleChatBody(client *oaicompat.Client, messages []map[string]string, 
 	}
 }
 
+type compatibleChatBudget struct {
+	Model               string `json:"model"`
+	InputTokens         int    `json:"input_tokens"`
+	MaxInputTokens      int    `json:"max_input_tokens"`
+	MaxCompletionTokens int    `json:"max_completion_tokens"`
+	Exact               *bool  `json:"exact"`
+}
+
+func readCompatibleChatBudget(ctx context.Context, client *oaicompat.Client, body map[string]any) (compatibleChatBudget, error) {
+	var budget compatibleChatBudget
+	if err := client.Post(ctx, "/chat/token-count", body, &budget); err != nil {
+		return compatibleChatBudget{}, err
+	}
+	if budget.Model != client.Model() || budget.InputTokens < 1 || budget.MaxInputTokens < 1 ||
+		budget.MaxCompletionTokens < 1 || budget.Exact == nil {
+		return compatibleChatBudget{}, errors.New("invalid chat token budget")
+	}
+	if cap, ok := body["max_completion_tokens"].(int); ok && budget.MaxCompletionTokens > cap {
+		return compatibleChatBudget{}, errors.New("invalid chat completion budget")
+	}
+	return budget, nil
+}
+
 func compatibleChat(ctx context.Context, client *oaicompat.Client, messages []map[string]string, name string, schema map[string]any) (string, error) {
-	body := compatibleChatBody(client, messages, name, schema)
+	return completeCompatibleChat(ctx, client, compatibleChatBody(client, messages, name, schema))
+}
+
+func completeCompatibleChat(ctx context.Context, client *oaicompat.Client, body map[string]any) (string, error) {
 	var response struct {
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`

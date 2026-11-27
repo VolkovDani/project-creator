@@ -88,6 +88,10 @@ func TestManagedNPUClassificationExplanation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v1/chat/token-count" {
+					http.NotFound(w, r)
+					return
+				}
 				attempt := calls.Add(1)
 				var request struct {
 					Model          string
@@ -207,13 +211,21 @@ func TestManagedNPUClassificationExplanationRequiresLocalPinnedProfile(t *testin
 	}
 }
 
-func TestManagedNPUClassificationExplanationRejectsOversizeWithoutSendingSource(t *testing.T) {
+func TestManagedNPUClassificationExplanationRejectsOversizeWithoutGenerating(t *testing.T) {
+	const model = "openvino-npu.test." + pinnedDigest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("oversized request reached inference")
-		w.WriteHeader(http.StatusBadRequest)
+		if r.URL.Path != "/v1/chat/token-count" {
+			t.Error("oversized request reached generation")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"model": model, "input_tokens": 4097, "max_input_tokens": 4096,
+			"max_completion_tokens": 512, "exact": true,
+		})
 	}))
 	defer server.Close()
-	g, err := NewOpenAICompatible(server.URL+"/v1", "openvino-npu.test."+pinnedDigest, "")
+	g, err := NewOpenAICompatible(server.URL+"/v1", model, "")
 	if err != nil {
 		t.Fatal(err)
 	}

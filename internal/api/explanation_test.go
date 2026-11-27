@@ -58,13 +58,19 @@ func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
 	}
 	digest := strings.Repeat("a", 64)
 	model := "openvino-npu.assessment." + digest
-	var calls atomic.Int32
+	var calls, counts atomic.Int32
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if managerBinary != "" && r.URL.Path == "/health" {
 			json.NewEncoder(w).Encode(map[string]string{"profile": digest, "device": "NPU"})
 			return
 		}
-		call := calls.Add(1)
+		counting := r.URL.Path == "/v1/chat/token-count" || r.URL.Path == "/v1/count-tokens"
+		var call int32
+		if counting {
+			call = counts.Add(1)
+		} else {
+			call = calls.Add(1)
+		}
 		if call > int32(len(expectedCalls)) {
 			t.Errorf("unexpected extra assessment request %d", call)
 			w.WriteHeader(http.StatusBadRequest)
@@ -83,9 +89,9 @@ func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
 		schema := request.Schema
 		var bound bool
 		if managerBinary != "" {
-			bound = r.URL.Path == "/v1/generate" && request.Profile == digest
+			bound = (r.URL.Path == "/v1/generate" || r.URL.Path == "/v1/count-tokens") && request.Profile == digest
 		} else {
-			bound = r.URL.Path == "/v1/chat/completions" && request.Model == model
+			bound = (r.URL.Path == "/v1/chat/completions" || r.URL.Path == "/v1/chat/token-count") && request.Model == model
 			schema = request.ResponseFormat.JSONSchema.Schema
 		}
 		if err != nil || !bound || len(request.Messages) != 2 || request.Messages[0].Role != "system" || request.Messages[1].Role != "user" {
@@ -145,6 +151,16 @@ func exerciseManagedNPUAssessment(t *testing.T, managerBinary string) {
 		if source.String() != text {
 			t.Errorf("model request %d changed the source text", call)
 			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if counting {
+			budget := map[string]any{"input_tokens": 1400, "max_input_tokens": 4096, "max_completion_tokens": 2048}
+			if managerBinary != "" {
+				budget["profile"], budget["device"] = digest, "NPU"
+			} else {
+				budget["model"], budget["exact"] = model, true
+			}
+			json.NewEncoder(w).Encode(budget)
 			return
 		}
 		criteria := make([]string, 0, len(expected.criteria))
@@ -241,8 +257,8 @@ VALUES('a','p','r',1,1,'unknown','unknown','needs_review','model','2','test-mode
 		}
 		data, _ := res["data"].(map[string]any)
 		got, _ := data["explainRequirementClassification"].(map[string]any)
-		if calls.Load() != totalCalls {
-			t.Fatalf("%s / %s with %s: expected %d inference requests, got %d (%v)", semantic, representation, token, totalCalls, calls.Load(), res)
+		if calls.Load() != totalCalls || counts.Load() != totalCalls {
+			t.Fatalf("%s / %s with %s: expected %d budget and inference requests, got %d and %d (%v)", semantic, representation, token, totalCalls, counts.Load(), calls.Load(), res)
 		}
 		if token == "token-b" {
 			if got["status"] != "stale" || got["result"] != nil {

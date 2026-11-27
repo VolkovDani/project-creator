@@ -42,23 +42,12 @@ func (s *SummaryOpenAICompatible) PlanProcessGraphWithContext(ctx context.Contex
 
 func (s *SummaryOpenAICompatible) graphPromptFits(ctx context.Context, messages []map[string]string, schema map[string]any) (bool, error) {
 	body := compatibleChatBody(s.budget, messages, summaryChatSchemaName, schema)
-	var budget struct {
-		Model               string `json:"model"`
-		InputTokens         int    `json:"input_tokens"`
-		MaxInputTokens      int    `json:"max_input_tokens"`
-		MaxCompletionTokens int    `json:"max_completion_tokens"`
-		Exact               *bool  `json:"exact"`
-	}
-	err := s.budget.Post(ctx, "/chat/token-count", body, &budget)
+	budget, err := readCompatibleChatBudget(ctx, s.budget, body)
 	if errors.Is(err, processgraph.ErrBatchTooLarge) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
-	}
-	if budget.Model != s.budget.Model() || budget.InputTokens < 1 || budget.MaxInputTokens < 1 ||
-		budget.MaxCompletionTokens < 1 || budget.MaxCompletionTokens > chatCompletionTokens || budget.Exact == nil {
-		return false, errors.New("invalid chat token budget")
 	}
 	return budget.InputTokens <= budget.MaxInputTokens, nil
 }

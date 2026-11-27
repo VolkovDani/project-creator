@@ -3,5 +3,5 @@ openvino==2026.4.1
 openvino-genai==2026.4.1.0
 openvino-tokenizers==2026.4.1.0
 # Significant runtime transitive dependencies resolved with this release.
-numpy==2.5.4
+numpy==2.5.5
 openvino-telemetry==2025.2.0

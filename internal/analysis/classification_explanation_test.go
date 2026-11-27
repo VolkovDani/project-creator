@@ -37,7 +37,7 @@ func decodeExplanationSample(t *testing.T, content, source string, target explan
 	if err != nil {
 		return explanation.Result{}, err
 	}
-	return combineExplanationAxes(meaning, form, target.Locale), nil
+	return explanation.CombineAxes(meaning, form, target.Locale), nil
 }
 
 func explanationAxisResponse(t *testing.T, content, axis string) string {
@@ -168,7 +168,7 @@ func TestManagedNPUClassificationExplanation(t *testing.T) {
 			if !ok || generator.ExplanationProfile() == "" || generator.ExplanationProfile() == provider.Profile() {
 				t.Fatal("managed local NPU needs a distinct explanation profile")
 			}
-			got, err := generator.ExplainClassification(t.Context(), source, target)
+			got, err := provider.ExplainClassification(t.Context(), source, target)
 			wantCalls := int32(1)
 			if tc.wantError == nil {
 				wantCalls++
@@ -272,7 +272,7 @@ func TestManagedNPUClassificationExplanationFitsShortRussianRequirementWithRanke
 			for _, semantic := range rules.Semantic {
 				for _, form := range rules.Representation {
 					target := explanation.Target{Semantic: semantic, Representation: form, Locale: "ru"}
-					requests, _, err := prepareClassificationExplanation(source, target, true)
+					requests, _, err := prepareClassificationExplanation(source, target, true, bothExplanationAxes)
 					if err != nil {
 						t.Errorf("%s/%s: valid short requirement rejected: %v", semantic, form, err)
 						continue
@@ -479,7 +479,7 @@ func TestClassificationExplanationUsesConfiguredSummaryOllama(t *testing.T) {
 	if generator.ExplanationProfile() != direct.ExplanationProfile() {
 		t.Error("different profiles for the same local explanation model")
 	}
-	_, err = generator.ExplainClassification(context.Background(), explanation.Source{Text: "Please export a file.", Suggestion: &classification.Entry{}}, explanation.Target{Semantic: "functional_requirement", Representation: "user_story", Locale: "en"})
+	_, err = summary.ExplainClassification(context.Background(), explanation.Source{Text: "Please export a file.", Suggestion: &classification.Entry{}}, explanation.Target{Semantic: "functional_requirement", Representation: "user_story", Locale: "en"})
 	if err != nil || called != 2 {
 		t.Fatalf("calls=%d error=%v", called, err)
 	}

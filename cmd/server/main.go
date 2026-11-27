@@ -31,6 +31,14 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "clear-ai-cache" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := runClearAICache(ctx, os.Args[2:], os.Getenv, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 		defer cancel()
@@ -78,9 +86,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	cacheTTL, err := configuredAICacheTTL(os.Getenv)
+	if err != nil {
+		log.Fatal(err)
+	}
 	s, err := api.NewConfigured(path, map[string]string{token: "default"}, api.Config{
 		Embedder: embedder, Generator: generator, Summarizer: summarizer, Classifier: classifier,
-		DefaultAnalysisThreshold: threshold, AnalysisHistoryRetentionDays: retentionDays,
+		DefaultAnalysisThreshold: threshold, AnalysisHistoryRetentionDays: retentionDays, AICacheTTL: cacheTTL,
 	})
 	if err != nil {
 		log.Fatal(err)

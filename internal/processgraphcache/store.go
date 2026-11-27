@@ -6,8 +6,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/VolkovDani/project-creator/internal/processgraph"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // Bump this version when stored results become incompatible with the current
@@ -17,10 +19,20 @@ const formatVersion = 1
 type Store struct {
 	db      *sql.DB
 	profile string
+	ttl     pgtype.Interval
 }
 
 func New(db *sql.DB, profile string) *Store {
-	return &Store{db: db, profile: profile}
+	return NewWithTTL(db, profile, 0)
+}
+
+// NewWithTTL limits how long completed drafts can be read. Zero keeps them indefinitely.
+func NewWithTTL(db *sql.DB, profile string, ttl time.Duration) *Store {
+	return &Store{
+		db:      db,
+		profile: profile,
+		ttl:     pgtype.Interval{Microseconds: ttl.Microseconds(), Valid: ttl > 0},
+	}
 }
 
 // Reuse promotes an existing successful result in place. An update that races
@@ -32,8 +44,9 @@ func (s *Store) Reuse(ctx context.Context, target processgraph.Target, snapshotK
 		SET result=jsonb_set(result,'{Run,ID}',to_jsonb($8::text)), latest_order=DEFAULT
 		WHERE workspace=$1 AND project_id=$2 AND profile=$3 AND format_version=$4
 		  AND snapshot_key=$5 AND term_id=$6 AND keyword=$7 AND reusable
+		  AND ($9::interval IS NULL OR created_at>statement_timestamp()-$9::interval)
 		RETURNING result
-	`, target.Workspace, target.Project, s.profile, formatVersion, snapshotKey, target.TermID, target.Keyword, runID).Scan(&encoded)
+	`, target.Workspace, target.Project, s.profile, formatVersion, snapshotKey, target.TermID, target.Keyword, runID, s.ttl).Scan(&encoded)
 	if errors.Is(err, sql.ErrNoRows) {
 		return processgraph.RunResult{}, nil
 	}
@@ -54,8 +67,9 @@ func (s *Store) Latest(ctx context.Context, workspace, project string) (processg
 		SELECT term_id,keyword,snapshot_key,result
 		FROM process_graph_cache
 		WHERE workspace=$1 AND project_id=$2 AND profile=$3 AND format_version=$4
+		  AND ($5::interval IS NULL OR created_at>statement_timestamp()-$5::interval)
 		ORDER BY latest_order DESC LIMIT 1
-	`, workspace, project, s.profile, formatVersion).Scan(&run.Target.TermID, &run.Target.Keyword, &run.SnapshotKey, &encoded)
+	`, workspace, project, s.profile, formatVersion, s.ttl).Scan(&run.Target.TermID, &run.Target.Keyword, &run.SnapshotKey, &encoded)
 	if errors.Is(err, sql.ErrNoRows) {
 		return processgraph.CachedRun{}, nil
 	}
@@ -86,7 +100,7 @@ func (s *Store) Save(ctx context.Context, run processgraph.CachedRun) error {
 		INSERT INTO process_graph_cache(workspace,project_id,profile,format_version,snapshot_key,reusable,term_id,keyword,result)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
 		ON CONFLICT(workspace,project_id,profile,format_version,snapshot_key,reusable)
-		DO UPDATE SET result=EXCLUDED.result,latest_order=DEFAULT
+		DO UPDATE SET result=EXCLUDED.result,latest_order=DEFAULT,created_at=EXCLUDED.created_at
 	`, run.Target.Workspace, run.Target.Project, s.profile, formatVersion, run.SnapshotKey,
 		result.Run.Failed == 0, run.Target.TermID, run.Target.Keyword, encoded)
 	return err

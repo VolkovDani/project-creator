@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 )
 
 type Server struct {
@@ -61,9 +62,13 @@ type Config struct {
 	Summarizer                   summary.Generator
 	DefaultAnalysisThreshold     float64
 	AnalysisHistoryRetentionDays int
+	AICacheTTL                   time.Duration
 }
 
 func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, error) {
+	if cfg.AICacheTTL < 0 {
+		return nil, errors.New("invalid AI cache lifetime")
+	}
 	if !contracts.AnalysisConstraints().ValidThreshold(cfg.DefaultAnalysisThreshold) {
 		return nil, errors.New("invalid analysis default threshold")
 	}
@@ -121,9 +126,9 @@ func NewConfigured(path string, tokens map[string]string, cfg Config) (*Server, 
 	if cfg.Summarizer != nil {
 		graphProfile = cfg.Summarizer.Profile()
 	}
-	backgroundRuns := processgraph.NewCachedBackgroundRuns(processGraphs, processgraphcache.New(db, graphProfile))
+	backgroundRuns := processgraph.NewCachedBackgroundRuns(processGraphs, processgraphcache.NewWithTTL(db, graphProfile, cfg.AICacheTTL))
 	resolver := &graph.Resolver{
-		DB: db, Proposals: proposal.New(db), Classifications: classifications, Explanations: explanation.New(db, explainer),
+		DB: db, Proposals: proposal.New(db), Classifications: classifications, Explanations: explanation.NewWithCacheTTL(db, explainer, cfg.AICacheTTL),
 		RAG: retriever, Analysis: analyzer, Summaries: summaries, Definitions: definitions,
 		ProcessGraphs: processGraphs, ProcessGraphRuns: processgraph.NewRunStore(processGraphs), BackgroundGraphs: backgroundRuns,
 	}

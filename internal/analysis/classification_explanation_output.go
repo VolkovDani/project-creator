@@ -198,14 +198,8 @@ func (axis explanationOutputAxis) assessment(passages []string, category, locale
 	return result, nil
 }
 
-type explanationAxisResult struct {
-	assessment           explanation.Assessment
-	questions            []string
-	wording, limitations string
-}
-
-func decodeExplanationAxis(content, source, category, locale string, passages []string, managed bool) (explanationAxisResult, error) {
-	empty := explanationAxisResult{}
+func decodeExplanationAxis(content, source, category, locale string, passages []string, managed bool) (explanation.AxisResult, error) {
+	empty := explanation.AxisResult{}
 	var raw struct {
 		Assessment  explanationOutputAxis `json:"assessment"`
 		Questions   []string              `json:"questions"`
@@ -227,37 +221,10 @@ func decodeExplanationAxis(content, source, category, locale string, passages []
 	if err != nil {
 		return empty, err
 	}
-	return explanationAxisResult{
-		assessment: assessment, questions: raw.Questions,
-		wording: groundedExplanationWording(*raw.Wording, source), limitations: strings.TrimSpace(raw.Limitations),
+	return explanation.AxisResult{
+		Assessment: assessment, Questions: raw.Questions,
+		Wording: groundedExplanationWording(*raw.Wording, source), Limitations: strings.TrimSpace(raw.Limitations),
 	}, nil
-}
-
-func combineExplanationAxes(meaning, form explanationAxisResult, locale string) explanation.Result {
-	result := explanation.Result{Meaning: meaning.assessment, Form: form.assessment, Questions: []string{}}
-	var limitations []string
-	for _, axis := range [2]explanationAxisResult{meaning, form} {
-		if axis.assessment.Verdict == "fits" {
-			continue
-		}
-		for _, question := range axis.questions {
-			if !slices.Contains(result.Questions, question) {
-				result.Questions = append(result.Questions, question)
-			}
-		}
-		if !slices.Contains(limitations, axis.limitations) {
-			limitations = append(limitations, axis.limitations)
-		}
-		// Prefer a grounded wording suggestion from the assessment of form.
-		if axis.wording != "" {
-			result.Wording = axis.wording
-		}
-	}
-	result.Limitations = strings.Join(limitations, " ")
-	if result.Limitations == "" {
-		result.Limitations = explanationFitTexts()[locale].Limit
-	}
-	return result
 }
 
 // Verify each narrative field independently. Latin technical identifiers may

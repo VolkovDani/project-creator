@@ -47,6 +47,20 @@ MESSAGES = {
         'graph_cache_scope': 'Project {project}',
         'graph_cache_preview': '{scope}. Saved process graph results: {count}. Repeat with --yes to clear them.',
         'graph_cache_deleted': '{scope}. Removed saved process graph results: {count}.',
+        'clear-ai-cache': 'Preview or clear cached AI results from a selected section or group.',
+        'ai_cache_section': 'Select one AI cache section.',
+        'ai_cache_group': 'Select a group of AI cache sections.',
+        'ai_cache_all': 'Select all AI cache sections.',
+        'ai_cache_single_selector': 'Select exactly one section, group or --all.',
+        'ai_cache_confirm': 'Delete the cached AI results in the selected scope.',
+        'ai_cache_classification-meaning': 'classification meaning',
+        'ai_cache_classification-form': 'classification form',
+        'ai_cache_process-graphs': 'process graphs',
+        'ai_cache_classification': 'classification',
+        'ai_cache_diagrams': 'diagrams',
+        'ai_cache_all_label': 'all AI cache sections',
+        'ai_cache_preview': '{scope}. Cached entries for {selection}: {count}. Repeat with --yes to clear them.',
+        'ai_cache_deleted': '{scope}. Removed cached entries for {selection}: {count}.',
         'down': 'Stop containers and the managed NPU runtime; preserve all data and weights.',
         'doctor': 'Check prerequisites and an existing installation; no downloads or changes.',
         'device': 'Select none (fresh-install default), a generator device or remote API mode (NPU uses CPU embeddings by default; --ollama-device can select Arc).',
@@ -94,6 +108,20 @@ MESSAGES = {
         'graph_cache_scope': 'Проект {project}',
         'graph_cache_preview': '{scope}. Сохранено результатов построения графа процессов: {count}. Для удаления повторите команду с --yes.',
         'graph_cache_deleted': '{scope}. Удалено сохранённых результатов построения графа процессов: {count}.',
+        'clear-ai-cache': 'Показать или удалить сохранённые результаты ИИ в выбранном разделе или группе.',
+        'ai_cache_section': 'Выбрать один раздел кеша ИИ.',
+        'ai_cache_group': 'Выбрать группу разделов кеша ИИ.',
+        'ai_cache_all': 'Выбрать все разделы кеша ИИ.',
+        'ai_cache_single_selector': 'Выберите ровно один раздел, одну группу или --all.',
+        'ai_cache_confirm': 'Удалить сохранённые результаты ИИ в выбранной области.',
+        'ai_cache_classification-meaning': 'оценка смысла при классификации',
+        'ai_cache_classification-form': 'оценка формы при классификации',
+        'ai_cache_process-graphs': 'графы процессов',
+        'ai_cache_classification': 'классификация',
+        'ai_cache_diagrams': 'диаграммы',
+        'ai_cache_all_label': 'все разделы кеша ИИ',
+        'ai_cache_preview': '{scope}. Записей в кеше ({selection}): {count}. Для удаления повторите команду с --yes.',
+        'ai_cache_deleted': '{scope}. Удалено записей из кеша ({selection}): {count}.',
         'down': 'Остановить контейнеры и управляемый NPU runtime, сохранить данные и веса.',
         'doctor': 'Проверить окружение и текущую установку без скачивания и изменений.',
         'device': 'Выберите none (новая установка), устройство генератора или режим удалённых API (для NPU embeddings по умолчанию работают на CPU; --ollama-device может выбрать Arc).',
@@ -176,6 +204,8 @@ ERROR_MESSAGES = {
     'COMPOSE': ('Команда Docker Compose завершилась ошибкой. Проверьте конфигурацию, доступ к Engine и логи сервисов.', 'Docker Compose failed. Check configuration, Engine access and service logs.'),
     'PROCESS_GRAPH_CACHE': ('Операция с кешем графа процессов завершилась ошибкой. Проверьте, что backend-контейнер запущен и поддерживает эту команду.', 'The process graph cache operation failed. Check that the backend container is running and supports this command.'),
     'PROCESS_GRAPH_CACHE_SCOPE': ('Для --project-id укажите непустой ID проекта.', 'Provide a non-empty project ID for --project-id.'),
+    'AI_CACHE': ('Операция с кешем ИИ завершилась ошибкой. Проверьте, что backend-контейнер запущен и поддерживает эту команду.', 'The AI cache operation failed. Check that the backend container is running and supports this command.'),
+    'AI_CACHE_SCOPE': ('Для --project-id укажите непустой ID проекта.', 'Provide a non-empty project ID for --project-id.'),
     'MODEL_DOWNLOAD': ('Загрузка модели прервана или завершилась ошибкой. Проверьте сеть и повторите setup: готовые файлы кеша сохраняются.', 'The model download was interrupted or failed. Check the network and repeat setup; completed cache files are retained.'),
     'SOURCE_DOWNLOAD': ('Не удалось скачать или проверить исходные веса NPU. Проверьте сеть, source revision и контрольные суммы; повтор использует кеш.', 'Could not download or verify NPU source weights. Check the network, source revision and checksums; retry reuses the cache.'),
     'PYTHON_DOWNLOAD': ('Не удалось подготовить локальный Python 3.12. Проверьте uv, сеть и свободное место, затем повторите setup.', 'Could not prepare local Python 3.12. Check uv, network and free disk, then repeat setup.'),
@@ -1237,20 +1267,32 @@ class Installer:
             self.say('history_deleted', deleted=deleted, eligible=len(eligible))
 
     def clear_process_graph_cache(self, project, confirmed):
-        command = ['exec', '-T', 'backend', '/app/server', 'clear-process-graph-cache']
+        scope, count = self.run_cache_operation(['clear-process-graph-cache'], project, confirmed, 'PROCESS_GRAPH_CACHE')
+        self.say('graph_cache_deleted' if confirmed else 'graph_cache_preview', scope=scope, count=count)
+
+    def clear_ai_cache(self, selector, name, project, confirmed):
+        command = ['clear-ai-cache', selector]
+        if selector != '--all':
+            command.append(name)
+        scope, count = self.run_cache_operation(command, project, confirmed, 'AI_CACHE')
+        label = MESSAGES[self.lang]['ai_cache_all_label' if selector == '--all' else 'ai_cache_' + name]
+        self.say('ai_cache_deleted' if confirmed else 'ai_cache_preview', scope=scope, count=count, selection=label)
+
+    def run_cache_operation(self, args, project, confirmed, code):
+        command = ['exec', '-T', 'backend', '/app/server', *args]
         messages = MESSAGES[self.lang]
         scope = messages['graph_cache_installation']
         if project is not None:
             if not project.strip():
-                raise Failure('PROCESS_GRAPH_CACHE_SCOPE', 'Empty --project-id.')
+                raise Failure(code+'_SCOPE', 'Empty --project-id.')
             command += ['--project-id', project]
             scope = messages['graph_cache_scope'].format(project=project)
         if confirmed:
             command.append('--yes')
-        count = self.compose(*command, capture=True, code='PROCESS_GRAPH_CACHE').strip()
+        count = self.compose(*command, capture=True, code=code).strip()
         if not re.fullmatch(r'[0-9]+', count):
-            raise Failure('PROCESS_GRAPH_CACHE', 'The backend did not return a cache entry count.')
-        self.say('graph_cache_deleted' if confirmed else 'graph_cache_preview', scope=scope, count=count)
+            raise Failure(code, 'The backend did not return a cache entry count.')
+        return scope, count
 
     def fixture(self, name, texts):
         records = self.config.state.setdefault('fixtures', {})
@@ -1509,7 +1551,20 @@ def main(root=None, argv=None):
                                  description=messages['clear-process-graph-cache'], allow_abbrev=False)
     graph_cache.add_argument('--project-id', help=messages['graph_cache_project'])
     graph_cache.add_argument('--yes', action='store_true', help=messages['graph_cache_confirm'])
+    ai_cache = sub.add_parser('clear-ai-cache', help=messages['clear-ai-cache'],
+                              description=messages['clear-ai-cache'], allow_abbrev=False)
+    selection = ai_cache.add_mutually_exclusive_group(required=True)
+    selection.add_argument('--section', action='append', choices=('classification-meaning', 'classification-form', 'process-graphs'),
+                           help=messages['ai_cache_section'])
+    selection.add_argument('--group', action='append', choices=('classification', 'diagrams'), help=messages['ai_cache_group'])
+    selection.add_argument('--all', action='count', help=messages['ai_cache_all'])
+    ai_cache.add_argument('--project-id', help=messages['graph_cache_project'])
+    ai_cache.add_argument('--yes', action='store_true', help=messages['ai_cache_confirm'])
     args = parser.parse_args(argv)
+    if args.command == 'clear-ai-cache':
+        names = args.section or args.group or ['all'] * args.all
+        if len(names) != 1:
+            ai_cache.error(messages['ai_cache_single_selector'])
     try:
         app = Installer(root, lang=args.lang)
         if args.command == 'doctor':
@@ -1518,6 +1573,9 @@ def main(root=None, argv=None):
             app.clear_analysis_history(args.project_id, args.yes)
         elif args.command == 'clear-process-graph-cache':
             app.clear_process_graph_cache(args.project_id, args.yes)
+        elif args.command == 'clear-ai-cache':
+            selector = '--section' if args.section else '--group' if args.group else '--all'
+            app.clear_ai_cache(selector, names[0], args.project_id, args.yes)
         else:
             with locked(root):
                 if args.command == 'setup':

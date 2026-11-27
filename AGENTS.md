@@ -33,6 +33,12 @@
   statistical probability.
 - Check access rights before searching or passing context to a model. Prevent
   cross-client data leaks. Do not commit keys, secrets, or real client data.
+- Cache results for every AI inference path so identical requests can reuse a
+  validated result. Scope cache keys by access, inputs, and model and prompt
+  versions. Persist AI caches across restarts and keep entries indefinitely by
+  default. Use `PROJECT_CREATOR_AI_CACHE_TTL` for optional expiration. Register
+  each cache section with the Project Creator CLI so operators can clear one
+  section, a group of sections, or all AI cache sections.
 - Use deterministic provider stubs in ordinary tests. Tests with real models and
   external APIs must run separately and explicitly; check RAG quality against
   fixed examples with expected sources.

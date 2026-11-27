@@ -1,14 +1,17 @@
 import Link from 'next/link';
-import { useId } from 'react';
+import { useRouter } from 'next/navigation';
+import { useId, useState } from 'react';
 import type { ProcessGraphMode } from '../../../../lib/generated';
 import { type Locale, t } from '../../../../lib/i18n';
 import { requirementURL } from '../../../../lib/rag';
+import { MermaidViewer } from '../../../components/MermaidViewer';
 import { ProcessGraphDiagram } from './ProcessGraphDiagram';
 import styles from './process-graphs.module.css';
 import {
   processGraphMermaid,
   requirementGraphMarkdown,
   requirementGraphMermaid,
+  requirementGraphPreview,
 } from './processGraphMermaid';
 import { type GraphDraft, type GraphNode, groupProcessGraph } from './processGraphView';
 
@@ -23,16 +26,20 @@ function download(text: string, filename: string, type = 'text/plain') {
 
 export function ProcessGraph({
   draft,
+  diagramId,
   mode,
   locale,
   projectId,
 }: {
   draft: GraphDraft;
+  diagramId: string;
   mode: ProcessGraphMode;
   locale: Locale;
   projectId: string;
 }) {
   const heading = useId();
+  const router = useRouter();
+  const [previewOpen, setPreviewOpen] = useState(false);
   const { groups, isolated } = groupProcessGraph(draft.nodes, draft.edges);
   const requirements = mode === 'REQUIREMENTS';
   const kinds = requirements ? [] : [...new Set(draft.nodes.map((node) => node.kind))];
@@ -40,6 +47,22 @@ export function ProcessGraph({
   const connections = t(locale, 'processGraph.connections');
   const partial = draft.partial ? t(locale, 'processGraph.partial') : undefined;
   const relation = (kind: string) => t(locale, `processGraph.edge.${kind}`);
+
+  const preview = previewOpen && requirements ? requirementGraphPreview(draft, projectId) : null;
+  const previewSource = previewOpen
+    ? (preview?.source ?? processGraphMermaid(draft, projectId, '', relation))
+    : '';
+  const nodeActions = preview
+    ? new Map(
+        preview.nodes.map(({ alias, label, requirementId, version, href }) => [
+          alias,
+          {
+            label: `${label} · ${t(locale, 'processGraph.requirement', { id: requirementId, version })}`,
+            onSelect: () => router.push(href),
+          },
+        ]),
+      )
+    : undefined;
 
   function downloadMermaid() {
     const origin = window.location.origin;
@@ -86,6 +109,17 @@ export function ProcessGraph({
         </ul>
       )}
       <ProcessGraphDiagram draft={draft} locale={locale} mode={mode} projectId={projectId} />
+      <details onToggle={(event) => setPreviewOpen(event.currentTarget.open)}>
+        <summary>{t(locale, 'mermaid.open')}</summary>
+        {previewOpen && (
+          <MermaidViewer
+            diagramId={diagramId}
+            source={previewSource}
+            locale={locale}
+            nodeActions={nodeActions}
+          />
+        )}
+      </details>
       <h3>{connections}</h3>
       <ul className={styles.graph}>
         {groups.map(({ from, branches }) => (

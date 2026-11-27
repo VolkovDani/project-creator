@@ -84,14 +84,19 @@ test('lays out each node once, preserving branches, a back edge, and a disconnec
   assert.deepEqual(layout.edges, [trigger, success, failure, loop]);
 });
 
-test('process graph translations have the same keys and interpolation parameters', () => {
+test('process graph and Mermaid viewer translations have the same keys and interpolation parameters', () => {
   function translations(locale: string) {
     const dict = JSON.parse(
       readFileSync(new URL(`../../contracts/i18n/${locale}.json`, import.meta.url), 'utf8'),
     ) as Record<string, string>;
     return Object.fromEntries(
       Object.entries(dict)
-        .filter(([key]) => key.startsWith('processGraph.') || key.endsWith('.process-graphs'))
+        .filter(
+          ([key]) =>
+            key.startsWith('processGraph.') ||
+            key.startsWith('mermaid.') ||
+            key.endsWith('.process-graphs'),
+        )
         .map(([key, value]) => [
           key,
           [...value.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort(),
@@ -100,6 +105,7 @@ test('process graph translations have the same keys and interpolation parameters
   }
   const en = translations('en');
   assert.ok('nav.process-graphs' in en);
+  assert.ok('mermaid.label' in en);
   assert.deepEqual(en['processGraph.requirement'], ['id', 'version']);
   assert.deepEqual(en['processGraph.topic'], ['topic']);
   assert.deepEqual(translations('ru'), en);

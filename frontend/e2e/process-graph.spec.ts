@@ -348,6 +348,70 @@ test('a graph continues in the background and restores progress and cited result
       'href',
       '/projects/demo/requirements?requirement=req-1&version=2&start=24&end=61#requirement-req-1',
     );
+    const preview = page.getByText('Просмотр Mermaid', { exact: true });
+    await expect(page.getByRole('region', { name: 'Диаграмма Mermaid' })).toHaveCount(0);
+    await preview.press('Enter');
+    const viewer = page.getByRole('region', { name: 'Диаграмма Mermaid' });
+    const svg = viewer.locator('svg');
+    await expect(svg.locator('text').filter({ hasText: /Проверить\s*заявку/ })).toBeVisible();
+    await expect(svg.locator('a, foreignObject, image')).toHaveCount(0);
+
+    const zoom = viewer.getByRole('button', { name: 'Увеличить' });
+    const fit = viewer.getByRole('button', { name: 'Вписать в экран' });
+    await zoom.press('Enter');
+    await expect(fit).toBeEnabled();
+    const viewport = viewer.getByLabel('Область диаграммы');
+    const initialBox = await svg.boundingBox();
+    await viewport.press('ArrowRight');
+    expect((await svg.boundingBox())?.x).toBeLessThan(initialBox?.x ?? 0);
+    const fullscreen = viewer.getByRole('button', { name: 'На весь экран' });
+    await fullscreen.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Диаграмма Mermaid' });
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.getByRole('button', { name: 'Выйти из полноэкранного режима' }),
+    ).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(fullscreen).toBeFocused();
+    await expect(fit).toBeEnabled();
+    await fit.press('Enter');
+    await expect(fit).toBeDisabled();
+
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    const copyMenu = viewer.getByText('Копировать', { exact: true });
+    await copyMenu.press('Enter');
+    await viewer.getByRole('button', { name: 'Скопировать код Mermaid' }).press('Enter');
+    await expect(viewer.getByText('Код Mermaid скопирован.')).toBeVisible();
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toContain('flowchart TD');
+    expect(copied).toContain('n1["Проверить заявку"]');
+    expect(copied).not.toContain('click ');
+
+    await copyMenu.press('Enter');
+    const copyImage = viewer.getByRole('button', { name: 'Скопировать диаграмму' });
+    await copyImage.press('Enter');
+    await expect(viewer.getByText('Изображение скопировано.')).toBeVisible();
+    expect(await page.evaluate(async () => (await navigator.clipboard.read())[0]?.types)).toContain(
+      'image/png',
+    );
+
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { write: () => Promise.reject(new Error('Denied')) },
+      });
+    });
+    await copyMenu.click();
+    const imageReady = page.waitForEvent('download');
+    await copyImage.click();
+    const image = await imageReady;
+    expect(image.suggestedFilename()).toBe('diagram.png');
+    expect((await readFile(await image.path())).subarray(0, 8)).toEqual(
+      Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    );
+    await expect(viewer.getByText('Изображение скачано.')).toBeVisible();
+    await preview.click();
+
     const exportButton = page.getByRole('button', { name: 'Скачать Mermaid' });
     const downloadReady = page.waitForEvent('download');
     await exportButton.press('Enter');
@@ -535,6 +599,23 @@ test('a requirement diagram restores its mode, cites versions, and exports its t
     });
   await expect(diagramNode).toHaveAttribute('href', evidencePath);
 
+  await page.getByText('Просмотр Mermaid', { exact: true }).click();
+  const viewer = page.getByRole('region', { name: 'Диаграмма Mermaid' });
+  const mermaidNode = viewer.getByRole('button', {
+    name: 'Принятие заявки · Требование req-1 · Версия 2',
+  });
+  await expect(mermaidNode).toBeVisible();
+  await viewer.getByRole('button', { name: 'Увеличить' }).click();
+  const svg = viewer.locator('svg');
+  const darkRenderId = await svg.getAttribute('id');
+  await page.getByRole('button', { name: 'Тёмная тема' }).click();
+  await expect(svg).not.toHaveAttribute('id', darkRenderId ?? '');
+  await expect(viewer.getByRole('button', { name: 'Вписать в экран' })).toBeEnabled();
+  await page.getByLabel('Язык').selectOption('en');
+  const englishViewer = page.getByRole('region', { name: 'Mermaid diagram' });
+  await expect(englishViewer.getByRole('button', { name: 'Fit to screen' })).toBeEnabled();
+  await page.getByLabel('Language').selectOption('ru');
+
   await flowchart.check();
   await expect(heading).toBeVisible();
   const diagramReady = page.waitForEvent('download');
@@ -556,6 +637,54 @@ test('a requirement diagram restores its mode, cites versions, and exports its t
   await page.goBack();
   await expect(heading).toBeVisible();
   await expect(requirementMode).toBeChecked();
-  await diagramNode.press('Enter');
+  await page.getByText('Просмотр Mermaid', { exact: true }).click();
+  await mermaidNode.press('Enter');
   await expect(page).toHaveURL(evidencePath);
+});
+
+test('the preview reports an empty or oversized diagram without blocking the project page', async ({
+  page,
+}) => {
+  await mockStream(page);
+  const nodes = [{ ...draft.nodes[0], label: 'Строка '.repeat(12_000) }];
+  let latest: ProcessGraphRunFieldsFragment = {
+    status: 'suggested',
+    run: {
+      id: 'run-size',
+      topic: 'заявка',
+      mode: 'PROCESS',
+      revision: 2,
+      completed: 1,
+      total: 1,
+      failed: 0,
+    },
+    draft: { ...draft, nodes, edges: [] },
+    fieldErrors: [],
+  };
+  await page.route('**/api/graphql', async (route) => {
+    const { operationName } = route.request().postDataJSON();
+    const data = {
+      ProjectDetail: { project: { id: 'demo', name: 'Заявки', goal: '', description: '' } },
+      LatestProcessGraphRun: { latestProcessGraphRun: latest },
+    }[operationName as string] ?? {
+      projectsConnection: { items: [], pageInfo: { hasNextPage: false, endCursor: null } },
+    };
+    await route.fulfill({ json: { data } });
+  });
+
+  await page.goto('/projects/demo/process-graphs');
+  const toggle = page.getByText('Просмотр Mermaid', { exact: true });
+  const viewer = page.getByRole('region', { name: 'Диаграмма Mermaid' });
+  await toggle.press('Enter');
+  await expect(
+    viewer.getByText('Не удалось показать диаграмму. Проверьте её формат и размер.'),
+  ).toBeVisible();
+  await expect(viewer.locator('svg')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Скачать Mermaid' })).toBeEnabled();
+
+  latest = { ...latest, draft: { ...draft, nodes: [], edges: [], sourceCount: 0 } };
+  await page.reload();
+  await toggle.press('Enter');
+  await expect(viewer.getByText('В диаграмме нет узлов.')).toBeVisible();
+  await expect(viewer.getByRole('button', { name: 'Увеличить' })).toBeDisabled();
 });

@@ -42,16 +42,18 @@ func TestManagedNPUClassificationExplanation(t *testing.T) {
 		name, output   string
 		providerStatus int
 		wantError      error
+		retry          bool
 	}{
-		{"grounded", sample, http.StatusOK, nil},
-		{"bad evidence", strings.Replace(sample, `"evidence":1`, `"evidence":9`, 1), http.StatusOK, explanation.ErrInvalidOutput},
-		{"provider rejected output", `{"error":{"code":"INVALID_OUTPUT"}}`, http.StatusBadGateway, explanation.ErrInvalidOutput},
-		{"provider timed out", `{"error":{"code":"TIMEOUT"}}`, http.StatusGatewayTimeout, context.DeadlineExceeded},
+		{"grounded", sample, http.StatusOK, nil, false},
+		{"bad evidence", strings.Replace(sample, `"evidence":1`, `"evidence":9`, 1), http.StatusOK, explanation.ErrInvalidOutput, false},
+		{"provider rejected output", `{"error":{"code":"INVALID_OUTPUT"}}`, http.StatusBadGateway, explanation.ErrInvalidOutput, false},
+		{"provider timed out", `{"error":{"code":"TIMEOUT"}}`, http.StatusGatewayTimeout, context.DeadlineExceeded, false},
+		{"foreign letter retried", strings.Replace(sample, "operation is explicit.", `operation is explicit\u63a7.`, 1), http.StatusOK, nil, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var called atomic.Bool
+			var calls atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				called.Store(true)
+				attempt := calls.Add(1)
 				var request struct {
 					Model          string
 					Messages       []map[string]string
@@ -85,8 +87,16 @@ func TestManagedNPUClassificationExplanation(t *testing.T) {
 					_, _ = w.Write([]byte(tc.output))
 					return
 				}
+				output := tc.output
+				if attempt == 2 && tc.retry {
+					limitations := format.JSONSchema.Schema["properties"].(map[string]any)["limitations"].(map[string]any)
+					if regexp.MustCompile(limitations["pattern"].(string)).MatchString("Evidence from this excerpt控.") {
+						t.Error("retry schema still permits the unsupported letter")
+					}
+					output = sample
+				}
 				json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
-					"finish_reason": "stop", "message": map[string]string{"role": "assistant", "content": tc.output},
+					"finish_reason": "stop", "message": map[string]string{"role": "assistant", "content": output},
 				}}})
 			}))
 			defer server.Close()
@@ -99,8 +109,12 @@ func TestManagedNPUClassificationExplanation(t *testing.T) {
 				t.Fatal("managed local NPU needs a distinct explanation profile")
 			}
 			got, err := generator.ExplainClassification(t.Context(), source, target)
-			if !called.Load() || !errors.Is(err, tc.wantError) {
-				t.Fatalf("unexpected inference result %+v, %v (called=%t)", got, err, called.Load())
+			wantCalls := int32(1)
+			if tc.retry {
+				wantCalls++
+			}
+			if calls.Load() != wantCalls || !errors.Is(err, tc.wantError) {
+				t.Fatalf("unexpected inference result %+v, %v (calls=%d)", got, err, calls.Load())
 			}
 			if tc.wantError == nil && (got.Meaning.Verdict != "fits" || got.Form.Verdict != "partial" ||
 				len(got.Form.Criteria) != 3 || got.Form.Criteria[1].Evidence != source.Text) {
@@ -452,6 +466,38 @@ func TestClassificationExplanationRejectsWrongNarrativeLanguage(t *testing.T) {
 	}
 }
 
+func TestClassificationExplanationRejectsUnsupportedLettersInGeneratedProse(t *testing.T) {
+	const source = "Выгрузить отчёт для клиента 東京."
+	target := explanation.Target{Semantic: "functional_requirement", Representation: "user_story", Locale: "ru"}
+	sample := explanationSampleRussian()
+	result, err := decodeExplanationSample(sample, source, target)
+	if err != nil || result.Form.Criteria[1].Evidence != source {
+		t.Fatalf("verbatim evidence can use the source's original script: %v", err)
+	}
+
+	for _, tc := range []struct {
+		field, original, replacement string
+	}{
+		{"reason", "Описано действие системы.", "Описаны этапы строительного控 контроля."},
+		{"note", "Роль не указана.", "Роль не указана 控."},
+		{"question", "Кому нужен экспорт?", "Кому нужен экспорт控?"},
+		{"limitation", "Рассмотрен только предоставленный текст.", "Рассмотрен только предоставленный текст控."},
+		{"wording", `"wording":""`, `"wording":"Выгрузить отчёт для клиента控."`},
+	} {
+		t.Run(tc.field, func(t *testing.T) {
+			response := strings.Replace(sample, tc.original, tc.replacement, 1)
+			if _, err := decodeExplanationSample(response, source, target); err == nil {
+				t.Fatal("accepted a foreign-script letter in generated prose")
+			}
+		})
+	}
+	target.Locale = "en"
+	response := strings.Replace(explanationSample, "The text asks for an operation.", "The text asks for an operation控.", 1)
+	if _, err := decodeExplanationSample(response, source, target); err == nil {
+		t.Fatal("accepted a foreign-script letter in English prose")
+	}
+}
+
 func TestClassificationExplanationRequiredRoleCannotBeInapplicable(t *testing.T) {
 	target := explanation.Target{Semantic: "functional_requirement", Representation: "user_story", Locale: "en"}
 	answer := strings.Replace(explanationSample, `"status":"missing"`, `"status":"not_applicable"`, 1)
@@ -637,11 +683,18 @@ func TestClassificationExplanationPassagesPreserveSourceAndBoundDisplayedQuotes(
 }
 
 func TestClassificationExplanationGenerationBoundsNarrativePattern(t *testing.T) {
-	schema := classificationExplanationSchema([]string{"need"}, []string{"role"}, "ru", 2)
-	fields := schema["properties"].(map[string]any)
-	limitations := fields["limitations"].(map[string]any)
-	pattern := regexp.MustCompile(limitations["pattern"].(string))
-	if pattern.MatchString(strings.Repeat("я", 401)) || pattern.MatchString("Текст\", \"evidence\":1") || !pattern.MatchString("Цитата приведена в исходном тексте.") {
-		t.Fatal("generation pattern must end a short narrative at the JSON field boundary")
+	for _, managed := range []bool{false, true} {
+		schema := explanationSchemaForProvider([]string{"need"}, []string{"role"}, "ru", 2, managed, explanationRestrictedProseCharacters)
+		fields := schema["properties"].(map[string]any)
+		limitations := fields["limitations"].(map[string]any)
+		pattern := regexp.MustCompile(limitations["pattern"].(string))
+		for _, rejected := range []string{strings.Repeat("я", 401), "Текст\", \"evidence\":1", "Проверка строительного控 контроля."} {
+			if pattern.MatchString(rejected) {
+				t.Fatalf("generation pattern accepts %q on managed=%t", rejected, managed)
+			}
+		}
+		if !pattern.MatchString("Экспорт CSV [v2] — «Отчёт», № 3 (10 ₽).") {
+			t.Fatalf("generation pattern disallows ordinary prose on managed=%t", managed)
+		}
 	}
 }

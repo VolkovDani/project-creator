@@ -27,11 +27,19 @@ const (
 var explanationVerdicts = []string{"fits", "partial", "insufficient", "does_not_fit"}
 var explanationStatuses = []string{"present", "missing", "uncertain", "not_applicable"}
 
+const explanationProseCharacters = `[^"\\\r\n]`
+
+// Printable ASCII except quote and backslash, Latin and Cyrillic letters with
+// combining accents, and common typographic punctuation and currency symbols.
+const explanationRestrictedProseCharacters = "[ !#-\\[\\]-~" +
+	"\u00a0-\u036f\u0400-\u052f\u1e00-\u1eff" +
+	"\u2010-\u203f\u20a0-\u20bf№−]"
+
 func classificationExplanationSchema(meaning, form []string, locale string, lastPassage int) map[string]any {
-	return explanationSchemaForProvider(meaning, form, locale, lastPassage, false)
+	return explanationSchemaForProvider(meaning, form, locale, lastPassage, false, explanationProseCharacters)
 }
 
-func explanationSchemaForProvider(meaning, form []string, locale string, lastPassage int, managed bool) map[string]any {
+func explanationSchemaForProvider(meaning, form []string, locale string, lastPassage int, managed bool, proseCharacters string) map[string]any {
 	narrativeLimit := explanationNarrativeLimit
 	if managed {
 		narrativeLimit = managedExplanationNarrativeLimit
@@ -51,7 +59,7 @@ func explanationSchemaForProvider(meaning, form []string, locale string, lastPas
 		if locale == "ru" {
 			alphabet = "[А-Яа-яЁё]"
 		}
-		pattern := alphabet + fmt.Sprintf(`[^"\\\r\n]{0,%d}`, maxLen-1)
+		pattern := alphabet + fmt.Sprintf("%s{0,%d}", proseCharacters, maxLen-1)
 		if minLen == 0 {
 			pattern = "(" + pattern + ")?"
 		}
@@ -217,8 +225,8 @@ func decodeExplanationForProvider(content, source string, target explanation.Tar
 	return explanation.Result{Meaning: meaning, Form: form, Questions: raw.Questions, Wording: groundedExplanationWording(*raw.Wording, source), Limitations: raw.Limitations}, nil
 }
 
-// Verify each narrative field independently. Technical identifiers may occur in
-// prose; the evidence field is always checked separately against the original.
+// Verify each narrative field independently. Latin technical identifiers may
+// occur in Russian prose. Evidence is checked separately against the original.
 func explanationNarrative(text, locale string, minLen, maxLen int) bool {
 	if !explanationString(text, minLen, maxLen) {
 		return false
@@ -229,6 +237,9 @@ func explanationNarrative(text, locale string, minLen, maxLen int) bool {
 	native := summaryLanguageCatalog[locale]
 	first, _ := utf8.DecodeRuneInString(text)
 	if native == nil || !native(first) {
+		return false
+	}
+	if explanationHasUnsupportedLetter(text) {
 		return false
 	}
 	localWords, foreignWords := 0, 0
@@ -246,6 +257,25 @@ func explanationNarrative(text, locale string, minLen, maxLen int) bool {
 		}
 	}
 	return localWords > 0 && localWords >= foreignWords
+}
+
+func explanationHasUnsupportedLetter(text string) bool {
+	return strings.ContainsFunc(text, func(r rune) bool {
+		return unicode.IsLetter(r) && !unicode.In(r, unicode.Latin, unicode.Cyrillic)
+	})
+}
+
+func explanationResponseHasUnsupportedLetter(content string) bool {
+	decoder := json.NewDecoder(strings.NewReader(content))
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return false
+		}
+		if field, ok := token.(string); ok && explanationHasUnsupportedLetter(field) {
+			return true
+		}
+	}
 }
 
 // Permit rearranging the user's words in a draft, while dropping drafts that

@@ -643,7 +643,11 @@ test('a requirement diagram restores its mode, cites versions, and exports its t
   await expect(page).toHaveURL(evidencePath);
 });
 
-async function mockSavedGraph(page: Page, readDraft: () => ProcessGraphRunFieldsFragment['draft']) {
+async function mockSavedGraph(
+  page: Page,
+  readDraft: () => ProcessGraphRunFieldsFragment['draft'],
+  mode: 'PROCESS' | 'REQUIREMENTS' = 'PROCESS',
+) {
   await mockStream(page);
   await page.route('**/api/graphql', async (route) => {
     const { operationName } = route.request().postDataJSON();
@@ -655,7 +659,7 @@ async function mockSavedGraph(page: Page, readDraft: () => ProcessGraphRunFields
           run: {
             id: 'saved-graph',
             topic: 'заявка',
-            mode: 'PROCESS',
+            mode,
             revision: 2,
             completed: 1,
             total: 1,
@@ -702,58 +706,80 @@ test('the preview reports an empty or oversized diagram without blocking the pro
   await expect(viewer.getByRole('button', { name: 'Увеличить' })).toBeDisabled();
 });
 
-test('Mermaid renders punctuation literally in cards and copies the diagram as PNG', async ({
-  page,
-}) => {
-  const label = 'видеть статус инспекции "Создано"';
-  const punctuation = 'поле [A] & <B> &#34; \\ C';
-  const wrapped = `${'Ж'.repeat(12)}"Готово"`;
-  await mockSavedGraph(page, () => ({
-    ...draft,
-    nodes: [
-      { ...draft.nodes[0], label },
-      { ...draft.nodes[1], label: punctuation },
-      { ...draft.nodes[2], label: wrapped },
-    ],
-    edges: [draft.edges[0]],
-  }));
-  await page.goto('/projects/demo/process-graphs');
-  await page.getByText('Просмотр Mermaid', { exact: true }).click();
-  const viewer = page.getByRole('region', { name: 'Диаграмма Mermaid' });
-  const svg = viewer.locator('svg');
-  await expect(svg).toBeVisible();
-  await expect(svg.locator('text').filter({ hasText: /"Создано"/ })).toBeVisible();
-  await expect(svg.locator('text').filter({ hasText: /<B>/ })).toBeVisible();
-  await expect(svg.locator('text').filter({ hasText: /&#34;/ })).toBeVisible();
-  const wrappedCard = svg.locator('text').filter({ hasText: wrapped });
-  await expect(wrappedCard).toBeVisible();
-  expect(await wrappedCard.locator('.text-outer-tspan').count()).toBeGreaterThan(1);
-  await expect(svg.locator('a, b, foreignObject')).toHaveCount(0);
+const punctuationExamples = [
+  'видеть статус инспекции "Создано"',
+  '«Ёлка» — „Größe“ → 10 × 2 ≤ 30 ✓ 🙂',
+  'Скобки (A) [B] {C} <D> | & # ; % / \\',
+  'Запись *звёздочки* _подчёркивания_ ~тильда~ ! `код` [ссылка]',
+  'Буквальный текст &#34; &amp; #35;',
+  'Команда direction RL в подписи',
+  'Цена $10 и формула $$x+1$$',
+  `${'Ж'.repeat(12)}"Готово"`,
+];
 
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.evaluate(() => {
-    const createObjectURL = URL.createObjectURL.bind(URL);
-    URL.createObjectURL = (object) => {
-      if (object instanceof Blob && object.type.startsWith('image/svg+xml')) {
-        void object.text().then((source) => {
-          const xml = new DOMParser().parseFromString(source, 'image/svg+xml');
-          document.documentElement.dataset.pngLabels = Array.from(
-            xml.querySelectorAll('text'),
-            (text) => text.textContent,
-          ).join(' ');
-        });
+for (const mode of ['PROCESS', 'REQUIREMENTS'] as const) {
+  test(`Mermaid keeps punctuation literal for ${mode} and PNG`, async ({ page }) => {
+    await mockSavedGraph(
+      page,
+      () => ({
+        ...draft,
+        nodes: punctuationExamples.map((label, index) => ({
+          id: `node-${index}`,
+          kind: mode === 'PROCESS' ? 'action' : 'requirement',
+          label,
+          requirementId: mode === 'PROCESS' ? null : `req-${index}`,
+          version: mode === 'PROCESS' ? null : 1,
+        })),
+        edges: [],
+      }),
+      mode,
+    );
+    await page.goto('/projects/demo/process-graphs');
+    await page.getByText('Просмотр Mermaid', { exact: true }).click();
+    const viewer = page.getByRole('region', { name: 'Диаграмма Mermaid' });
+    const svg = viewer.locator('svg');
+    await expect(svg).toBeVisible();
+    const compact = (text: string) => text.replace(/\s+/gu, '');
+    function checkLabels(labels: string[]) {
+      for (const label of punctuationExamples) {
+        expect(labels.map(compact), label).toContain(
+          compact(mode === 'REQUIREMENTS' ? `Text: ${label}` : label),
+        );
       }
-      return createObjectURL(object);
-    };
+    }
+    checkLabels(await svg.locator('text').allTextContents());
+    await expect(svg.locator('a, b, foreignObject, image')).toHaveCount(0);
+
+    if (mode === 'PROCESS') {
+      const wrapped = svg.locator('text').filter({ hasText: punctuationExamples.at(-1) });
+      expect(await wrapped.locator('.text-outer-tspan').count()).toBeGreaterThan(1);
+    }
+
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.evaluate(() => {
+      const createObjectURL = URL.createObjectURL.bind(URL);
+      URL.createObjectURL = (object) => {
+        if (object instanceof Blob && object.type.startsWith('image/svg+xml')) {
+          void object.text().then((source) => {
+            const xml = new DOMParser().parseFromString(source, 'image/svg+xml');
+            document.documentElement.dataset.pngLabels = JSON.stringify(
+              Array.from(xml.querySelectorAll('text'), (text) => text.textContent),
+            );
+          });
+        }
+        return createObjectURL(object);
+      };
+    });
+    await viewer.getByText('Копировать', { exact: true }).click();
+    await viewer.getByRole('button', { name: 'Скопировать диаграмму' }).click();
+    await expect(viewer.getByText('Изображение скопировано.')).toBeVisible();
+    const pngLabels = await page.locator('html').getAttribute('data-png-labels');
+    checkLabels(JSON.parse(pngLabels ?? '[]'));
+    expect(await page.evaluate(async () => (await navigator.clipboard.read())[0]?.types)).toContain(
+      'image/png',
+    );
   });
-  await viewer.getByText('Копировать', { exact: true }).click();
-  await viewer.getByRole('button', { name: 'Скопировать диаграмму' }).click();
-  await expect(viewer.getByText('Изображение скопировано.')).toBeVisible();
-  await expect(page.locator('html')).toHaveAttribute('data-png-labels', /"Создано"/);
-  expect(await page.evaluate(async () => (await navigator.clipboard.read())[0]?.types)).toContain(
-    'image/png',
-  );
-});
+}
 
 test.describe('Mermaid on a touch screen', () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });

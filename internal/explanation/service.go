@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	cacheSize        = 64
-	callsPerMinute   = 6
-	inferenceTimeout = 90 * time.Second
+	cacheSize      = 64
+	callsPerMinute = 6
+	// Cover both sequential model calls within the frontend's 190-second deadline.
+	inferenceTimeout = 180 * time.Second
 )
 
 var rules = contracts.ClassificationRules()
